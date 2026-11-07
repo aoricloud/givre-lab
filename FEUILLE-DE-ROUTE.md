@@ -95,6 +95,16 @@ mains, ou les laisse passer à vide. Un second agent, plus fort que les mains, v
 3. **chaque tolérance est mesurée sur ce prototype, et chaque référence est relue dans son article** : une valeur
    publiée n'entre jamais d'après la mémoire de quelqu'un.
 
+**Deux fichiers par cas, et des étiquettes.** Pour chaque étape, `references/etape-<n>-valeurs.md` donne, avant que le
+code existe, la référence de chaque valeur attendue : la valeur, sa source (article, page, figure, tableau, équation,
+ou un calcul exact écrit à côté), la tolérance et sa raison, et le critère de réussite. Les résultats de notre code
+(`references/*.empreinte`) sont un autre fichier, figé seulement une fois que le cas passe contre sa référence. Le juge
+refuse une valeur attendue sans source ou tirée de notre propre code, et on n'élargit jamais une tolérance pour faire
+passer un cas. Chaque test est étiqueté `juste` (un calcul exact, un simulateur naïf écrit dans le test, une valeur
+publiée) ou `régression` (un résultat figé de notre code), et dit ce qu'il ne couvre pas ; seuls les tests `juste`
+sont une preuve. Chaque étape prévoit des cas à solution connue, et finit par une section « Ce que cela n'établit
+pas » dans `MODELE.md`.
+
 Une propriété fausse, ou seulement vraie en moyenne, n'entre jamais telle quelle : une propriété moyenne se teste en
 moyenne, sur assez de graines, avec une tolérance mesurée. Les fichiers de tests que le juge a éprouvés sont ceux qui
 sont fusionnés, à l'octet.

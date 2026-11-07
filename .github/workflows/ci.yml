@@ -30,5 +30,6 @@ jobs:
           venus=$(cargo metadata --format-version 1 --locked | jq '[.packages[] | select(.source != null)] | length')
           test "$venus" = 0
       - run: cargo fmt --check
-      - run: cargo test
+      # Sans arrêt au premier échec : la CI montre tous les tests rouges d'un coup.
+      - run: cargo test --no-fail-fast
       - run: cargo clippy --all-targets -- -D warnings
