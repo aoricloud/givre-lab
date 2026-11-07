@@ -37,5 +37,8 @@ toute main. Le plan est dans `FEUILLE-DE-ROUTE.md` ; chaque modèle, ses équati
    `MODELE.md`.
 8. **Rien sous `.github/`** : la CI et la fusion restent à l'humain. **Aucun `.cargo/`** : la CI le refuse, car sa
    configuration peut changer ce que `cargo test` joue.
-9. **Le profil `dev` est optimisé** (`opt-level = 3` dans `Cargo.toml`) pour que les tests de simulation tournent vite :
+9. **Les fonctionnalités et les modules sont déclarés d'avance** : `etape-0` à `etape-5` dans `Cargo.toml`, les modules
+   dans `src/lib.rs`. Une tâche d'une vague de code ajoute `etape-<n>` à `default` quand le plan le dit, et ne touche
+   pas aux autres lignes de ces deux fichiers.
+10. **Le profil `dev` est optimisé** (`opt-level = 3` dans `Cargo.toml`) pour que les tests de simulation tournent vite :
    ne pas le changer, ni `[lints]`, ni `rustfmt.toml`, ni `rust-toolchain.toml`, hors d'une tâche qui le demande.

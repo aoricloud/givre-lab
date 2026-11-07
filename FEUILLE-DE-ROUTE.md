@@ -78,10 +78,13 @@ réseau, la forme d'équilibre de Wulff, puis peut-être le champ de phase.
 ## Les tests avant les mains
 
 Chaque étape a deux vagues. La première écrit les signatures publiques de l'étape (des corps qui paniquent) et ses
-tests d'acceptation ; elle déclare la fonctionnalité `etape-<n>` dans `Cargo.toml`, sans l'activer, et chaque test porte
-`#[cfg_attr(not(feature = "etape-<n>"), ignore)]`. Elle est fusionnée comme les autres. La seconde remplit les corps et
-ajoute `etape-<n>` aux fonctionnalités par défaut, ce qui lève les `ignore` sans toucher aux tests : ses tâches n'ont
-pas les fichiers de tests dans leurs `fichiers`, et Lydite refuse une main qui y touche.
+tests d'acceptation, et chaque test porte `#[cfg_attr(not(feature = "etape-<n>"), ignore)]`. Les fonctionnalités
+`etape-0` à `etape-5` et les modules de `src/` sont déclarés d'avance (`Cargo.toml`, `src/lib.rs`, des fichiers de
+module presque vides) : une vague de tests ne remplace que des fichiers presque vides ou neufs, jamais un fichier qu'une
+étape précédente a fait remplir, et deux vagues n'éditent jamais la même ligne. Elle est fusionnée comme les autres. La
+seconde remplit les corps et ajoute `etape-<n>` à `default` (la seule ligne de `Cargo.toml` qu'une vague de code
+touche), ce qui lève les `ignore` sans toucher aux tests : ses tâches n'ont pas les fichiers de tests dans leurs
+`fichiers`, et Lydite refuse une main qui y touche.
 
 **Le juge des tests** passe avant que les tests soient gelés, parce qu'un test faux ou trop faible fait tricher les
 mains, ou les laisse passer à vide. Un second agent, plus fort que les mains, vérifie trois choses :
