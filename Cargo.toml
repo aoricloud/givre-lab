@@ -1,0 +1,17 @@
+[package]
+name = "givre-lab"
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "givre"
+path = "src/main.rs"
+
+[dependencies]
+
+# Les tests de simulation (agrégats, surfaces, Monte-Carlo) sont lourds : le profil de test est optimisé. Les
+# vérifications de débordement restent actives. Ne pas le changer sans PR à part.
+[profile.dev]
+opt-level = 3
