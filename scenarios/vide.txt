@@ -1,0 +1,2 @@
+# Scenario vide : une boite de 64 sur 48, sans rien dedans.
+boite 64 48
