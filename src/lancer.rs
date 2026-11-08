@@ -4,9 +4,12 @@
 //! # La première directive choisit le lancer
 //!
 //! C'est la **première** directive du scénario, dans l'ordre du fichier, qui choisit le lancer : `reiter`, `surface`,
-//! `dla`, `cinetique`… ; sans directive, c'est le scénario vide de l'étape 0. Chaque lancer a ses propres règles, écrites
-//! dans sa section ci-dessous : elles disent seules quelles autres directives sont refusées et à quelle ligne. Une
-//! première directive dont le nom ne choisit aucun lancer est refusée à sa ligne par [`ErreurLancer::DirectiveInconnue`].
+//! `dla`, `cinetique`… ; sans directive, c'est le scénario vide de l'étape 0. Les noms `dla`, `collage` et `bruit`
+//! choisissent tous le lancer de la DLA (étape 1, ou étape 2d quand une variante est lue). Une exception à la règle de
+//! la première directive : dès qu'une directive du scénario, **où qu'elle soit**, s'appelle `dla`, `collage` ou `bruit`,
+//! c'est le lancer de la DLA (voir « Ce que fait l'étape 2d »). Chaque lancer a ses propres règles, écrites dans sa
+//! section ci-dessous : elles disent seules quelles autres directives sont refusées et à quelle ligne. Une première
+//! directive dont le nom ne choisit aucun lancer est refusée à sa ligne par [`ErreurLancer::DirectiveInconnue`].
 //!
 //! # Ce que fait l'étape 0
 //!
@@ -58,6 +61,54 @@
 //!
 //! L'aperçu est [`crate::dla::amas_colore`], avec la palette [`crate::dla::PALETTE`], le fond [`crate::dla::FOND`] et
 //! [`crate::dla::couleur_du_rang`].
+//!
+//! # Ce que fait l'étape 2d : les directives `collage` et `bruit`
+//!
+//! **Cette section est le contrat de [`lancer`] à l'étape 2d** (reprise de la documentation de
+//! [`crate::dla_variantes`], § « La directive `collage <p>` ou `bruit <m>` et la sortie de `lancer` »). Un scénario peut
+//! porter, avec sa `dla <particules>` sur une `boite`, une seule directive de variante `collage <p>` (lue par
+//! [`crate::dla_variantes::variante_du_scenario`], `p` converti par
+//! [`crate::dla_variantes::collage_depuis_flottant`]) ou `bruit <m>` (`m` de 1 à
+//! [`crate::dla_variantes::BRUIT_MAX`]). Quand une variante est lue, [`lancer`] fait croître un
+//! [`crate::dla_variantes::AmasVariante`] de graine `graine`, de `demi_cote = demi_cote_de_la_boite(largeur, hauteur)`
+//! et de cette variante, par des appels de [`crate::dla_variantes::AmasVariante::essayer_ajouter`] jusqu'à
+//! `particules` sites (germe compris), et rend **à la place** des sorties de l'étape 1 :
+//!
+//! - **l'empreinte** : [`crate::dla_variantes::AmasVariante::empreinte`] de l'amas final ;
+//! - **les mesures** : le CSV `particules,rayon,rayon_giration,anisotropie`, avec les mêmes nombres `k` de particules
+//!   qu'à l'étape 1 (les puissances de 2 `2, 4, 8, …` qui sont `<= particules`, puis `particules` lui-même s'il n'y est
+//!   pas déjà ; `dla 1` ne donne que la ligne `1`). La ligne `k` est `k,<rayon>,<giration>,<anisotropie>` : `<rayon>`
+//!   est le rayon de l'amas arrêté à `k` sites (entier décimal), `<giration>` est
+//!   [`crate::mesures::rayon_de_giration`] de ses `k` premiers sites et `<anisotropie>` est
+//!   [`crate::dla_variantes::anisotropie`] de ces mêmes `k` sites, les deux écrits avec **six décimales**
+//!   (`format!("{:.6}")`, donc `-0.000000` pour un nombre négatif de valeur absolue inférieure à `5e-7`). Chaque ligne,
+//!   la dernière comprise, finit par un seul `\n` (pas de `\r`) ;
+//! - **l'aperçu** : le PNG ([`crate::image::ecrire_png`]) de [`crate::dla::amas_colore`]`(amas.sites(), COTE_APERCU)`.
+//!
+//! Une `dla` sans `collage` ni `bruit` se comporte exactement comme à l'étape 1 (un [`crate::dla::Amas`], le CSV à trois
+//! colonnes, l'étiquette `GIVRE001`) : `collage 1` donne les mêmes sites mais une autre empreinte (étiquette et
+//! paramètre) et la colonne de plus.
+//!
+//! **Quand ce contrat s'applique** : dès que le scénario contient au moins une directive nommée `dla`, `collage` ou
+//! `bruit`, où qu'elle soit (c'est l'extension de la règle de l'étape 1, où `lancer` passe à la DLA dès qu'il y a une
+//! `dla`). Une directive `surface` (étape 2s) n'est alors qu'une directive au nom refusé, comme les autres (`boite 9 9`,
+//! `surface depot 8 3`, `bruit 2` : refus à la ligne 2). Un scénario sans aucune directive `dla`, `collage` ni `bruit`
+//! se comporte exactement comme avant cette étape (le scénario vide de l'étape 0, ou la directive `surface` de l'étape
+//! 2s).
+//!
+//! **Les refus**, tous `ErreurLancer::DirectiveInconnue(ligne)`, où `ligne` est la **plus petite** des lignes refusées
+//! (la première dans l'ordre du fichier) ; rien d'autre n'est calculé alors :
+//!
+//! - une directive dont le nom n'est ni `dla`, ni `collage`, ni `bruit` (sa ligne) ;
+//! - une directive `dla` que [`crate::dla::particules`] refuse (la ligne qu'elle donne) ;
+//! - une directive `collage` ou `bruit` que [`crate::dla_variantes::variante_du_scenario`] refuse (la ligne qu'elle
+//!   donne : un argument manquant ou en trop, une valeur mal écrite ou hors bornes, ou une **seconde** directive
+//!   `collage` ou `bruit`, de l'une ou l'autre sorte, valide ou non) ;
+//! - une directive `collage` ou `bruit` valide quand il n'y a **aucune** directive `dla` dans le scénario (la ligne de
+//!   cette directive) ;
+//! - sur un `hexagone`, la première directive (dans l'ordre du fichier) de nom `dla`, `collage` ou `bruit` ;
+//! - puis, si rien n'est refusé, un amas qui sort du réseau avant d'avoir `particules` sites (la ligne de la directive
+//!   `dla`).
 //!
 //! # Ce que fait l'étape 3 : la directive `reiter`
 //!
@@ -143,6 +194,7 @@
 use crate::alea::Alea;
 use crate::cinetique::{BALAYAGES_MAX, Face, TAILLE_MAX, TAILLE_MIN, simuler};
 use crate::dla::{Amas, COTE_APERCU, amas_colore, demi_cote_de_la_boite, particules};
+use crate::dla_variantes::{AmasVariante, anisotropie, variante_du_scenario};
 use crate::mesures::rayon_de_giration;
 use crate::scenario::{Directive, ErreurLecture, Forme, Scenario};
 use crate::surface::{COUCHES_MAX, LARGEUR_MAX, Modele, Surface};
@@ -171,25 +223,31 @@ pub enum ErreurLancer {
 /// Lance le scénario avec cette graine (voir la documentation du module). Pour le même scénario et la même graine, le
 /// résultat est toujours le même, octet pour octet, sur toutes les machines.
 ///
-/// La première directive choisit le lancer : `reiter` appelle [`crate::flocon::lancer_reiter`] (étape 3) ; `dla` le lancer
-/// DLA de l'étape 1 ; `cinetique` le lancer cinétique de l'étape 4 ; `surface` le lancer de surface de l'étape 2s (une
-/// `surface` bien formée, et aucune autre directive) ; sans directive, c'est le scénario vide de l'étape 0. Une première
+/// La première directive choisit le lancer : `reiter` appelle [`crate::flocon::lancer_reiter`] (étape 3) ; `dla`,
+/// `collage` ou `bruit` le lancer de la DLA de l'étape 1, ou celui de l'étape 2d quand une variante est lue (voir « Ce que
+/// fait l'étape 2d ») ; `cinetique` le lancer cinétique de l'étape 4 ; `surface` le lancer de surface de l'étape 2s (une
+/// `surface` bien formée, et aucune autre directive) ; sans directive, c'est le scénario vide de l'étape 0. Dès qu'une
+/// directive du scénario, où qu'elle soit, s'appelle `dla`, `collage` ou `bruit`, c'est le lancer de la DLA. Une première
 /// directive qui n'est aucun de ces noms est refusée à sa ligne.
 ///
 /// # Erreurs
 ///
 /// `ErreurLancer::DirectiveInconnue(ligne)` si les directives ne forment pas exactement ce que le lancer choisi attend. La
 /// ligne et les règles sont celles de ce lancer (voir les sections « Ce que fait l'étape … » ci-dessus) : pour `reiter` et
-/// `cinetique`, la première directive fautive dans l'ordre du fichier ; pour `dla`, la plus petite des lignes refusées ;
-/// pour `surface`, la première directive fautive ; pour une première directive inconnue, sa ligne. C'est la seule erreur
-/// de `lancer`, et rien d'autre n'est calculé alors.
+/// `cinetique`, la première directive fautive dans l'ordre du fichier ; pour `dla`, `collage` et `bruit`, la plus petite
+/// des lignes refusées ; pour `surface`, la première directive fautive ; pour une première directive inconnue, sa ligne.
+/// C'est la seule erreur de `lancer`, et rien d'autre n'est calculé alors.
 pub fn lancer(scenario: &Scenario, graine: u64) -> Result<Sortie, ErreurLancer> {
+    // Le contrat de l'étape 2d s'applique dès que le scénario contient une directive nommée `dla`, `collage` ou `bruit`,
+    // où qu'elle soit (c'est l'extension de la règle de l'étape 1 : la DLA l'emporte).
+    if scenario.directives.iter().any(|directive| matches!(directive.nom.as_str(), "dla" | "collage" | "bruit")) {
+        return lancer_dla_variantes(scenario, graine);
+    }
     let Some(premiere) = scenario.directives.first() else {
         return Ok(lancer_vide(scenario, graine));
     };
     match premiere.nom.as_str() {
         "reiter" => crate::flocon::lancer_reiter(scenario).map_err(ErreurLancer::DirectiveInconnue),
-        "dla" => lancer_dla(scenario, graine),
         "cinetique" => lancer_cinetique(scenario, graine),
         "surface" => lancer_surface_directive(scenario, graine),
         _ => Err(ErreurLancer::DirectiveInconnue(premiere.ligne)),
@@ -372,6 +430,103 @@ fn lancer_surface(modele: Modele, largeur: usize, couches: u64, graine: u64) -> 
     let apercu = image::ecrire_png(largeur as u32, hauteur_image, &rvb);
 
     Sortie { empreinte: surface.empreinte(), mesures, apercu }
+}
+
+/// Le lancer choisi par une première directive `dla`, `collage` ou `bruit` (étapes 1 et 2d) : les refus de la
+/// documentation du module, puis l'amas (`AmasVariante` si une variante est lue, `Amas` sinon), l'empreinte, les mesures
+/// CSV et l'aperçu.
+fn lancer_dla_variantes(scenario: &Scenario, graine: u64) -> Result<Sortie, ErreurLancer> {
+    // Les deux lectures qui peuvent refuser, lues une fois.
+    let lecture_particules = particules(scenario);
+    let lecture_variante = variante_du_scenario(scenario);
+
+    // La plus petite ligne refusée : nom inconnu, `dla` fautive, variante fautive, variante sans `dla`, hexagone.
+    let mut refus: Option<usize> = None;
+    let mut refuser = |ligne: usize| {
+        refus = Some(refus.map_or(ligne, |autre| autre.min(ligne)));
+    };
+    for directive in &scenario.directives {
+        if !matches!(directive.nom.as_str(), "dla" | "collage" | "bruit") {
+            refuser(directive.ligne);
+        }
+    }
+    if let Err(ErreurLecture::LigneInvalide(ligne)) = lecture_particules {
+        refuser(ligne);
+    }
+    if let Err(ErreurLecture::LigneInvalide(ligne)) = lecture_variante {
+        refuser(ligne);
+    }
+    // Une variante valide sans aucune directive `dla` est refusée à sa ligne (la première de variante).
+    if matches!(lecture_particules, Ok(None))
+        && let Some(directive) =
+            scenario.directives.iter().find(|directive| matches!(directive.nom.as_str(), "collage" | "bruit"))
+    {
+        refuser(directive.ligne);
+    }
+    // Sur un hexagone, la première directive de nom `dla`, `collage` ou `bruit`.
+    if matches!(scenario.forme, Forme::Hexagone { .. })
+        && let Some(directive) =
+            scenario.directives.iter().find(|directive| matches!(directive.nom.as_str(), "dla" | "collage" | "bruit"))
+    {
+        refuser(directive.ligne);
+    }
+    if let Some(ligne) = refus {
+        return Err(ErreurLancer::DirectiveInconnue(ligne));
+    }
+
+    // Rien n'est refusé : il y a une `dla` valide, la forme est une boîte, et la variante est absente ou unique et valide.
+    let Ok(Some(nombre)) = lecture_particules else {
+        unreachable!("une directive `dla` valide subsiste quand rien n'est refusé");
+    };
+    let Ok(variante) = lecture_variante else {
+        unreachable!("une directive de variante fautive aurait été refusée");
+    };
+    let Some(variante) = variante else {
+        // Une `dla` sans `collage` ni `bruit` : le lancer de l'étape 1, à l'identique.
+        return lancer_dla(scenario, graine);
+    };
+    let Forme::Boite { largeur, hauteur } = scenario.forme else {
+        unreachable!("une forme qui n'est pas une boîte aurait été refusée");
+    };
+    let ligne_dla =
+        scenario.directives.iter().find(|directive| directive.nom == "dla").map_or(1, |directive| directive.ligne);
+
+    // Les instants des mesures : les puissances de 2 au plus égales à `nombre`, puis `nombre` s'il n'y figure pas.
+    let mut instants = Vec::new();
+    let mut instant = 2_usize;
+    while instant <= nombre {
+        instants.push(instant);
+        instant *= 2;
+    }
+    if instants.last() != Some(&nombre) {
+        instants.push(nombre);
+    }
+
+    // L'amas, site par site, en relevant les mesures aux instants voulus ; un débordement du réseau est le refus à la ligne
+    // de la directive `dla`.
+    let mut amas = AmasVariante::new(graine, demi_cote_de_la_boite(largeur, hauteur), variante);
+    let mut mesures = String::from("particules,rayon,rayon_giration,anisotropie\n");
+    let mut prochain = 0;
+    for k in 1..=nombre {
+        while amas.sites().len() < k {
+            if amas.essayer_ajouter().is_none() {
+                return Err(ErreurLancer::DirectiveInconnue(ligne_dla));
+            }
+        }
+        if prochain < instants.len() && instants[prochain] == k {
+            let rayon = amas.rayon();
+            let sites = &amas.sites()[..k];
+            let giration = rayon_de_giration(sites);
+            let anisotropie = anisotropie(sites);
+            mesures.push_str(&format!("{k},{rayon},{giration:.6},{anisotropie:.6}\n"));
+            prochain += 1;
+        }
+    }
+
+    let empreinte = amas.empreinte();
+    let (largeur_image, hauteur_image, rvb) = amas_colore(amas.sites(), COTE_APERCU);
+    let apercu = image::ecrire_png(largeur_image, hauteur_image, &rvb);
+    Ok(Sortie { empreinte, mesures, apercu })
 }
 
 /// Le lancer de la directive `dla` (étape 1) : les refus de la documentation du module, puis l'amas, l'empreinte, les
