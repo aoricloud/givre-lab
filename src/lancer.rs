@@ -1,6 +1,13 @@
 //! Lancer un scénario : ses sorties (empreinte, mesures, aperçu) (étape 0, puis chaque étape). Le binaire `givre`
 //! n'est qu'une coque autour de [`lancer`] : les tests appellent `lancer` sans lancer de processus.
 //!
+//! # La première directive choisit le lancer
+//!
+//! C'est la **première** directive du scénario, dans l'ordre du fichier, qui choisit le lancer : `reiter`, `surface`,
+//! `dla`, `cinetique`… ; sans directive, c'est le scénario vide de l'étape 0. Chaque lancer a ses propres règles, écrites
+//! dans sa section ci-dessous : elles disent seules quelles autres directives sont refusées et à quelle ligne. Une
+//! première directive dont le nom ne choisit aucun lancer est refusée à sa ligne par [`ErreurLancer::DirectiveInconnue`].
+//!
 //! # Ce que fait l'étape 0
 //!
 //! Le scénario vide : une forme (`boite` ou `hexagone`) et rien d'autre. Il n'y a encore rien à simuler : l'état est la
@@ -39,12 +46,15 @@
 //!   (pas de `\r`) ;
 //! - **l'aperçu** : le PNG ([`crate::image::ecrire_png`]) de [`crate::dla::amas_colore`]`(amas.sites(), COTE_APERCU)`.
 //!
-//! **Les refus**, tous `ErreurLancer::DirectiveInconnue(ligne)` (l'énumération de l'étape 0 n'a pas d'autre variante ; ni elle
-//! ni `src/main.rs` ne changent), où `ligne` est la **plus petite** des lignes refusées : une directive dont le nom n'est pas
-//! `dla` (sa ligne) ; une directive `dla` que [`crate::dla::particules`] refuse (la ligne que `particules` rend) ; une
-//! directive `dla` sur un `hexagone` (la ligne de la première `dla`). Puis, si rien n'est refusé, un amas qui sort du réseau
-//! avant d'avoir `particules` sites (`essayer_ajouter` rend `None`) : la ligne de la directive `dla`. Rien n'est rendu d'autre
-//! dans ces cas. Un scénario sans directive `dla` (et sans autre directive) se comporte exactement comme à l'étape 0.
+//! **Les refus quand `dla` est la première directive** (c'est elle, et non une `dla` plus loin, qui choisit ce lancer ;
+//! voir « La première directive choisit le lancer »), tous `ErreurLancer::DirectiveInconnue(ligne)` (l'énumération de
+//! l'étape 0 n'a pas d'autre variante ; ni elle ni `src/main.rs` ne changent), où `ligne` est la **plus petite** des lignes
+//! refusées : une directive dont le nom n'est pas `dla` (sa ligne) ; une directive `dla` que
+//! [`crate::dla::particules`] refuse (la ligne que `particules` rend) ; une directive `dla` sur un `hexagone` (la ligne de
+//! la première `dla`). Puis, si rien n'est refusé, un amas qui sort du réseau avant d'avoir `particules` sites
+//! (`essayer_ajouter` rend `None`) : la ligne de la directive `dla`. Rien n'est rendu d'autre dans ces cas. Un scénario
+//! sans directive se comporte exactement comme à l'étape 0 ; une première directive qui n'est pas `dla` suit les règles du
+//! lancer qu'elle choisit, ou est refusée à sa ligne si elle n'en choisit aucun.
 //!
 //! L'aperçu est [`crate::dla::amas_colore`], avec la palette [`crate::dla::PALETTE`], le fond [`crate::dla::FOND`] et
 //! [`crate::dla::couleur_du_rang`].
@@ -56,8 +66,8 @@
 //! `reiter <alpha> <beta> <gamma> <pas>`. Quand la **première** directive s'appelle `reiter`, [`lancer`] appelle
 //! [`crate::flocon::lancer_reiter`] et rend sa [`Sortie`] ; son `Err(ligne)` devient
 //! [`ErreurLancer::DirectiveInconnue`]`(ligne)`. La graine n'est pas utilisée (le modèle n'a aucun hasard : deux graines
-//! donnent la même sortie, octet pour octet). Toute autre première directive se comporte comme avant (les étapes 0, 1 et
-//! 2s ci-dessus).
+//! donnent la même sortie, octet pour octet). Toute autre première directive se comporte comme avant (les étapes 0, 1, 2s
+//! et 4 ci-dessous).
 //!
 //! Les sorties de `reiter` sont : **l'empreinte** de [`crate::flocon::Flocon::empreinte`] de l'état final ; **les
 //! mesures**, le CSV `temps,gelees,rayon,compacite`, avec une ligne à l'instant 0, puis à chaque instant `t` multiple de
@@ -73,7 +83,31 @@
 //! [`crate::flocon::Parametres::lire`] ou si `pas` n'est pas un entier décimal de 1 à [`crate::flocon::PAS_MAX`] ; sinon
 //! c'est la ligne de la directive suivante, quelle qu'elle soit (il n'y a qu'une directive en plus de la forme). Rien
 //! n'est calculé alors. Les refus des étapes 0, 1 et 2s restent ceux d'avant (par exemple une `dla` sur un `hexagone`),
-//! et une première directive qui n'est ni `reiter`, ni `dla`, ni `surface` est refusée à sa ligne.
+//! et une première directive qui n'est ni `reiter`, ni `dla`, ni `surface`, ni `cinetique` est refusée à sa ligne.
+//!
+//! # Ce que fait l'étape 4 : la directive `cinetique`
+//!
+//! **Cette section est le contrat de [`lancer`] à l'étape 4** (reprise de la documentation de [`crate::cinetique`], §§
+//! « La directive de scénario `cinetique` » et « Ce que `lancer` fait de la directive »). Quand la **première** directive
+//! est `cinetique <j> <mu> <balayages>`, [`lancer`] lit la `boite` du scénario, qui doit être **carrée** (`largeur =
+//! hauteur = L`, `L` de [`crate::cinetique::TAILLE_MIN`] à [`crate::cinetique::TAILLE_MAX`]), fait
+//! [`crate::cinetique::Face::new`]`(L, j, mu, graine)`, puis [`crate::cinetique::simuler`]`(&mut face, balayages)`, et
+//! rend **à la place** des sorties du scénario vide :
+//!
+//! - **l'empreinte** : [`crate::cinetique::Face::empreinte`] de la face **après** les `balayages` balayages ;
+//! - **les mesures** : le CSV de [`crate::cinetique::simuler`] (`balayage,hauteur_moyenne,rugosite`) ;
+//! - **l'aperçu** : le PNG ([`crate::image::ecrire_png`]) de [`crate::cinetique::Face::apercu`], `L × L` pixels.
+//!
+//! `<j>` est un `u32` et `<balayages>` est de 1 à [`crate::cinetique::BALAYAGES_MAX`], en chiffres décimaux ASCII ; `<mu>`
+//! est un `i32` : un `-` facultatif puis des chiffres (ni `+`, ni espace, ni point).
+//!
+//! **Les refus**, tous `ErreurLancer::DirectiveInconnue(ligne)`, avec la ligne de la **première directive refusée dans
+//! l'ordre du fichier** (lignes ignorées comptées) : une directive `cinetique` mal formée (nombre d'arguments, entier
+//! hors bornes ou mal écrit), une seconde directive `cinetique`, toute autre directive, et une forme qui n'est pas une
+//! `boite` carrée de côté de [`crate::cinetique::TAILLE_MIN`] à [`crate::cinetique::TAILLE_MAX`] (pour une forme refusée :
+//! la ligne de la directive `cinetique`). Rien n'est calculé alors. Un scénario sans directive `cinetique` se comporte
+//! exactement comme avant l'étape 4. Le modèle (Metropolis, probabilités lues dans [`crate::math::EXP_NEG`]) et l'écriture
+//! canonique sont décrits dans [`crate::cinetique`].
 //!
 //! # L'écriture canonique de l'état du scénario vide
 //!
@@ -107,6 +141,7 @@
 //! [`lancer`] et écrit `empreinte.txt` (l'empreinte puis `\n`), `mesures.csv` et `apercu.png` dans le dossier.
 
 use crate::alea::Alea;
+use crate::cinetique::{BALAYAGES_MAX, Face, TAILLE_MAX, TAILLE_MIN, simuler};
 use crate::dla::{Amas, COTE_APERCU, amas_colore, demi_cote_de_la_boite, particules};
 use crate::mesures::rayon_de_giration;
 use crate::scenario::{Directive, ErreurLecture, Forme, Scenario};
@@ -136,34 +171,33 @@ pub enum ErreurLancer {
 /// Lance le scénario avec cette graine (voir la documentation du module). Pour le même scénario et la même graine, le
 /// résultat est toujours le même, octet pour octet, sur toutes les machines.
 ///
-/// La première directive choisit le lancer : `reiter` appelle [`crate::flocon::lancer_reiter`] (étape 3) ; sinon, si une
-/// directive `dla` est présente, c'est le lancer DLA de l'étape 1 ; sinon, avec des directives, la première doit être une
-/// `surface` bien formée et il ne doit y en avoir aucune autre (étape 2s) ; sans directive, c'est le scénario vide de
-/// l'étape 0.
+/// La première directive choisit le lancer : `reiter` appelle [`crate::flocon::lancer_reiter`] (étape 3) ; `dla` le lancer
+/// DLA de l'étape 1 ; `cinetique` le lancer cinétique de l'étape 4 ; `surface` le lancer de surface de l'étape 2s (une
+/// `surface` bien formée, et aucune autre directive) ; sans directive, c'est le scénario vide de l'étape 0. Une première
+/// directive qui n'est aucun de ces noms est refusée à sa ligne.
 ///
 /// # Erreurs
 ///
-/// `ErreurLancer::DirectiveInconnue(ligne)` si les directives ne forment pas exactement ce que l'étape attend. Pour
-/// `reiter`, `ligne` est celle de la première directive fautive dans l'ordre du fichier (voir « Ce que fait l'étape 3 :
-/// la directive `reiter` ») ; pour `dla`, la plus petite des lignes refusées ; pour `surface`, la première directive
-/// fautive. C'est la seule erreur de `lancer`, et rien d'autre n'est calculé alors.
+/// `ErreurLancer::DirectiveInconnue(ligne)` si les directives ne forment pas exactement ce que le lancer choisi attend. La
+/// ligne et les règles sont celles de ce lancer (voir les sections « Ce que fait l'étape … » ci-dessus) : pour `reiter` et
+/// `cinetique`, la première directive fautive dans l'ordre du fichier ; pour `dla`, la plus petite des lignes refusées ;
+/// pour `surface`, la première directive fautive ; pour une première directive inconnue, sa ligne. C'est la seule erreur
+/// de `lancer`, et rien d'autre n'est calculé alors.
 pub fn lancer(scenario: &Scenario, graine: u64) -> Result<Sortie, ErreurLancer> {
-    if scenario.directives.first().is_some_and(|directive| directive.nom == "reiter") {
-        return crate::flocon::lancer_reiter(scenario).map_err(ErreurLancer::DirectiveInconnue);
+    let Some(premiere) = scenario.directives.first() else {
+        return Ok(lancer_vide(scenario, graine));
+    };
+    match premiere.nom.as_str() {
+        "reiter" => crate::flocon::lancer_reiter(scenario).map_err(ErreurLancer::DirectiveInconnue),
+        "dla" => lancer_dla(scenario, graine),
+        "cinetique" => lancer_cinetique(scenario, graine),
+        "surface" => lancer_surface_directive(scenario, graine),
+        _ => Err(ErreurLancer::DirectiveInconnue(premiere.ligne)),
     }
-    if scenario.directives.iter().any(|directive| directive.nom == "dla") {
-        return lancer_dla(scenario, graine);
-    }
-    if let Some(directive) = scenario.directives.first() {
-        let Some((modele, largeur, couches)) = surface_bien_formee(directive) else {
-            return Err(ErreurLancer::DirectiveInconnue(directive.ligne));
-        };
-        if let Some(autre) = scenario.directives.get(1) {
-            return Err(ErreurLancer::DirectiveInconnue(autre.ligne));
-        }
-        return Ok(lancer_surface(modele, largeur, couches, graine));
-    }
+}
 
+/// Le scénario vide de l'étape 0 : l'empreinte canonique de la forme et de la graine, les mesures et l'aperçu.
+fn lancer_vide(scenario: &Scenario, graine: u64) -> Sortie {
     // L'écriture canonique : l'étiquette, la forme, puis l'état du générateur tout juste amorcé.
     let mut octets = Vec::with_capacity(33);
     octets.extend_from_slice(b"GIVRE000");
@@ -193,7 +227,76 @@ pub fn lancer(scenario: &Scenario, graine: u64) -> Result<Sortie, ErreurLancer> 
     let mesures = format!("temps,cases\n0,{cases}\n");
     let apercu = image::ecrire_png(largeur, hauteur, &rendu::apercu_graine(largeur, hauteur, graine));
 
+    Sortie { empreinte, mesures, apercu }
+}
+
+/// Le lancer choisi par une première directive `surface` : une `surface` bien formée, puis aucune autre directive.
+fn lancer_surface_directive(scenario: &Scenario, graine: u64) -> Result<Sortie, ErreurLancer> {
+    let directive = &scenario.directives[0];
+    let Some((modele, largeur, couches)) = surface_bien_formee(directive) else {
+        return Err(ErreurLancer::DirectiveInconnue(directive.ligne));
+    };
+    if let Some(autre) = scenario.directives.get(1) {
+        return Err(ErreurLancer::DirectiveInconnue(autre.ligne));
+    }
+    Ok(lancer_surface(modele, largeur, couches, graine))
+}
+
+/// Le lancer choisi par une première directive `cinetique` (étape 4) : les refus de la documentation du module, puis la
+/// face, ses balayages, l'empreinte, les mesures CSV et l'aperçu.
+fn lancer_cinetique(scenario: &Scenario, graine: u64) -> Result<Sortie, ErreurLancer> {
+    // La première directive choisit ce lancer : si elle est mal formée, ou si la forme n'est pas une boîte carrée de côté
+    // permis, le refus est à sa ligne.
+    let directive = &scenario.directives[0];
+    let Some((j, mu, balayages)) = cinetique_bien_formee(directive) else {
+        return Err(ErreurLancer::DirectiveInconnue(directive.ligne));
+    };
+    let Forme::Boite { largeur, hauteur } = scenario.forme else {
+        return Err(ErreurLancer::DirectiveInconnue(directive.ligne));
+    };
+    let cote = largeur as usize;
+    if hauteur as usize != cote || !(TAILLE_MIN..=TAILLE_MAX).contains(&cote) {
+        return Err(ErreurLancer::DirectiveInconnue(directive.ligne));
+    }
+    // Un scénario qui porte une `cinetique` ne porte qu'elle : toute directive suivante est refusée à sa ligne.
+    if let Some(autre) = scenario.directives.get(1) {
+        return Err(ErreurLancer::DirectiveInconnue(autre.ligne));
+    }
+
+    let mut face = Face::new(cote, j, mu, graine);
+    let mesures = simuler(&mut face, balayages);
+    let empreinte = face.empreinte();
+    let apercu = image::ecrire_png(cote as u32, cote as u32, &face.apercu());
     Ok(Sortie { empreinte, mesures, apercu })
+}
+
+/// La directive `cinetique` bien formée : `(j, mu, balayages)`, ou `None` (mauvais nom ou nombre d'arguments, entier hors
+/// bornes ou mal écrit).
+fn cinetique_bien_formee(directive: &Directive) -> Option<(u32, i32, usize)> {
+    if directive.nom != "cinetique" || directive.args.len() != 3 {
+        return None;
+    }
+    let j = u32::try_from(directive.entier(0).ok()?).ok()?;
+    let mu = entier_i32(&directive.args[1])?;
+    let balayages = directive.entier(2).ok()?;
+    if !(1..=BALAYAGES_MAX as u64).contains(&balayages) {
+        return None;
+    }
+    Some((j, mu, balayages as usize))
+}
+
+/// L'argument lu comme un `i32` : un `-` facultatif puis des chiffres décimaux ASCII (au moins un), dans les bornes.
+fn entier_i32(arg: &str) -> Option<i32> {
+    let (negatif, chiffres) = match arg.strip_prefix('-') {
+        Some(reste) => (true, reste),
+        None => (false, arg),
+    };
+    if chiffres.is_empty() || !chiffres.bytes().all(|octet| octet.is_ascii_digit()) {
+        return None;
+    }
+    let valeur = chiffres.parse::<i64>().ok()?;
+    let valeur = if negatif { valeur.checked_neg()? } else { valeur };
+    i32::try_from(valeur).ok()
 }
 
 /// La directive `surface` bien formée : le modèle, la largeur et le nombre de couches, ou `None` (mauvais nom, nombre
