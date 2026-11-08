@@ -186,41 +186,71 @@ impl AmasVariante {
     /// (le message contient « variante » dans ces deux derniers cas).
     #[allow(unused_variables)]
     pub fn new(graine: u64, demi_cote: u32, variante: Variante) -> AmasVariante {
-        todo!()
+        assert!(
+            demi_cote <= crate::dla::DEMI_COTE_MAX,
+            "demi_cote {demi_cote} dépasse DEMI_COTE_MAX ({})",
+            crate::dla::DEMI_COTE_MAX
+        );
+        match variante {
+            Variante::Collage(p) => {
+                assert!((1..=TOUJOURS).contains(&p), "la variante collage {p} est hors de 1..=TOUJOURS")
+            }
+            Variante::Bruit(m) => {
+                assert!((1..=BRUIT_MAX).contains(&m), "la variante bruit {m} est hors de 1..=BRUIT_MAX")
+            }
+        }
+        let demi_cote_usize = demi_cote as usize;
+        let cote = 2 * demi_cote_usize + 1;
+        let mut occupe = vec![false; cote * cote];
+        occupe[demi_cote_usize * cote + demi_cote_usize] = true;
+        AmasVariante {
+            alea: crate::alea::Alea::new(graine),
+            demi_cote,
+            variante,
+            sites: vec![(0, 0)],
+            occupe,
+            compteurs: vec![0; cote * cote],
+            plus_grand_carre: 0,
+            anneau_en_cache: (u32::MAX, Vec::new()),
+        }
     }
 
     /// La variante, telle que donnée à [`AmasVariante::new`].
     pub fn variante(&self) -> Variante {
-        todo!()
+        self.variante
     }
 
     /// Le `demi_cote` du réseau, tel que donné à [`AmasVariante::new`].
     pub fn demi_cote(&self) -> u32 {
-        todo!()
+        self.demi_cote
     }
 
     /// Les sites de l'amas, dans l'ordre d'arrivée : le germe `(0, 0)` d'abord. Il y en a au moins un.
     pub fn sites(&self) -> &[(i32, i32)] {
-        todo!()
+        &self.sites
     }
 
     /// Vrai si `(x, y)` est un site de l'amas (faux hors du réseau, sans panique, pour toute valeur de `i32`).
     #[allow(unused_variables)]
     pub fn contient(&self, x: i32, y: i32) -> bool {
-        todo!()
+        self.indice_dans_reseau(x, y).is_some_and(|indice| self.occupe[indice])
     }
 
     /// Le compteur de la réduction du bruit au site `(x, y)` : le nombre de marcheurs qui ont touché ce site vide (voir « La dynamique »).
     /// Il vaut 0 pour un site de l'amas, pour un site hors du réseau, et toujours pour la variante `Collage`.
     #[allow(unused_variables)]
     pub fn compteur(&self, x: i32, y: i32) -> u32 {
-        todo!()
+        match self.indice_dans_reseau(x, y) {
+            Some(indice) if !self.occupe[indice] => self.compteurs[indice],
+            _ => 0,
+        }
     }
 
     /// Le rayon de l'amas : le plus petit entier `r >= 0` tel que tous les sites vérifient `x² + y² <= r²` (comme
     /// [`crate::dla::Amas::rayon`]).
     pub fn rayon(&self) -> u32 {
-        todo!()
+        let racine = self.plus_grand_carre.isqrt();
+        if racine * racine == self.plus_grand_carre { racine as u32 } else { (racine + 1) as u32 }
     }
 
     /// Ajoute une particule (voir « La dynamique ») et rend son site, aussi le dernier de [`AmasVariante::sites`].
@@ -229,13 +259,68 @@ impl AmasVariante {
     ///
     /// Si la particule colle hors du réseau (message contenant « capacité »). Aucun site n'est alors ajouté.
     pub fn ajouter(&mut self) -> (i32, i32) {
-        todo!()
+        self.essayer_ajouter().expect("la particule colle hors de la capacité du réseau")
     }
 
     /// Comme [`AmasVariante::ajouter`], mais rend `None` au lieu de paniquer quand la particule colle (ou touche, avec `Bruit`) hors du
     /// réseau (voir « La capacité du réseau »).
     pub fn essayer_ajouter(&mut self) -> Option<(i32, i32)> {
-        todo!()
+        let rayon_lancement = self.rayon() + crate::dla::MARGE;
+        let rayon_abandon = crate::dla::FACTEUR_ABANDON * rayon_lancement;
+        let carre_abandon = u64::from(rayon_abandon) * u64::from(rayon_abandon);
+        if self.anneau_en_cache.0 != rayon_lancement {
+            self.anneau_en_cache = (rayon_lancement, crate::dla::anneau(rayon_lancement));
+        }
+        let variante = self.variante;
+        'relance: loop {
+            let longueur = self.anneau_en_cache.1.len() as u32;
+            let depart = self.alea.borne(longueur) as usize;
+            let (mut x, mut y) = self.anneau_en_cache.1[depart];
+            loop {
+                // 2.1 Contact : l'un des quatre voisins est un site de l'amas.
+                let contact =
+                    crate::reseau::VOISINS4.iter().any(|&(dx, dy)| self.contient(x + dx as i32, y + dy as i32));
+                if contact {
+                    match variante {
+                        Variante::Collage(p) => {
+                            let colle = if p == TOUJOURS {
+                                true
+                            } else {
+                                let u = self.alea.suivant();
+                                u64::from(u) < p
+                            };
+                            if colle {
+                                return self.ajouter_site(x, y);
+                            }
+                            // Sinon : on passe à 2.2 avec la même position, sans nouveau test de contact.
+                        }
+                        Variante::Bruit(m) => {
+                            // Un contact hors du réseau est un dépassement : aucun compteur n'existe là.
+                            let indice = self.indice_dans_reseau(x, y)?;
+                            self.compteurs[indice] += 1;
+                            if self.compteurs[indice] == m {
+                                self.compteurs[indice] = 0;
+                                return self.ajouter_site(x, y);
+                            }
+                            continue 'relance;
+                        }
+                    }
+                }
+                // 2.2 Abandonner.
+                let carre = i64::from(x) * i64::from(x) + i64::from(y) * i64::from(y);
+                if carre as u64 > carre_abandon {
+                    continue 'relance;
+                }
+                // 2.3 Marcher ; un pas vers un site de l'amas est refusé mais son tirage est consommé.
+                let direction = self.alea.borne(4) as usize;
+                let (dx, dy) = crate::reseau::VOISINS4[direction];
+                let (nx, ny) = (x + dx as i32, y + dy as i32);
+                if !self.contient(nx, ny) {
+                    x = nx;
+                    y = ny;
+                }
+            }
+        }
     }
 
     /// Ajoute des particules jusqu'à ce que l'amas ait `n` sites (germe compris) ; ne fait rien s'il en a déjà `n` ou plus.
@@ -245,17 +330,79 @@ impl AmasVariante {
     /// Si une particule colle hors du réseau (voir [`AmasVariante::ajouter`]).
     #[allow(unused_variables)]
     pub fn croitre_jusqu_a(&mut self, n: usize) {
-        todo!()
+        while self.sites.len() < n {
+            self.ajouter();
+        }
     }
 
     /// L'écriture canonique de l'état (voir « L'écriture canonique et l'empreinte »).
     pub fn ecriture_canonique(&self) -> Vec<u8> {
-        todo!()
+        let mut octets = Vec::new();
+        octets.extend_from_slice(&ETIQUETTE);
+        match self.variante {
+            Variante::Collage(p) => {
+                octets.push(0);
+                octets.extend_from_slice(&p.to_le_bytes());
+            }
+            Variante::Bruit(m) => {
+                octets.push(1);
+                octets.extend_from_slice(&u64::from(m).to_le_bytes());
+            }
+        }
+        octets.extend_from_slice(&self.demi_cote.to_le_bytes());
+        octets.extend_from_slice(&(self.sites.len() as u32).to_le_bytes());
+        for &(x, y) in &self.sites {
+            octets.extend_from_slice(&x.to_le_bytes());
+            octets.extend_from_slice(&y.to_le_bytes());
+        }
+        if matches!(self.variante, Variante::Bruit(_)) {
+            let demi = self.demi_cote as i32;
+            let cote = (2 * self.demi_cote + 1) as usize;
+            let mut vides: Vec<(i32, i32, u32)> = Vec::new();
+            for y in -demi..=demi {
+                for x in -demi..=demi {
+                    let indice = (y + demi) as usize * cote + (x + demi) as usize;
+                    if !self.occupe[indice] && self.compteurs[indice] != 0 {
+                        vides.push((x, y, self.compteurs[indice]));
+                    }
+                }
+            }
+            octets.extend_from_slice(&(vides.len() as u32).to_le_bytes());
+            for (x, y, compteur) in vides {
+                octets.extend_from_slice(&x.to_le_bytes());
+                octets.extend_from_slice(&y.to_le_bytes());
+                octets.extend_from_slice(&compteur.to_le_bytes());
+            }
+        }
+        octets.extend_from_slice(&self.alea.octets());
+        octets
     }
 
     /// L'empreinte de l'état : le SHA-256 (64 chiffres hexadécimaux minuscules) de [`AmasVariante::ecriture_canonique`].
     pub fn empreinte(&self) -> String {
-        todo!()
+        crate::empreinte::sha256_hex(&self.ecriture_canonique())
+    }
+
+    /// L'indice de `(x, y)` dans le tableau des sites, ou `None` hors du réseau.
+    fn indice_dans_reseau(&self, x: i32, y: i32) -> Option<usize> {
+        let demi_cote = i64::from(self.demi_cote);
+        let x = i64::from(x);
+        let y = i64::from(y);
+        if x < -demi_cote || x > demi_cote || y < -demi_cote || y > demi_cote {
+            return None;
+        }
+        let cote = (2 * demi_cote + 1) as usize;
+        Some((y + demi_cote) as usize * cote + (x + demi_cote) as usize)
+    }
+
+    /// Ajoute le site `(x, y)` s'il tient dans le réseau ; rend `None` sinon (sans rien changer).
+    fn ajouter_site(&mut self, x: i32, y: i32) -> Option<(i32, i32)> {
+        let indice = self.indice_dans_reseau(x, y)?;
+        self.sites.push((x, y));
+        self.occupe[indice] = true;
+        let carre = i64::from(x) * i64::from(x) + i64::from(y) * i64::from(y);
+        self.plus_grand_carre = self.plus_grand_carre.max(carre as u64);
+        Some((x, y))
     }
 }
 
@@ -266,7 +413,13 @@ impl AmasVariante {
 /// (un demi : arrondi vers le haut), `0.9999999999` donne `TOUJOURS` (`p * 2^32 = 4294967295,57` arrondi à `2^32`).
 #[allow(unused_variables)]
 pub fn collage_depuis_flottant(p: f64) -> Option<u64> {
-    todo!()
+    // `!(p > 0.0 && p <= 1.0)` refuse aussi NaN et les infinis, sans fonction mathématique.
+    if !(p > 0.0 && p <= 1.0) {
+        return None;
+    }
+    // La multiplication par 2^32 est exacte en f64 ; `round` est l'arrondi au plus proche, les demi vers le haut.
+    let q = (p * 4_294_967_296.0).round();
+    if q < 1.0 { None } else { Some(q as u64) }
 }
 
 /// La variante d'un scénario : la directive `collage <p>` ou `bruit <m>` (une seule des deux).
@@ -284,7 +437,35 @@ pub fn collage_depuis_flottant(p: f64) -> Option<u64> {
 /// Les autres directives (`dla` y compris) sont ignorées ici.
 #[allow(unused_variables)]
 pub fn variante_du_scenario(scenario: &Scenario) -> Result<Option<Variante>, ErreurLecture> {
-    todo!()
+    let mut trouvee: Option<Variante> = None;
+    for directive in &scenario.directives {
+        if directive.nom != "collage" && directive.nom != "bruit" {
+            continue;
+        }
+        // Une seconde directive de variante, de l'une ou l'autre sorte, est fautive à sa ligne.
+        if trouvee.is_some() {
+            return Err(ErreurLecture::LigneInvalide(directive.ligne));
+        }
+        if directive.args.len() != 1 {
+            return Err(ErreurLecture::LigneInvalide(directive.ligne));
+        }
+        match directive.nom.as_str() {
+            "collage" => {
+                let p = directive.flottant(0)?;
+                let q = collage_depuis_flottant(p).ok_or(ErreurLecture::LigneInvalide(directive.ligne))?;
+                trouvee = Some(Variante::Collage(q));
+            }
+            "bruit" => {
+                let m = directive.entier(0)?;
+                if !(1..=u64::from(BRUIT_MAX)).contains(&m) {
+                    return Err(ErreurLecture::LigneInvalide(directive.ligne));
+                }
+                trouvee = Some(Variante::Bruit(m as u32));
+            }
+            _ => unreachable!("le nom a été filtré"),
+        }
+    }
+    Ok(trouvee)
 }
 
 /// La densité d'un amas : `N / Rg²`, avec `N = sites.len()` et `Rg²` le carré du rayon de giration de [`crate::mesures::rayon_de_giration`].
@@ -297,9 +478,23 @@ pub fn variante_du_scenario(scenario: &Scenario) -> Result<Option<Variante>, Err
 /// # Panique
 ///
 /// Si `sites` est vide ou si `num` vaut 0 (le rayon de giration est nul : un site seul, ou des sites tous confondus).
-#[allow(unused_variables)]
 pub fn densite(sites: &[(i32, i32)]) -> f64 {
-    todo!()
+    assert!(!sites.is_empty(), "aucun site : la densité n'existe pas");
+    let n = sites.len() as i128;
+    let mut somme_x = 0_i128;
+    let mut somme_y = 0_i128;
+    let mut somme_xx = 0_i128;
+    let mut somme_yy = 0_i128;
+    for &(x, y) in sites {
+        let (x, y) = (x as i128, y as i128);
+        somme_x += x;
+        somme_y += y;
+        somme_xx += x * x;
+        somme_yy += y * y;
+    }
+    let num = n * (somme_xx + somme_yy) - (somme_x * somme_x + somme_y * somme_y);
+    assert!(num != 0, "le rayon de giration est nul : la densité n'existe pas");
+    ((n * n * n) as f64) / (num as f64)
 }
 
 /// L'anisotropie d'ordre 4 autour de l'**origine** `(0, 0)` (le germe, pas le centre de masse) :
@@ -312,7 +507,15 @@ pub fn densite(sites: &[(i32, i32)]) -> f64 {
 ///
 /// Exact tant que `|x|` et `|y|` restent au plus `2^24` et qu'il y a moins de `2^28` sites ; au-delà le résultat n'est pas défini
 /// (une panique par débordement est possible).
-#[allow(unused_variables)]
 pub fn anisotropie(sites: &[(i32, i32)]) -> f64 {
-    todo!()
+    let mut num = 0_i128;
+    let mut den = 0_i128;
+    for &(x, y) in sites {
+        let (x, y) = (x as i128, y as i128);
+        let (x2, y2) = (x * x, y * y);
+        let r2 = x2 + y2;
+        num += x2 * x2 - 6 * x2 * y2 + y2 * y2;
+        den += r2 * r2;
+    }
+    if den == 0 { 0.0 } else { (num as f64) / (den as f64) }
 }

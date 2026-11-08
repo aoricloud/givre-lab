@@ -38,3 +38,11 @@ embellir une image ne change aucune d'entre elles.
 Un aperçu est pour l'œil, jamais une preuve : les valeurs attendues et les empreintes sont dans `references/`, et
 embellir une image ne change aucune d'entre elles.
 
+## Aperçus de l'étape 2d
+
+- `etape-2d-bruit.png` : les amas de réduction du bruit m = 1, 4 et 16 côte à côte (graine 1, 3000 sites, réseau de demi-côté 250), chaque site coloré par son ordre d'arrivée et les panneaux séparés par un filet : les bras se rangent sur les axes quand m croît.
+- `etape-2d-collage.png` : le collage partiel p = 1, 0,5 et 0,1 côte à côte (mêmes graine, taille et réseau), chaque site coloré par son ordre d'arrivée et les panneaux séparés par un filet : les branches s'épaississent quand p baisse.
+
+Un aperçu est pour l'œil, jamais une preuve : les valeurs attendues et les empreintes sont dans `references/`, et
+embellir une image ne change aucune d'entre elles.
+

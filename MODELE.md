@@ -250,3 +250,47 @@ rugosité qui croît avec T.
   ni σ_crit ne sont testées.
 - La linéarité à haut T est mesurée à un seul J, une seule taille, sur une plage de Δμ ; la mobilité n'est comparée à rien de publié.
 - L'égalité entre Linux et Windows est établie sur 40 faces et sur la suite entière ; la CI la rejoue par la référence d'empreinte.
+
+## Étape 2d : les variantes de la DLA (probabilité de collage et réduction du bruit)
+
+Deux variantes de la DLA de l'étape 1, chacune d'un paramètre, dans `src/dla_variantes.rs` : le **collage partiel** (un marcheur
+qui touche l'amas ne colle qu'avec la probabilité p) et la **réduction du bruit** (un site au contact de l'amas ne se remplit
+qu'après avoir été touché m fois ; m = 1 est la DLA de l'étape 1, et p = 1 aussi : `AmasVariante` redonne alors `Amas` site pour
+site). La dynamique, le hasard consommé appel par appel, l'écriture canonique et le contrat de `lancer` sont dans la doc de
+`src/dla_variantes.rs` ; les valeurs attendues des tests, chacune avec sa source, dans `references/etape-2d-valeurs.md`. Deux
+mesures propres aux variantes : la densité N / Rg² et l'anisotropie S4 = Σ (x⁴ − 6x²y² + y⁴) / Σ (x² + y²)² autour du germe (+1
+pour des bras sur les axes, −1 sur les diagonales, 0 pour un disque).
+
+### Références
+
+- **Collage partiel** : Witten et Sander, Phys. Rev. B 27, 5686 (1983), p. 5691 (texte lu) : le marcheur colle « only during a
+  fraction s of its encounters », 1/s joue le rôle d'une longueur capillaire, et la figure 5 montre l'épaississement des branches
+  pour s = 0,5. **La règle exacte sur réseau carré n'est écrite nulle part** : celle de ce dépôt (le pas vers l'amas refusé, la
+  position inchangée, un nouveau tirage au contact suivant) est une convention, différente dans le détail du modèle à une
+  dimension de leur équation 11.
+- **Réduction du bruit** : Tang, Phys. Rev. A 31, 1977 (1985), Kertész et Vicsek, J. Phys. A 19, L257 (1986), Nittmann et Stanley,
+  Nature 321, 663 (1986) n'ont pas été lus ; la règle de ce dépôt (un compteur par site de périmètre, qui persiste ; le marcheur
+  qui touche est retiré et un nouveau est lancé ; le site se remplit quand son compteur atteint m) est celle que décrivent Meakin
+  (dans Pietronero, *Fractals' Physical Origin and Properties*, extrait lu) et Stanley. Une autre variante, où tous les compteurs
+  repartent à zéro après chaque croissance, est attribuée à Kertész et Vicsek par une seule source secondaire (Lam) : c'est un
+  autre modèle, que la doc nomme et exclut.
+- Alves et Ferreira (2006, texte lu) : l'anisotropie axiale augmente avec le paramètre de réduction du bruit ; leur figure 1 montre
+  aussi que, dans une même boîte, moins de particules s'agrègent quand le bruit est plus réduit (la densité baisse).
+
+### Ce qui est mesuré
+
+Densité N / Rg² (N = 1000) : 1,31, 1,61, 2,16 et 3,42 pour p = 1, 0,5, 0,2 et 0,05 : l'amas est plus dense quand le collage baisse.
+Anisotropie S4 (N = 400) : 0,15, 0,47, 0,74 et 0,89 pour m = 1, 2, 4 et 8 : elle croît avec la réduction du bruit, jusqu'à
+des bras presque tous sur les axes. Ces deux tendances sont des « régressions » : la littérature en publie le sens, aucun nombre à
+ces tailles. Constats non testés : le collage partiel épaissit l'amas sans accroître S4 (0,16, 0,21, 0,16 puis 0,09 pour p = 1,
+0,5, 0,2 et 0,05, à N = 1000 sur 200 graines) ; la densité ne croît pas avec m (1,56, 1,67, 1,61 et 1,44 pour m = 1, 2, 4 et 8).
+
+### Ce que cette étape n'établit pas
+
+- Qu'une valeur publiée est reproduite : aucune ; les deux tendances ne sont que des directions publiées.
+- Que la règle du bruit est mot pour mot celle de Tang ou de Nittmann et Stanley : elle est celle que décrivent Meakin et Stanley.
+- Que la variante de Kertész et Vicsek (remise à zéro globale, si c'est bien la leur) est couverte : c'est un autre modèle.
+- Que le collage partiel suit Witten et Sander dans le détail : le pas refusé est une convention.
+- Que le collage partiel mène aux quatre bras : à N = 1000 il n'accroît pas S4 ; à très grand N, non mesuré.
+- Le contrat de `lancer` pour des scénarios qui mêlent `surface` et les directives de la DLA : seuls trois cas de refus le fixent.
+- Qu'une implémentation qui boucle échoue vite : elle échoue au bout de 120 s (le délai des simulations des tests).
