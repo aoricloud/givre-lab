@@ -143,7 +143,19 @@ pub const PALETTE: [[u8; 3]; 5] = [[255, 255, 255], [150, 230, 255], [60, 140, 2
 /// Le nombre de points est d'ordre `2π · rayon`.
 #[allow(unused_variables)]
 pub fn anneau(rayon: u32) -> Vec<(i32, i32)> {
-    todo!()
+    let r = i64::from(rayon);
+    let carre_interieur = r * r;
+    let carre_exterieur = (r + 1) * (r + 1);
+    let mut points = Vec::new();
+    for y in -r..=r {
+        for x in -r..=r {
+            let carre = x * x + y * y;
+            if carre >= carre_interieur && carre < carre_exterieur {
+                points.push((x as i32, y as i32));
+            }
+        }
+    }
+    points
 }
 
 /// Un amas de DLA en croissance (voir la documentation du module pour la dynamique, la consommation du hasard, la capacité,
@@ -168,29 +180,54 @@ impl Amas {
     /// Si `demi_cote > DEMI_COTE_MAX`.
     #[allow(unused_variables)]
     pub fn new(graine: u64, demi_cote: u32) -> Amas {
-        todo!()
+        assert!(demi_cote <= DEMI_COTE_MAX, "demi_cote {demi_cote} dépasse DEMI_COTE_MAX ({DEMI_COTE_MAX})");
+        let demi_cote_usize = demi_cote as usize;
+        let cote = 2 * demi_cote_usize + 1;
+        let mut occupe = vec![false; cote * cote];
+        occupe[demi_cote_usize * cote + demi_cote_usize] = true;
+        Amas {
+            alea: crate::alea::Alea::new(graine),
+            demi_cote,
+            sites: vec![(0, 0)],
+            occupe,
+            plus_grand_carre: 0,
+            anneau_en_cache: (u32::MAX, Vec::new()),
+        }
     }
 
     /// Le `demi_cote` du réseau, tel que donné à [`Amas::new`].
     pub fn demi_cote(&self) -> u32 {
-        todo!()
+        self.demi_cote
     }
 
     /// Les sites de l'amas, dans l'ordre d'arrivée : le germe `(0, 0)` d'abord. Il y en a au moins un.
     pub fn sites(&self) -> &[(i32, i32)] {
-        todo!()
+        &self.sites
     }
 
     /// Vrai si `(x, y)` est un site de l'amas (faux hors du réseau, sans panique, pour toute valeur de `i32`).
     #[allow(unused_variables)]
     pub fn contient(&self, x: i32, y: i32) -> bool {
-        todo!()
+        self.indice_dans_reseau(x, y).is_some_and(|indice| self.occupe[indice])
     }
 
     /// Le rayon de l'amas : le plus petit entier `r >= 0` tel que tous les sites vérifient `x² + y² <= r²` (voir « Le rayon
     /// de l'amas »).
     pub fn rayon(&self) -> u32 {
-        todo!()
+        let racine = self.plus_grand_carre.isqrt();
+        if racine * racine == self.plus_grand_carre { racine as u32 } else { (racine + 1) as u32 }
+    }
+
+    /// L'indice de `(x, y)` dans le tableau des sites, ou `None` hors du réseau.
+    fn indice_dans_reseau(&self, x: i32, y: i32) -> Option<usize> {
+        let demi_cote = i64::from(self.demi_cote);
+        let x = i64::from(x);
+        let y = i64::from(y);
+        if x < -demi_cote || x > demi_cote || y < -demi_cote || y > demi_cote {
+            return None;
+        }
+        let cote = (2 * demi_cote + 1) as usize;
+        Some((y + demi_cote) as usize * cote + (x + demi_cote) as usize)
     }
 
     /// Ajoute une particule (voir « La dynamique ») et rend son site, aussi le dernier de [`Amas::sites`].
@@ -199,13 +236,42 @@ impl Amas {
     ///
     /// Si la particule colle hors du réseau (message contenant « capacité »). Aucun site n'est alors ajouté.
     pub fn ajouter(&mut self) -> (i32, i32) {
-        todo!()
+        self.essayer_ajouter().expect("la particule colle hors de la capacité du réseau")
     }
 
     /// Comme [`Amas::ajouter`], mais rend `None` au lieu de paniquer quand la particule colle hors du réseau (voir « La
     /// capacité du réseau »).
     pub fn essayer_ajouter(&mut self) -> Option<(i32, i32)> {
-        todo!()
+        let rayon_lancement = self.rayon() + MARGE;
+        let rayon_abandon = FACTEUR_ABANDON * rayon_lancement;
+        let carre_abandon = u64::from(rayon_abandon) * u64::from(rayon_abandon);
+        if self.anneau_en_cache.0 != rayon_lancement {
+            self.anneau_en_cache = (rayon_lancement, anneau(rayon_lancement));
+        }
+        'relance: loop {
+            let longueur = self.anneau_en_cache.1.len() as u32;
+            let depart = self.alea.borne(longueur) as usize;
+            let (mut x, mut y) = self.anneau_en_cache.1[depart];
+            loop {
+                let colle = crate::reseau::VOISINS4.iter().any(|&(dx, dy)| self.contient(x + dx as i32, y + dy as i32));
+                if colle {
+                    let indice = self.indice_dans_reseau(x, y)?;
+                    self.sites.push((x, y));
+                    self.occupe[indice] = true;
+                    let carre = i64::from(x) * i64::from(x) + i64::from(y) * i64::from(y);
+                    self.plus_grand_carre = self.plus_grand_carre.max(carre as u64);
+                    return Some((x, y));
+                }
+                let carre = i64::from(x) * i64::from(x) + i64::from(y) * i64::from(y);
+                if carre as u64 > carre_abandon {
+                    continue 'relance;
+                }
+                let direction = self.alea.borne(4) as usize;
+                let (dx, dy) = crate::reseau::VOISINS4[direction];
+                x += dx as i32;
+                y += dy as i32;
+            }
+        }
     }
 
     /// Ajoute des particules jusqu'à ce que l'amas ait `n` sites (germe compris) ; ne fait rien s'il en a déjà `n` ou plus.
@@ -217,17 +283,28 @@ impl Amas {
     /// Si une particule colle hors du réseau (voir [`Amas::ajouter`]).
     #[allow(unused_variables)]
     pub fn croitre_jusqu_a(&mut self, n: usize) {
-        todo!()
+        while self.sites.len() < n {
+            self.ajouter();
+        }
     }
 
     /// L'écriture canonique de l'état, `32 + 8 n` octets (voir « L'écriture canonique et l'empreinte »).
     pub fn ecriture_canonique(&self) -> Vec<u8> {
-        todo!()
+        let mut octets = Vec::with_capacity(32 + 8 * self.sites.len());
+        octets.extend_from_slice(b"GIVRE001");
+        octets.extend_from_slice(&self.demi_cote.to_le_bytes());
+        octets.extend_from_slice(&(self.sites.len() as u32).to_le_bytes());
+        for &(x, y) in &self.sites {
+            octets.extend_from_slice(&x.to_le_bytes());
+            octets.extend_from_slice(&y.to_le_bytes());
+        }
+        octets.extend_from_slice(&self.alea.octets());
+        octets
     }
 
     /// L'empreinte de l'état : le SHA-256 (64 chiffres hexadécimaux minuscules) de [`Amas::ecriture_canonique`].
     pub fn empreinte(&self) -> String {
-        todo!()
+        crate::empreinte::sha256_hex(&self.ecriture_canonique())
     }
 }
 
@@ -244,7 +321,24 @@ impl Amas {
 /// Les autres directives sont ignorées ici (c'est `lancer` qui refuse celles qu'il ne comprend pas).
 #[allow(unused_variables)]
 pub fn particules(scenario: &Scenario) -> Result<Option<usize>, ErreurLecture> {
-    todo!()
+    let mut nombre = None;
+    for directive in &scenario.directives {
+        if directive.nom != "dla" {
+            continue;
+        }
+        if nombre.is_some() {
+            return Err(ErreurLecture::LigneInvalide(directive.ligne));
+        }
+        if directive.args.len() != 1 {
+            return Err(ErreurLecture::LigneInvalide(directive.ligne));
+        }
+        let valeur = directive.entier(0)?;
+        if !(1..=PARTICULES_MAX as u64).contains(&valeur) {
+            return Err(ErreurLecture::LigneInvalide(directive.ligne));
+        }
+        nombre = Some(valeur as usize);
+    }
+    Ok(nombre)
 }
 
 /// Le `demi_cote` du réseau d'un amas lancé dans une `boite largeur hauteur` : `(min(largeur, hauteur) - 1) / 2` (division
@@ -256,7 +350,8 @@ pub fn particules(scenario: &Scenario) -> Result<Option<usize>, ErreurLecture> {
 /// Si `largeur` ou `hauteur` vaut 0.
 #[allow(unused_variables)]
 pub fn demi_cote_de_la_boite(largeur: u32, hauteur: u32) -> u32 {
-    todo!()
+    assert!(largeur > 0 && hauteur > 0, "une boîte a des côtés au moins 1");
+    (largeur.min(hauteur) - 1) / 2
 }
 
 /// La couleur `(R, V, B)` du site de rang `rang` (0 pour le germe) parmi `nombre` sites, par interpolation linéaire entière
