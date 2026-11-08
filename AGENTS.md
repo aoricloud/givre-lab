@@ -58,3 +58,7 @@ toute main. Le plan est dans `FEUILLE-DE-ROUTE.md` ; chaque modèle, ses équati
 11. **Rejouer sur tout le crate** : `cargo test --no-fail-fast`, jamais filtré sur le seul test qui vient de passer ;
     un remaniement du code, sans changement voulu de l'état, se prouve octet par octet (les empreintes de tous les
     scénarios, avant et après, sont identiques).
+12. **Le module de la vitrine suit le code** : `docs/givre.wasm` est commité. Un changement de comportement de `dla`,
+    `flocon` ou `vitrine` le reconstruit dans la même PR, par la commande de la doc de `src/vitrine.rs`
+    (`cargo rustc --release --lib --target wasm32-unknown-unknown --crate-type cdylib`, jamais `cargo build`), sinon
+    le test d'artefact de l'étape 5 est rouge. C'est un binaire : on ne l'ouvre pas et on ne le retouche pas.
