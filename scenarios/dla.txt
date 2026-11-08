@@ -1,0 +1,3 @@
+# Une DLA : un germe au centre d'une boite de 401 sur 401, 3000 particules.
+boite 401 401
+dla 3000
