@@ -160,3 +160,46 @@ sites. La dimension de boîtes de l'amas (environ 1,49) n'est que rapportée : a
 - Que la dimension de boîtes de l'amas a un sens : elle n'est que rapportée.
 - Qu'une implémentation qui boucle sans fin échoue vite : elle n'échoue qu'au délai de la CI.
 - Le comportement de `lancer` sur de très grandes boîtes (4095 × 4095, mémoire du réseau) : aucun test à cette taille.
+
+## Étape 3 : les flocons de Reiter (modèle cellulaire local, grille hexagonale, virgule fixe)
+
+Le modèle de C. A. Reiter, *A local cellular model for snow crystal growth*, Chaos, Solitons & Fractals 23 (2005) 1111-1119, sur
+l'hexagone de `reseau` (coordonnées axiales), sans aucun hasard, en virgule fixe `Fixe` (Q31.32) : la symétrie d'ordre 6 (rotations
+de 60° et réflexion) de tout l'état est donc exacte au bit près. Chaque cellule porte une masse d'eau ; elle est gelée si sa masse
+vaut au moins 1, de bord si elle touche une cellule gelée, réceptive dans ces deux cas. Un pas : la masse des cellules non
+réceptives diffuse (poids 1 − α/2 au centre, α/12 aux six voisines), celle des cellules réceptives ne diffuse pas et reçoit γ ; la
+couronne extérieure est remise à β à chaque pas ; l'état initial vaut β partout, sauf le germe à 1. Les règles, l'ordre et
+l'arrondi de chaque opération en virgule fixe, l'écriture canonique et le contrat de `lancer` sont dans la doc de `src/flocon.rs` ;
+les valeurs attendues des tests, chacune avec sa source, dans `references/etape-3-valeurs.md`.
+
+### Références
+
+- Reiter 2005 : préimpression (texte lu) et page auxiliaire de l'auteur, dont le script J `sfn.ijs` (page `sfn.html`) qui donne
+  la table du temps de croissance en fonction de β et γ pour une région de rayon 100. Les règles de la doc sont celles du script,
+  ligne pour ligne, sauf la géométrie du bord (voir ci-dessous) et les flottants (Q31.32 ici).
+- « β = 0, γ = 0 : no growth » et « β = 0, γ > 0 : plates » (préimpression) : la plaque est un test « juste » (forme close).
+- Gravner et Griffeath, Physica D 237 (2008) 385 (lu), reprennent le modèle ; Libbrecht 2005 et Gravner et Griffeath 2009 n'ont pas
+  été relus : aucun test n'en dépend. Les figures 3 à 7 de la préimpression n'ont pas été lues (des images).
+- Le jeu « dendrite » (β = 0,4, γ = 0,001) est celui d'une animation de la page de l'auteur, légendée seulement par ces valeurs ;
+  le jeu « étoile » (β = 0,45, γ = 0,1) n'a aucune source nommée (la préimpression dit seulement « stellar or more abstract forms »
+  pour un γ élevé) : les tests de classe de forme (compacité, pointes) et la vitesse radiale sont des « régressions », pas des preuves.
+
+### Ce qui est mesuré, et l'écart à la valeur publiée
+
+**Valeur publiée non atteinte, cause établie** : la table de Reiter (région de rayon 100) est reproduite exactement par ce modèle
+sur un hexagone de rayon 100 pour 160 des 219 cases non plafonnées (toutes celles où β ≥ 0,55 ou γ ≥ 0,1). Pour β ≤ 0,5 et γ ≤ 0,05 ce
+modèle met de 0,1 à 4,9 % de pas en plus : le script de l'auteur fixe à β les cases à distance euclidienne d'au moins 100 sin 60° ≈ 86,6
+du germe (un cercle), alors que la couronne de l'hexagone est plus loin des pointes ; avec la géométrie de l'auteur et les mêmes
+règles, un modèle écrit à part retrouve les 240 cases. Le bord circulaire n'est pas dans la bibliothèque (un bord en flottants, ou
+en carrés de distances entiers, serait un changement de conception) ; le test de la table ne porte que sur des cases où les deux
+géométries donnent le même nombre.
+
+### Ce que cette étape n'établit pas
+
+- La fidélité à la table pour les 59 cases des dendrites lentes : établie seulement par un outil à part, avec un bord circulaire
+  que la bibliothèque n'a pas ; aucun test gelé ne la porte.
+- Le script qui a produit la table (seul celui de l'animation est publié).
+- Que les classes étoile, secteur et dendrite soient les « vraies » : aucune valeur publiée ne les chiffre.
+- Les tables de rayon 200 et 400, les configurations initiales aléatoires de la figure 6 (le modèle n'a pas de hasard) et les
+  changements de paramètres en cours de croissance (figure 7).
+- Le temps d'exécution sur la CI de GitHub (estimé, non mesuré).
