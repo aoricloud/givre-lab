@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Givre Lab, la vitrine</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --fond: #0a0e13;
+    --panneau: #101720;
+    --bord: #1e2a38;
+    --texte: #e6edf3;
+    --doux: #8da2b8;
+    --accent: #6cc4ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 22px 16px 44px;
+    background: radial-gradient(1100px 520px at 50% -180px, #16222f 0%, var(--fond) 70%);
+    color: var(--texte);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 720px; margin: 0 auto; }
+  header { margin-bottom: 18px; }
+  h1 { margin: 0; font-size: 23px; letter-spacing: 0.01em; }
+  header p { margin: 4px 0 0; color: var(--doux); }
+  .commandes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px 16px;
+    align-items: end;
+    padding: 14px 16px;
+    margin-bottom: 14px;
+    background: var(--panneau);
+    border: 1px solid var(--bord);
+    border-radius: 10px;
+  }
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--doux);
+  }
+  select, input[type="number"], button {
+    font: inherit;
+    letter-spacing: normal;
+    text-transform: none;
+    color: var(--texte);
+    background: #0b1118;
+    border: 1px solid var(--bord);
+    border-radius: 7px;
+    padding: 8px 10px;
+  }
+  input[type="number"] { width: 100%; }
+  button {
+    cursor: pointer;
+    background: #1b2c3f;
+    border-color: #2a4259;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  button:hover { background: #233a52; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .curseur { display: flex; align-items: center; gap: 8px; }
+  input[type="range"] { width: 100%; accent-color: var(--accent); }
+  output { min-width: 2ch; text-align: right; font-variant-numeric: tabular-nums; color: var(--texte); }
+  .cadre { padding: 10px; background: var(--panneau); border: 1px solid var(--bord); border-radius: 10px; }
+  canvas {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    image-rendering: pixelated;
+    background: #000;
+    border-radius: 6px;
+  }
+  .mesures {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 8px 16px;
+    margin: 14px 0 0;
+  }
+  .mesures div { padding: 8px 10px; background: var(--panneau); border: 1px solid var(--bord); border-radius: 8px; }
+  .mesures dt { margin: 0; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--doux); }
+  .mesures dd { margin: 3px 0 0; font-variant-numeric: tabular-nums; }
+  #empreinte { word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #b8e0ff; }
+  #etat { margin: 12px 0 0; min-height: 1.5em; color: var(--doux); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Givre Lab</h1>
+    <p>La DLA et les flocons de Reiter, calculés en WebAssembly et dessinés au fil des unités de temps.</p>
+  </header>
+
+  <section class="commandes" aria-label="Commandes">
+    <label for="modele">Modèle
+      <select id="modele">
+        <option value="0">DLA</option>
+        <option value="1">Reiter, plaque</option>
+        <option value="2">Reiter, étoile</option>
+        <option value="3">Reiter, dendrite</option>
+      </select>
+    </label>
+    <label for="graine">Graine (DLA)
+      <input id="graine" type="number" min="0" max="4294967295" step="1" value="1">
+    </label>
+    <button id="relancer" type="button">Recommencer</button>
+    <label for="vitesse">Vitesse (unités par image)
+      <span class="curseur">
+        <input id="vitesse" type="range" min="1" max="120" value="5" step="1">
+        <output id="valeur-vitesse" for="vitesse">5</output>
+      </span>
+    </label>
+  </section>
+
+  <div class="cadre">
+    <canvas id="vitrine" width="512" height="512" aria-label="Image du modèle en cours"></canvas>
+  </div>
+
+  <dl class="mesures">
+    <div><dt>Temps</dt><dd id="temps">–</dd></div>
+    <div><dt>Empreinte SHA-256</dt><dd><code id="empreinte">–</code></dd></div>
+    <div><dt>Sites, rayon, compacité</dt><dd id="mesures">–</dd></div>
+  </dl>
+
+  <p id="etat">Chargement du module…</p>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>
