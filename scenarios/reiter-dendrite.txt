@@ -1,0 +1,3 @@
+# Reiter, une dendrite : peu de masse ajoutée (gamma = 0,001) : six bras qui portent des branches.
+hexagone 60
+reiter 1 0.4 0.001 800
