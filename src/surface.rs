@@ -166,18 +166,33 @@ impl Modele {
 
     /// Le nom écrit dans un scénario : `"depot"`, `"relaxation"`, `"balistique"`, `"eden"` (minuscules, sans accent).
     pub fn nom(self) -> &'static str {
-        todo!()
+        match self {
+            Modele::Depot => "depot",
+            Modele::Relaxation => "relaxation",
+            Modele::Balistique => "balistique",
+            Modele::Eden => "eden",
+        }
     }
 
     /// Le modèle de ce nom (exactement l'un des quatre noms de [`Modele::nom`], même casse), sinon `None`.
-    #[allow(unused_variables)]
     pub fn depuis_nom(nom: &str) -> Option<Modele> {
-        todo!()
+        match nom {
+            "depot" => Some(Modele::Depot),
+            "relaxation" => Some(Modele::Relaxation),
+            "balistique" => Some(Modele::Balistique),
+            "eden" => Some(Modele::Eden),
+            _ => None,
+        }
     }
 
     /// L'octet de l'écriture canonique : 0 dépôt, 1 relaxation, 2 balistique, 3 Eden.
     pub fn code(self) -> u8 {
-        todo!()
+        match self {
+            Modele::Depot => 0,
+            Modele::Relaxation => 1,
+            Modele::Balistique => 2,
+            Modele::Eden => 3,
+        }
     }
 }
 
@@ -205,9 +220,21 @@ impl Surface {
     /// # Panique
     ///
     /// Si `largeur` vaut 0 ou dépasse [`LARGEUR_MAX`].
-    #[allow(unused_variables)]
     pub fn new(modele: Modele, largeur: usize, graine: u64) -> Surface {
-        todo!()
+        assert!(largeur != 0 && largeur <= LARGEUR_MAX, "largeur hors de 1..=LARGEUR_MAX");
+        let perimetre = match modele {
+            Modele::Eden => todo!(),
+            _ => Vec::new(),
+        };
+        Surface {
+            modele,
+            largeur,
+            alea: Alea::new(graine),
+            particules: 0,
+            hauteurs: vec![0; largeur],
+            cases: Vec::new(),
+            perimetre,
+        }
     }
 
     /// Une surface de départ **donnée**, pour tester une règle sur un profil écrit à la main : mêmes règles que [`Surface::new`]
@@ -217,45 +244,64 @@ impl Surface {
     /// # Panique
     ///
     /// Si `modele` est `Eden`, si `hauteurs` est vide ou plus long que [`LARGEUR_MAX`].
-    #[allow(unused_variables)]
     pub fn depuis_hauteurs(modele: Modele, hauteurs: &[u64], graine: u64) -> Surface {
-        todo!()
+        assert!(modele != Modele::Eden, "depuis_hauteurs n'accepte pas Eden");
+        assert!(!hauteurs.is_empty() && hauteurs.len() <= LARGEUR_MAX, "hauteurs hors de 1..=LARGEUR_MAX");
+        let particules = hauteurs.iter().sum();
+        Surface {
+            modele,
+            largeur: hauteurs.len(),
+            alea: Alea::new(graine),
+            particules,
+            hauteurs: hauteurs.to_vec(),
+            cases: Vec::new(),
+            perimetre: Vec::new(),
+        }
     }
 
     /// Le modèle.
     pub fn modele(&self) -> Modele {
-        todo!()
+        self.modele
     }
 
     /// Le nombre de colonnes `L`.
     pub fn largeur(&self) -> usize {
-        todo!()
+        self.largeur
     }
 
     /// Le nombre de particules déposées (une par pas).
     pub fn particules(&self) -> u64 {
-        todo!()
+        self.particules
     }
 
     /// Le temps : `particules / L` (division entière), le nombre de couches complètes.
     pub fn couches(&self) -> u64 {
-        todo!()
+        self.particules / self.largeur as u64
     }
 
     /// Les `L` hauteurs `h[0..L]`. Pour Eden : le profil du dessus (voir la documentation du module).
     pub fn hauteurs(&self) -> Vec<u64> {
-        todo!()
+        match self.modele {
+            Modele::Eden => todo!(),
+            _ => self.hauteurs.clone(),
+        }
     }
 
     /// Un pas : tire le choix du modèle (`k = borne(len(périmètre))` pour Eden, sinon `i = borne(L)`) puis fait
     /// [`Surface::appliquer`]. Le premier tirage est donc toujours un appel à `Alea::borne`.
     pub fn deposer(&mut self) {
-        todo!()
+        let choix = match self.modele {
+            Modele::Eden => todo!(),
+            _ => self.alea.borne(self.largeur as u32) as usize,
+        };
+        self.appliquer(choix);
     }
 
     /// `L` pas : une couche de plus (le temps `couches()` croît de 1).
     pub fn deposer_couche(&mut self) {
-        todo!()
+        for _ in 0..self.largeur {
+            self.deposer();
+        }
     }
 
     /// La suite d'un pas, **après** le tirage du choix : `choix` est la colonne `i` (dans `0..L`) pour `Depot`, `Relaxation` et
@@ -267,14 +313,62 @@ impl Surface {
     ///
     /// Si `choix` est hors de sa plage ; pour Eden, au pas qui ajouterait au périmètre un site de la rangée
     /// `HAUTEUR_EDEN` ou au-dessus.
-    #[allow(unused_variables)]
     pub fn appliquer(&mut self, choix: usize) {
-        todo!()
+        match self.modele {
+            Modele::Eden => todo!(),
+            Modele::Depot => {
+                assert!(choix < self.largeur, "colonne hors bande");
+                self.hauteurs[choix] += 1;
+            }
+            Modele::Relaxation => {
+                assert!(choix < self.largeur, "colonne hors bande");
+                let l = self.largeur;
+                let i = choix;
+                let g = (i + l - 1) % l;
+                let d = (i + 1) % l;
+                let hi = self.hauteurs[i];
+                let hg = self.hauteurs[g];
+                let hd = self.hauteurs[d];
+                let cible = if hi <= hg && hi <= hd {
+                    i
+                } else if hg < hd {
+                    g
+                } else if hd < hg {
+                    d
+                } else {
+                    let pile = self.alea.suivant() >> 31;
+                    if pile == 0 { g } else { d }
+                };
+                self.hauteurs[cible] += 1;
+            }
+            Modele::Balistique => {
+                assert!(choix < self.largeur, "colonne hors bande");
+                let l = self.largeur;
+                let i = choix;
+                let g = (i + l - 1) % l;
+                let d = (i + 1) % l;
+                let hi = self.hauteurs[i];
+                let hg = self.hauteurs[g];
+                let hd = self.hauteurs[d];
+                let mut nouveau = hi + 1;
+                if hg > nouveau {
+                    nouveau = hg;
+                }
+                if hd > nouveau {
+                    nouveau = hd;
+                }
+                self.hauteurs[i] = nouveau;
+            }
+        }
+        self.particules += 1;
     }
 
     /// Le périmètre d'Eden, dans l'ordre du `Vec` de la documentation du module (une copie). Vide pour les trois autres modèles.
     pub fn perimetre(&self) -> Vec<(usize, usize)> {
-        todo!()
+        match self.modele {
+            Modele::Eden => todo!(),
+            _ => Vec::new(),
+        }
     }
 
     /// Le site `(x, y)` est-il occupé ? Pour Eden : l'occupation de la grille (faux au-delà de la rangée la plus haute atteinte).
@@ -283,29 +377,44 @@ impl Surface {
     /// # Panique
     ///
     /// Si `x >= L`.
-    #[allow(unused_variables)]
     pub fn occupe(&self, x: usize, y: usize) -> bool {
-        todo!()
+        assert!(x < self.largeur, "colonne hors bande");
+        match self.modele {
+            Modele::Eden => todo!(),
+            _ => (y as u64) < self.hauteurs[x],
+        }
     }
 
     /// Le carré de la rugosité, `w²` (voir la documentation du module) : `rugosite_carre_de(&self.hauteurs())`.
     pub fn rugosite_carre(&self) -> f64 {
-        todo!()
+        rugosite_carre_de(&self.hauteurs())
     }
 
     /// La rugosité `w` : `rugosite_de(&self.hauteurs())`.
     pub fn rugosite(&self) -> f64 {
-        todo!()
+        rugosite_de(&self.hauteurs())
     }
 
     /// L'écriture canonique de l'état (voir la documentation du module).
     pub fn octets(&self) -> Vec<u8> {
-        todo!()
+        let mut octets = Vec::new();
+        octets.extend_from_slice(b"GIVRE2S0");
+        octets.push(self.modele.code());
+        octets.extend_from_slice(&(self.largeur as u32).to_le_bytes());
+        octets.extend_from_slice(&self.particules.to_le_bytes());
+        for &h in &self.hauteurs {
+            octets.extend_from_slice(&h.to_le_bytes());
+        }
+        octets.extend_from_slice(&self.alea.octets());
+        if self.modele == Modele::Eden {
+            todo!()
+        }
+        octets
     }
 
     /// L'empreinte de l'état : `empreinte::sha256_hex(&self.octets())` (64 chiffres hexadécimaux minuscules).
     pub fn empreinte(&self) -> String {
-        todo!()
+        crate::empreinte::sha256_hex(&self.octets())
     }
 }
 
@@ -316,9 +425,17 @@ impl Surface {
 /// # Panique
 ///
 /// Si `hauteurs` est vide.
-#[allow(unused_variables)]
 pub fn rugosite_exacte(hauteurs: &[u64]) -> (u128, u128) {
-    todo!()
+    assert!(!hauteurs.is_empty(), "un profil vide n'a pas de rugosité");
+    let l = hauteurs.len() as u128;
+    let mut s1: u128 = 0;
+    let mut s2: u128 = 0;
+    for &h in hauteurs {
+        let h = u128::from(h);
+        s1 += h;
+        s2 += h * h;
+    }
+    (l * s2 - s1 * s1, l * l)
 }
 
 /// `w²` de `hauteurs` : `numérateur as f64 / dénominateur as f64` pour `(numérateur, dénominateur) = rugosite_exacte(hauteurs)`.
@@ -326,9 +443,9 @@ pub fn rugosite_exacte(hauteurs: &[u64]) -> (u128, u128) {
 /// # Panique
 ///
 /// Si `hauteurs` est vide.
-#[allow(unused_variables)]
 pub fn rugosite_carre_de(hauteurs: &[u64]) -> f64 {
-    todo!()
+    let (numerateur, denominateur) = rugosite_exacte(hauteurs);
+    numerateur as f64 / denominateur as f64
 }
 
 /// `w` de `hauteurs` : `rugosite_carre_de(hauteurs).sqrt()`.
@@ -336,9 +453,8 @@ pub fn rugosite_carre_de(hauteurs: &[u64]) -> f64 {
 /// # Panique
 ///
 /// Si `hauteurs` est vide.
-#[allow(unused_variables)]
 pub fn rugosite_de(hauteurs: &[u64]) -> f64 {
-    todo!()
+    rugosite_carre_de(hauteurs).sqrt()
 }
 
 /// La variance de `w²` pour le dépôt aléatoire après `n` particules sur `l` colonnes : `Var(w²) = 2 n (n - 1) (l - 1) / l⁴`,
@@ -353,9 +469,10 @@ pub fn rugosite_de(hauteurs: &[u64]) -> f64 {
 /// # Panique
 ///
 /// Si `l` vaut 0.
-#[allow(unused_variables)]
 pub fn variance_rugosite_carre_depot(n: u64, l: u64) -> f64 {
-    todo!()
+    assert!(l != 0, "largeur nulle");
+    let l = l as f64;
+    2.0 * n as f64 * (n as f64 - 1.0) * (l - 1.0) / (l * l * l * l)
 }
 
 /// La pente des moindres carrés de `ys` contre `xs` : `Σ (x - x̄)(y - ȳ) / Σ (x - x̄)²`, avec `x̄ = (Σ x) / n` et `ȳ = (Σ y) / n`
