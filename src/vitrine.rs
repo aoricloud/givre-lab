@@ -4,8 +4,9 @@
 //! WebAssembly (`wasm32-unknown-unknown`, module sans importation). Chaque fonction `givre_*` est exportée sous son nom
 //! (`#[unsafe(no_mangle)] pub extern "C" fn`) et ne prend et ne rend que des nombres : un `u32` devient un `i32` côté
 //! WebAssembly (JavaScript le lit signé : `>>> 0` le relit non signé), un `f64` reste un `f64`. Il n'y a ni pointeur ni
-//! mémoire à manipuler côté JavaScript. **Onze fonctions, ni plus ni moins**, toutes de ce fichier ; aucune autre n'est
-//! exportée (le module exporte aussi `memory`, que la cible ajoute, et rien d'autre).
+//! mémoire à manipuler côté JavaScript. **Quinze fonctions, ni plus ni moins** (les onze de l'étape 5 et les quatre de l'étape Z1, voir
+//! « La mesure de la corrélation »), toutes de ce fichier ; aucune autre n'est exportée (le module exporte aussi `memory`, que la
+//! cible ajoute, et rien d'autre).
 //!
 //! **Aucune de ces fonctions ne panique, jamais** : une panique dans une `extern "C" fn` fait avorter le processus (le
 //! binaire de test tout entier, ou, en WebAssembly, une instruction `unreachable` que la page ne peut pas rattraper). Pas de
@@ -96,6 +97,33 @@
 //! Chaque appel recalcule l'empreinte de l'état (huit appels = huit SHA-256 de tout l'état) : la page ne la lit pas à chaque
 //! image.
 //!
+//! # La mesure de la corrélation (étape Z1)
+//!
+//! Quatre fonctions de plus, qui mesurent la dimension de l'amas de la DLA par la corrélation densité-densité de
+//! [`crate::correlation`] et rendent la courbe `C(r)` pour la page. Elles ne paniquent jamais non plus.
+//!
+//! - [`givre_mesurer`] mesure **l'amas du moment** (jamais à chaque image : le coût est en `O(n²)`) par
+//!   [`crate::correlation::mesure`] et garde le résultat (la fenêtre, les `C(r)` et la dimension). Elle rend le **nombre de points**
+//!   de la courbe, c'est-à-dire le nombre de rayons de la fenêtre (`mesure.rayons.len()`), ou **0 pour « pas de mesure »** : avant tout
+//!   démarrage, pour un modèle qui n'est pas la DLA (1, 2 ou 3), pour un amas trop petit (la fenêtre est vide, voir
+//!   [`crate::correlation::fenetre`] : une étendue de moins de 72, soit, pour la DLA, de 465 à 774 sites sur 40 graines mesurées), pour un amas de plus de
+//!   [`MESURE_SITES_MAX`] sites, ou si `mesure` rend `None`. Un appel qui rend 0 laisse « pas de mesure » (aucune mesure n'est
+//!   gardée).
+//! - [`givre_correlation_rayon`]`(i)` est le `i`-ième rayon de la fenêtre de la mesure gardée (`i` de 0 à `points - 1`, dans l'ordre
+//!   croissant : 4, 5, 6, …) ; [`givre_correlation_valeur`]`(i)` est le `C(r)` du même rang, **bit pour bit** celui de
+//!   [`crate::correlation::mesure`] ; [`givre_dimension`] est la dimension de la mesure gardée, bit pour bit celle de `mesure`.
+//!   Sans mesure gardée (y compris avant tout démarrage), ou pour `i >= points` : `givre_correlation_rayon` rend 0, `givre_correlation_valeur` et `givre_dimension`
+//!   rendent `NaN`.
+//! - **La mesure gardée appartient à l'amas qu'elle a mesuré** : [`givre_demarrer`] (qui reconstruit tout l'état) l'efface, et
+//!   [`givre_avancer`] l'efface dès qu'il joue **au moins une unité** ; un `givre_avancer` qui ne joue rien (scénario fini, `n = 0`) ne
+//!   l'efface pas.
+//! - [`MESURE_SITES_MAX`] (10 000) est le plafond de taille d'amas de la mesure dans la page. La DLA de la vitrine s'arrête à 3000
+//!   sites : le plafond n'est atteint par aucun modèle de la table ci-dessus, il garde la page vive si un modèle plus grand est ajouté.
+//!   Le temps de la mesure en natif (profil `release`, une graine) est de 0,008 s à 2000 sites, 0,040 s à 5000, 0,17 s à 10 000, 0,69 s à
+//!   20 000 et 1,67 s à 30 000 : il croît comme `n²`. Le module WebAssembly est plus lent d'un facteur qui n'a pas été mesuré (ni Node ni la
+//!   cible `wasm32-unknown-unknown` n'étaient là) : 10 000 sites laisse de la marge sur la seconde et demie visée, 20 000 sites n'en laisse
+//!   que si ce facteur est inférieur à 2 ; le plafond se relève sur une mesure du module.
+//!
 //! # Hors de portée
 //!
 //! [`givre_pixel`] rend `u32::MAX` hors de l'image ; [`givre_empreinte_mot`] rend 0 pour `i >= 8` ; [`givre_demarrer`] rend 0
@@ -142,6 +170,9 @@ struct Etat {
     duree: u32,
     image: Image,
 }
+
+/// Le plus grand amas que [`givre_mesurer`] mesure : 10 000 sites (voir « La mesure de la corrélation »).
+pub const MESURE_SITES_MAX: usize = 10_000;
 
 /// Le seul état de la vitrine ; `None` avant tout démarrage réussi.
 static ETAT: Mutex<Option<Etat>> = Mutex::new(None);
@@ -350,4 +381,34 @@ pub extern "C" fn givre_empreinte_mot(i: u32) -> u32 {
         Some([a, b, c, d]) => u32::from_be_bytes([*a, *b, *c, *d]),
         _ => 0,
     }
+}
+
+/// Mesure la dimension de l'amas du moment par la corrélation densité-densité, garde la courbe et rend son nombre de points ; 0 pour
+/// « pas de mesure » (voir « La mesure de la corrélation » : modèle autre que la DLA, amas trop petit ou de plus de
+/// [`MESURE_SITES_MAX`] sites, avant tout démarrage).
+#[unsafe(no_mangle)]
+pub extern "C" fn givre_mesurer() -> u32 {
+    todo!()
+}
+
+/// Le `i`-ième rayon de la fenêtre de la mesure gardée ; 0 sans mesure ou pour `i` hors de la courbe (voir « La mesure de la
+/// corrélation »).
+#[allow(unused_variables)]
+#[unsafe(no_mangle)]
+pub extern "C" fn givre_correlation_rayon(i: u32) -> u32 {
+    todo!()
+}
+
+/// Le `C(r)` du `i`-ième rayon de la mesure gardée, bit pour bit celui de `correlation::mesure` ; `NaN` sans mesure ou pour `i` hors
+/// de la courbe.
+#[allow(unused_variables)]
+#[unsafe(no_mangle)]
+pub extern "C" fn givre_correlation_valeur(i: u32) -> f64 {
+    todo!()
+}
+
+/// La dimension de la mesure gardée, bit pour bit celle de `correlation::mesure` ; `NaN` sans mesure.
+#[unsafe(no_mangle)]
+pub extern "C" fn givre_dimension() -> f64 {
+    todo!()
 }

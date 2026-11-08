@@ -169,6 +169,19 @@ pub const FONCTIONS: [(&str, &[u8], &[u8]); 11] = [
     ("givre_empreinte_mot", &[I32], &[I32]),
 ];
 
+/// Les quatre fonctions de mesure de l'étape Z1 (voir `src/vitrine.rs`, « La mesure de la corrélation »), avec leur signature. Le module et la
+/// page de l'étape 5 ne les ont pas : tant que la fonctionnalité `etape-z1` n'est pas active, les tests acceptent le module et la page tels
+/// qu'ils sont (les onze fonctions de `FONCTIONS`) ou étendus de ces quatre ; avec `etape-z1`, ils n'acceptent que l'étendu.
+pub const FONCTIONS_Z1: [(&str, &[u8], &[u8]); 4] = [
+    ("givre_mesurer", &[], &[I32]),
+    ("givre_correlation_rayon", &[I32], &[I32]),
+    ("givre_correlation_valeur", &[I32], &[F64]),
+    ("givre_dimension", &[], &[F64]),
+];
+
+/// Vrai quand la fonctionnalité `etape-z1` est active : le module et la page doivent alors avoir les quinze fonctions.
+pub const Z1_ACTIVE: bool = cfg!(feature = "etape-z1");
+
 /// Un lecteur d'octets avec une position.
 struct Lecteur<'a> {
     octets: &'a [u8],
