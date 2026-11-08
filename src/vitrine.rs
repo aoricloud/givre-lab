@@ -164,11 +164,13 @@ enum Modele {
     Flocon(Flocon),
 }
 
-/// L'état global : le modèle, la durée de son scénario et l'image de l'état courant (refaite quand l'état change).
+/// L'état global : le modèle, la durée de son scénario, l'image de l'état courant (refaite quand l'état change) et la mesure
+/// gardée de l'amas du moment (effacée dès que l'amas change).
 struct Etat {
     modele: Modele,
     duree: u32,
     image: Image,
+    mesure: Option<crate::correlation::Mesure>,
 }
 
 /// Le plus grand amas que [`givre_mesurer`] mesure : 10 000 sites (voir « La mesure de la corrélation »).
@@ -230,7 +232,7 @@ pub extern "C" fn givre_demarrer(modele: u32, graine: u32) -> u32 {
     let Some((modele, duree)) = construit else { return 0 };
     let image = image_de(&modele);
     let mut garde = verrouiller();
-    *garde = Some(Etat { modele, duree, image });
+    *garde = Some(Etat { modele, duree, image, mesure: None });
     1
 }
 
@@ -267,6 +269,7 @@ pub extern "C" fn givre_avancer(n: u32) -> u32 {
         }
     };
     if jouees > 0 {
+        etat.mesure = None;
         etat.image = image_de(&etat.modele);
     }
     jouees
@@ -388,7 +391,29 @@ pub extern "C" fn givre_empreinte_mot(i: u32) -> u32 {
 /// [`MESURE_SITES_MAX`] sites, avant tout démarrage).
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_mesurer() -> u32 {
-    todo!()
+    let mut garde = verrouiller();
+    let Some(etat) = garde.as_mut() else { return 0 };
+    let mesure = match &etat.modele {
+        Modele::Dla(amas) => {
+            if amas.sites().len() > MESURE_SITES_MAX {
+                None
+            } else {
+                crate::correlation::mesure(amas.sites())
+            }
+        }
+        Modele::Flocon(_) => None,
+    };
+    match mesure {
+        Some(mesure) => {
+            let points = mesure.rayons.len() as u32;
+            etat.mesure = Some(mesure);
+            points
+        }
+        None => {
+            etat.mesure = None;
+            0
+        }
+    }
 }
 
 /// Le `i`-ième rayon de la fenêtre de la mesure gardée ; 0 sans mesure ou pour `i` hors de la courbe (voir « La mesure de la
@@ -396,7 +421,9 @@ pub extern "C" fn givre_mesurer() -> u32 {
 #[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_correlation_rayon(i: u32) -> u32 {
-    todo!()
+    let garde = verrouiller();
+    let Some(etat) = garde.as_ref() else { return 0 };
+    etat.mesure.as_ref().and_then(|mesure| mesure.rayons.get(i as usize)).copied().unwrap_or(0)
 }
 
 /// Le `C(r)` du `i`-ième rayon de la mesure gardée, bit pour bit celui de `correlation::mesure` ; `NaN` sans mesure ou pour `i` hors
@@ -404,11 +431,15 @@ pub extern "C" fn givre_correlation_rayon(i: u32) -> u32 {
 #[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_correlation_valeur(i: u32) -> f64 {
-    todo!()
+    let garde = verrouiller();
+    let Some(etat) = garde.as_ref() else { return f64::NAN };
+    etat.mesure.as_ref().and_then(|mesure| mesure.valeurs.get(i as usize)).copied().unwrap_or(f64::NAN)
 }
 
 /// La dimension de la mesure gardée, bit pour bit celle de `correlation::mesure` ; `NaN` sans mesure.
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_dimension() -> f64 {
-    todo!()
+    let garde = verrouiller();
+    let Some(etat) = garde.as_ref() else { return f64::NAN };
+    etat.mesure.as_ref().map_or(f64::NAN, |mesure| mesure.dimension)
 }
