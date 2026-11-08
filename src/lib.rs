@@ -5,6 +5,7 @@
 pub mod alea;
 pub mod cinetique;
 pub mod dla;
+pub mod dla_variantes;
 pub mod empreinte;
 pub mod flocon;
 pub mod image;

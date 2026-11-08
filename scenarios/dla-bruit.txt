@@ -1,0 +1,5 @@
+# Une DLA à bruit réduit : un germe au centre d'une boîte de 301 sur 301, 1500 particules, un site au contact de l'amas ne se remplit
+# qu'après avoir été touché 4 fois (m = 4) : l'amas pousse quatre bras sur les axes.
+boite 301 301
+bruit 4
+dla 1500
