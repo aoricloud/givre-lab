@@ -60,6 +60,8 @@ Chaque étape a deux vagues : les tests, puis le code. Sa preuve est
 `cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check`. Les tolérances sont fixées par le juge
 des tests, sur un prototype honnête.
 
+**État au 08/11 : les six étapes sont fusionnées**, chacune avec sa preuve et sa section « Ce que cela n'établit pas » dans `MODELE.md`. Les écarts sont dits là : l'étape 3 ne reprend pas le bord circulaire de l'auteur ; l'étape 4 est un Metropolis à une particule, pas la cinétique de Gilmer et Bennema ; la page de l'étape 5 n'est éprouvée dans un navigateur que par sa forme et un coup d'œil humain.
+
 | Étape | Ce qu'elle fait | Sa preuve | Ce qu'on voit |
 |---|---|---|---|
 | 0, le socle | `alea`, `reseau`, `math`, `scenario`, `empreinte`, `image` et le binaire qui lance un scénario vide | même graine, même empreinte, sous les deux systèmes ; deux graines, deux empreintes ; PNG relu octet par octet ; les tables de `math` égales à leurs valeurs écrites | la graine seule |
@@ -151,5 +153,5 @@ Chacune se vérifie sur l'article avant qu'un test la fige.
 ## Les gestes de l'humain
 
 Faits, une fois : le dépôt, public, sous MIT ; la règle de `main` et l'auto-fusion ; un jeton limité à lui ; la première
-PR (la CI et `auto-fusion.yml`). Reste : ouvrir Pages pour la vitrine. Plus aucune fusion ensuite ; son œil revient
+PR (la CI et `auto-fusion.yml`). Reste : ouvrir Pages pour la vitrine (la page est dans `docs/` ; on publie le dossier `/docs` de la branche `main`). Plus aucune fusion ensuite ; son œil revient
 après coup.
