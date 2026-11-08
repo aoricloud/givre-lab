@@ -208,6 +208,10 @@ pub struct Surface {
     /// Eden : l'état de chaque site, rangée par rangée (`y * largeur + x`) : 0 vide, 1 périmètre, 2 occupé ; la grille
     /// grandit à la demande (les rangées absentes sont vides).
     cases: Vec<u8>,
+    /// Eden : pour chaque site du périmètre, sa place dans `perimetre`, à l'indice `y * largeur + x` (même disposition que
+    /// `cases`) ; la valeur d'un site qui n'est pas dans le périmètre n'est pas lue. C'est ce qui garde un `swap_remove(k)`
+    /// en temps constant.
+    positions: Vec<u32>,
     /// Eden : le périmètre, dans l'ordre du `Vec` de la documentation du module.
     perimetre: Vec<(usize, usize)>,
 }
@@ -222,9 +226,19 @@ impl Surface {
     /// Si `largeur` vaut 0 ou dépasse [`LARGEUR_MAX`].
     pub fn new(modele: Modele, largeur: usize, graine: u64) -> Surface {
         assert!(largeur != 0 && largeur <= LARGEUR_MAX, "largeur hors de 1..=LARGEUR_MAX");
-        let perimetre = match modele {
-            Modele::Eden => todo!(),
-            _ => Vec::new(),
+        let (cases, positions, perimetre) = match modele {
+            Modele::Eden => {
+                let mut cases = vec![0_u8; largeur];
+                let mut positions = vec![0_u32; largeur];
+                let mut perimetre = Vec::with_capacity(largeur);
+                for x in 0..largeur {
+                    cases[x] = 1;
+                    positions[x] = x as u32;
+                    perimetre.push((x, 0));
+                }
+                (cases, positions, perimetre)
+            }
+            _ => (Vec::new(), Vec::new(), Vec::new()),
         };
         Surface {
             modele,
@@ -232,7 +246,8 @@ impl Surface {
             alea: Alea::new(graine),
             particules: 0,
             hauteurs: vec![0; largeur],
-            cases: Vec::new(),
+            cases,
+            positions,
             perimetre,
         }
     }
@@ -255,6 +270,7 @@ impl Surface {
             particules,
             hauteurs: hauteurs.to_vec(),
             cases: Vec::new(),
+            positions: Vec::new(),
             perimetre: Vec::new(),
         }
     }
@@ -281,17 +297,14 @@ impl Surface {
 
     /// Les `L` hauteurs `h[0..L]`. Pour Eden : le profil du dessus (voir la documentation du module).
     pub fn hauteurs(&self) -> Vec<u64> {
-        match self.modele {
-            Modele::Eden => todo!(),
-            _ => self.hauteurs.clone(),
-        }
+        self.hauteurs.clone()
     }
 
     /// Un pas : tire le choix du modèle (`k = borne(len(périmètre))` pour Eden, sinon `i = borne(L)`) puis fait
     /// [`Surface::appliquer`]. Le premier tirage est donc toujours un appel à `Alea::borne`.
     pub fn deposer(&mut self) {
         let choix = match self.modele {
-            Modele::Eden => todo!(),
+            Modele::Eden => self.alea.borne(self.perimetre.len() as u32) as usize,
             _ => self.alea.borne(self.largeur as u32) as usize,
         };
         self.appliquer(choix);
@@ -315,7 +328,50 @@ impl Surface {
     /// `HAUTEUR_EDEN` ou au-dessus.
     pub fn appliquer(&mut self, choix: usize) {
         match self.modele {
-            Modele::Eden => todo!(),
+            Modele::Eden => {
+                assert!(choix < self.perimetre.len(), "indice hors du périmètre");
+                let l = self.largeur;
+                let k = choix;
+                let site = self.perimetre[k];
+                let dernier = self.perimetre.len() - 1;
+                let deplace = self.perimetre[dernier];
+                if k != dernier {
+                    self.perimetre.swap(k, dernier);
+                    self.positions[deplace.1 * l + deplace.0] = k as u32;
+                }
+                self.perimetre.pop();
+
+                let (x, y) = site;
+                self.assurer_rangee(y);
+                self.cases[y * l + x] = 2;
+                if y as u64 + 1 > self.hauteurs[x] {
+                    self.hauteurs[x] = y as u64 + 1;
+                }
+
+                // Les voisins, dans l'ordre de la documentation : (x + 1, y), (x, y + 1), (x - 1, y), (x, y - 1).
+                let voisins = [((x + 1) % l, y), (x, y + 1), ((x + l - 1) % l, y)];
+                for (vx, vy) in voisins {
+                    if vy >= HAUTEUR_EDEN {
+                        panic!("capacité d'Eden dépassée");
+                    }
+                    self.assurer_rangee(vy);
+                    let indice = vy * l + vx;
+                    if self.cases[indice] == 0 {
+                        self.cases[indice] = 1;
+                        self.positions[indice] = self.perimetre.len() as u32;
+                        self.perimetre.push((vx, vy));
+                    }
+                }
+                if y > 0 {
+                    let vy = y - 1;
+                    let indice = vy * l + x;
+                    if self.cases[indice] == 0 {
+                        self.cases[indice] = 1;
+                        self.positions[indice] = self.perimetre.len() as u32;
+                        self.perimetre.push((x, vy));
+                    }
+                }
+            }
             Modele::Depot => {
                 assert!(choix < self.largeur, "colonne hors bande");
                 self.hauteurs[choix] += 1;
@@ -363,10 +419,19 @@ impl Surface {
         self.particules += 1;
     }
 
+    /// Eden : s'assure que les rangées `0..=y` existent dans `cases` et `positions` (les rangées absentes sont vides).
+    fn assurer_rangee(&mut self, y: usize) {
+        let besoin = (y + 1) * self.largeur;
+        if self.cases.len() < besoin {
+            self.cases.resize(besoin, 0);
+            self.positions.resize(besoin, 0);
+        }
+    }
+
     /// Le périmètre d'Eden, dans l'ordre du `Vec` de la documentation du module (une copie). Vide pour les trois autres modèles.
     pub fn perimetre(&self) -> Vec<(usize, usize)> {
         match self.modele {
-            Modele::Eden => todo!(),
+            Modele::Eden => self.perimetre.clone(),
             _ => Vec::new(),
         }
     }
@@ -380,7 +445,10 @@ impl Surface {
     pub fn occupe(&self, x: usize, y: usize) -> bool {
         assert!(x < self.largeur, "colonne hors bande");
         match self.modele {
-            Modele::Eden => todo!(),
+            Modele::Eden => {
+                let indice = y.checked_mul(self.largeur).and_then(|i| i.checked_add(x));
+                matches!(indice, Some(i) if i < self.cases.len() && self.cases[i] == 2)
+            }
             _ => (y as u64) < self.hauteurs[x],
         }
     }
@@ -407,7 +475,18 @@ impl Surface {
         }
         octets.extend_from_slice(&self.alea.octets());
         if self.modele == Modele::Eden {
-            todo!()
+            octets.extend_from_slice(&(self.perimetre.len() as u32).to_le_bytes());
+            for &(x, y) in &self.perimetre {
+                octets.extend_from_slice(&(x as u32).to_le_bytes());
+                octets.extend_from_slice(&(y as u32).to_le_bytes());
+            }
+            let r = *self.hauteurs.iter().max().expect("une surface a au moins une colonne");
+            octets.extend_from_slice(&(r as u32).to_le_bytes());
+            for y in 0..r as usize {
+                for x in 0..self.largeur {
+                    octets.push(u8::from(self.cases[y * self.largeur + x] == 2));
+                }
+            }
         }
         octets
     }
