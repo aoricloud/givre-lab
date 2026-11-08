@@ -8,9 +8,9 @@
 //! la préimpression de l'auteur (Lafayette College, `webbox.lafayette.edu/~reiterc/mvp/sfn/sfn_pp.pdf`), sections
 //! « Model and Parameter Diagram » et « Variation on Diffusion », et sa page de matériaux auxiliaires
 //! (`webbox.lafayette.edu/~reiterc/mvp/sfn/index.html`, tables β-γ des rayons 100, 200, 400), et le script J de l'auteur
-//! (`.../sfn/sfn.html`, `sfn.ijs` : fonctions `dla` et `mk_dla`), qui fait ce qui suit (en flottants, avec un bord circulaire : voir « Ce que le modèle n'est pas »). Les règles ci-dessous en sont
-//! la lecture : cellule glacée si sa valeur est au moins 1 ; cellules réceptives = glacées et leurs voisines ; une cellule
-//! réceptive garde sa valeur et reçoit la constante γ ; les autres diffusent ; fond β ; bord maintenu à β ; poids de la
+//! (`.../sfn/sfn.html`, `sfn.ijs` : fonctions `dla` et `mk_dla`), qui fait ce qui suit (en flottants, avec un bord circulaire : voir « Le bord » et « Ce que le modèle n'est pas »). Les règles
+//! ci-dessous en sont la lecture : cellule glacée si sa valeur est au moins 1 ; cellules réceptives = glacées et leurs voisines ;
+//! une cellule réceptive garde sa valeur et reçoit la constante γ ; les autres diffusent ; fond β ; bord maintenu à β ; poids de la
 //! diffusion : centre `1 - α/2`, voisines `α/12` (α = 1 : centre 1/2, voisines 1/12, le modèle de l'article).
 //!
 //! # L'état
@@ -24,7 +24,46 @@
 //! `0 <= β < 1`) et `gamma` (la masse ajoutée par pas aux cellules réceptives, `0 <= γ <= 1`).
 //!
 //! L'**état initial** de [`Flocon::new`] : toutes les cases valent `β`, sauf la case centrale `(0, 0)` qui vaut 1
-//! ([`Fixe::UN`]) : un germe de glace.
+//! ([`Fixe::UN`]) : un germe de glace. Celui de [`Flocon::avec_bord`] est le même, quel que soit le [`Bord`] (le bord vaut `β`
+//! comme tout le fond ; le centre n'est jamais du bord, car `distance2(0, 0) = 0`).
+//!
+//! # Le bord
+//!
+//! Un flocon a un [`Bord`], choisi à la construction : [`Flocon::avec_bord`] le reçoit ; [`Flocon::new`] et
+//! [`Flocon::depuis_masses`] prennent [`Bord::Hexagonal`] ; [`Flocon::bord`] le rend. Le **bord** d'un flocon est l'ensemble des
+//! cases de l'hexagone qui sont **remises à `β` à chaque pas** (l'étape 4 de « Un pas ») ; toutes les autres cases diffusent
+//! (l'étape 3). Il dépend du bord choisi et du rayon `R` :
+//!
+//! - [`Bord::Hexagonal`] : la **couronne**, les cases à distance hexagonale exactement `R` du centre.
+//! - [`Bord::Circulaire`] : les cases de l'hexagone dont `4 · distance2(q, r) >= 3 · R²` (une comparaison **large** : l'égalité est
+//!   dans le bord), où [`distance2`]`(q, r) = q² + q r + r²`. Sur la grille hexagonale où deux cases voisines sont à distance 1,
+//!   la case `(q, r)` est au point `x = q + r/2`, `y = r sin 60°`, donc à la distance euclidienne `d` du centre avec
+//!   `d² = x² + y² = q² + q r + r²` : un **entier exact**, sans flottant. Comme `sin² 60° = 3/4`, la condition dit
+//!   `d >= R sin 60°` : le cercle de rayon `R sin 60°` (le rayon du plus grand disque contenu dans l'hexagone). C'est le bord de
+//!   l'auteur (pour `R = 100` : `distance2 >= 7500`, le `ocir` de son script `sfn.ijs`, voir « Ce que le modèle n'est pas »).
+//!   La règle est cette comparaison d'**entiers** (exacte en `u64` pour tout rayon permis) : jamais une racine ni un flottant
+//!   (`AGENTS.md` : des entiers là où une symétrie doit être exacte ; une racine en `f64` comparée à `R sin 60°` peut se tromper
+//!   d'une case à l'égalité pour de grands `R`).
+//!
+//! Trois faits, vrais pour tout `R >= 1`, qui rendent le modèle bien défini :
+//!
+//! 1. **La couronne est contenue dans le bord circulaire.** Avec `s = -q - r`, on a `q² + q r + r² = (q² + r² + s²) / 2`
+//!    (car `s² = q² + 2 q r + r²`). Si `h = max(|q|, |r|, |s|)` est la distance hexagonale, les deux autres coordonnées ont des valeurs
+//!    absolues dont la somme est au moins `h` (puisque `q + r + s = 0`), donc des carrés dont la somme est au moins `h² / 2` ;
+//!    d'où `distance2 >= (h² + h² / 2) / 2 = 3 h² / 4`, soit `4 · distance2 >= 3 h²`. Pour `h = R`, la case est dans le bord
+//!    circulaire (avec égalité aux milieux des côtés : `(R/2, R/2)` pour `R` pair, `4 · distance2 = 3 R²` exactement).
+//! 2. **Une case qui n'est pas du bord a ses six voisins dans l'hexagone**, pour les deux bords : elle n'est pas dans la couronne
+//!    (qui est dans les deux bords), donc sa distance hexagonale est au plus `R - 1`, et ses voisins sont à distance au plus `R`.
+//!    C'est ce qui permet de faire diffuser **toutes** les cases hors du bord sans sortir de l'hexagone.
+//! 3. **Pour `R <= 7` les deux bords sont le même ensemble** (le bord circulaire est la couronne) ; pour `R >= 8` le bord
+//!    circulaire a **plus** de cases que la couronne (6 de plus pour `R` de 8 à 10, 18 de plus pour `R` de 11 à 13, 30 de plus
+//!    pour `R = 14` : des cases de la rangée de distance `R - 1`, les plus éloignées du centre ; la case `(R - 1, 0)` en est
+//!    une dès que `4 (R - 1)² >= 3 R²`, soit `R >= 8`). Pour `R = 100`, le bord circulaire est ce qui est hors du disque de
+//!    rayon `86,6` dans l'hexagone.
+//!
+//! Le bord n'est qu'un ensemble de cases : la symétrie d'ordre 6 et la symétrie miroir restent **exactes** avec le bord
+//! circulaire, car `distance2` est invariante par les douze symétries de l'hexagone (par exemple
+//! `distance2(-r, q + r) = distance2(r, q) = distance2(q, r)`), donc le bord est stable par ces symétries.
 //!
 //! # Les classes de cellules
 //!
@@ -36,8 +75,9 @@
 //!   extérieure n'a que 3 ou 4 voisins ; un voisin hors de l'hexagone n'existe pas et ne compte pour rien) ;
 //! - **non réceptive** sinon.
 //!
-//! Une cellule est **réceptive** si elle est gelée ou de bord. La classe se calcule pour **toutes** les cases, couronne
-//! comprise, à partir des masses seules.
+//! Une cellule est **réceptive** si elle est gelée ou de bord. La classe se calcule pour **toutes** les cases, bord compris, à
+//! partir des masses seules ; le bord du flocon (voir « Le bord ») ne change pas les classes. Attention au mot : une cellule « de
+//! bord » (une classe) est voisine d'une gelée ; une case « du bord » (le bord du flocon) est remise à `β` à chaque pas.
 //!
 //! # Un pas, à la lettre
 //!
@@ -46,10 +86,11 @@
 //!
 //! 1. la classe de chaque case (voir plus haut) ;
 //! 2. `u(x) = s(x)` si `x` est non réceptive, `0` sinon (la masse qui diffuse) ;
-//! 3. pour chaque case `x` à distance hexagonale **strictement inférieure à `R`** du centre (ses six voisins sont alors
-//!    tous dans l'hexagone), avec `Fixe` pour la virgule fixe :
+//! 3. pour chaque case `x` **qui n'est pas du bord** du flocon (voir « Le bord » : pour le bord hexagonal, les cases à distance
+//!    hexagonale **strictement inférieure à `R`** ; leurs six voisins sont alors tous dans l'hexagone, pour les deux bords),
+//!    avec `Fixe` pour la virgule fixe :
 //!    - `somme(x)` = la somme **exacte** des six `u(voisin)` (des entiers : les `brut` s'ajoutent, dans n'importe quel ordre
-//!      ; l'inclusion de la couronne est voulue) ;
+//!      ; l'inclusion du bord est voulue : un voisin du bord y compte pour la masse que le bord avait avant ce pas) ;
 //!    - `moyenne(x) = Fixe(somme).div_entier(6)` (arrondi au plus proche, demi-cas vers `+∞`, comme [`Fixe::div_entier`]) ;
 //!    - `ecart(x) = moyenne(x) - Fixe(u(x))` ;
 //!    - `diffusion(x) = (alpha * ecart(x)).div_entier(2)` : d'abord le produit `Fixe * Fixe` (arrondi comme l'opérateur
@@ -57,16 +98,16 @@
 //!    - si `x` est non réceptive : `s'(x) = u(x) + diffusion(x)` ;
 //!    - si `x` est réceptive (gelée ou de bord) : `s'(x) = s(x) + gamma + diffusion(x)` (elle garde sa masse, reçoit `γ`,
 //!      et reçoit la diffusion de ses voisines non réceptives : pour elle `u(x) = 0`) ;
-//! 4. pour chaque case à distance hexagonale **exactement `R`** (la **couronne** extérieure : les cases du bord de
-//!    l'hexagone) : `s'(x) = beta`. C'est la condition au bord de Reiter (le fond est maintenu à β sur le bord) ; la
-//!    couronne est remise à `β` à **chaque** pas, même si elle valait autre chose. Les masses de la couronne servent
-//!    donc de valeur aux voisines avant d'être écrasées ;
+//! 4. pour chaque case **du bord** du flocon (pour le bord hexagonal : la **couronne** extérieure, les cases à distance
+//!    hexagonale **exactement `R`**) : `s'(x) = beta`. C'est la condition au bord de Reiter (le fond est maintenu à β sur le
+//!    bord) ; le bord est remis à `β` à **chaque** pas, même s'il valait autre chose. Les masses du bord servent donc de valeur
+//!    aux voisines avant d'être écrasées ;
 //! 5. le temps augmente de 1.
 //!
 //! Toutes les additions sont exactes sur les `brut` ; seuls trois arrondis existent, dans l'ordre : la moyenne (`/6`), le
 //! produit par `alpha`, la division par 2. Pour `0 <= α <= 2`, une masse ne devient jamais négative (le produit arrondi
 //! `alpha * ecart` vaut au moins `-2 u`, donc `diffusion >= -u`). Le modèle conserve la masse, à l'arrondi près, hors la
-//! constante `γ` (une par cellule réceptive et par pas) et le bord : la diffusion d'une cellule non réceptive donne à chacune
+//! constante `γ` (une par cellule réceptive et par pas) et le bord (remis à `β`) : la diffusion d'une cellule non réceptive donne à chacune
 //! de ses six voisines `α/12` de sa masse et garde `1 - α/2`.
 //!
 //! Remarque de calcul (non imposée) : les `brut` des masses réelles restent très au-dessous de `2^60`, la somme des six
@@ -75,10 +116,14 @@
 //!
 //! # Les mesures
 //!
-//! - [`Flocon::gelees`] : le nombre de cases gelées (couronne comprise : une case de la couronne gelée par
-//!   [`Flocon::depuis_masses`] compte jusqu'au prochain pas).
+//! - [`Flocon::gelees`] : le nombre de cases gelées (bord compris : une case du bord gelée par
+//!   [`Flocon::depuis_masses`] ou [`Flocon::avec_bord_et_masses`] compte jusqu'au prochain pas).
 //! - [`Flocon::rayon_cristal`] : la plus grande distance hexagonale `distance_hex((0, 0), case)` d'une case gelée au centre
 //!   ; 0 s'il n'y a aucune case gelée ou seulement le centre.
+//! - [`Flocon::distance2_cristal`] : le plus grand [`distance2`]`(q, r)` d'une case gelée ; 0 s'il n'y a aucune case gelée ou
+//!   seulement le centre (qui vaut 0). C'est la mesure d'arrêt de l'auteur (voir « Ce que le modèle n'est pas ») : elle ne dépend
+//!   pas du bord du flocon. Ce n'est pas `rayon_cristal` : une case gelée à distance hexagonale `h` a `4 · distance2 >= 3 · h²`,
+//!   avec égalité seulement au milieu d'un côté.
 //! - [`Flocon::compacite`] : `gelées / cases de l'hexagone de rayon rayon_cristal`, où cet hexagone a `3 r (r + 1) + 1`
 //!   cases (`r` = le rayon du cristal) : `Fixe::rapport(gelees, 3 r (r + 1) + 1)`. Elle vaut 1 pour un hexagone plein (une
 //!   plaque), environ 0,2 pour une dendrite fine à rayon 50.
@@ -96,7 +141,8 @@
 //!
 //! ```text
 //! 8 octets   l'étiquette ASCII "GIVRE003"
-//! 1 octet    1 (la forme : un hexagone, comme à l'étape 0)
+//! 1 octet    la forme : 1 pour un hexagone à bord hexagonal ([`Bord::Hexagonal`], comme à l'étape 0), 2 pour un hexagone à
+//!            bord circulaire ([`Bord::Circulaire`])
 //! 4 octets   le rayon R de l'hexagone, en u32
 //! 24 octets  alpha.brut, beta.brut, gamma.brut, chacun en i64 (8 octets)
 //! 8 octets   le temps (le nombre de pas faits), en u64
@@ -105,7 +151,8 @@
 //!
 //! Soit `45 + 8 * cases` octets. Il n'y a **aucune graine** dans l'écriture (aucun hasard) : deux lancers du même scénario
 //! avec deux graines donnent la même empreinte. Deux jeux de paramètres, deux rayons, deux temps ou deux états différents
-//! donnent deux écritures différentes.
+//! donnent deux écritures différentes ; deux flocons qui ne diffèrent que par le bord aussi (l'octet de forme). L'écriture d'un
+//! flocon à bord hexagonal est, à l'octet, celle d'avant l'ajout du bord circulaire.
 //!
 //! # L'aperçu
 //!
@@ -142,17 +189,20 @@
 //!
 //! # Ce que le modèle n'est pas
 //!
-//! Le bord de Reiter est un cercle euclidien ; ici c'est la couronne de l'hexagone (la symétrie d'ordre 6 est exacte dans
-//! les deux cas ; la couronne hexagonale tient dans un entier). Pour les tables de l'auteur, son script (`sfn.ijs`, page
-//! auxiliaire) fixe à `β` les cases à distance euclidienne au moins `100 sin 60° ≈ 86,6` du germe pour une « région de rayon
-//! 100 », et s'arrête quand la glace atteint `98 sin 60° ≈ 84,9`. **Valeur publiée non atteinte, cause établie** : la table de
-//! Reiter (région de rayon 100) est reproduite **exactement** par ce modèle sur un hexagone de rayon 100 pour 160 des 219 cases non
-//! plafonnées (toutes celles où `β >= 0,55` ou `γ >= 0,1`) ; pour `β <= 0,5` et `γ <= 0,05` ce modèle met 0,1 à 4,9 % de pas en plus,
-//! parce que sa couronne est plus loin des pointes que le cercle de 86,6 de l'auteur (avec la géométrie de l'auteur et les mêmes
-//! règles, les 240 cases sont retrouvées : voir `references/etape-3-valeurs.md`). Pour un rayon d'hexagone d'au moins 96 le bord ne
-//! change plus la croissance d'une dendrite jusqu'au rayon 85 (mesuré sur β = 0,35 et γ = 0 : même temps de 96 à 160). Le modèle
-//! est 2D et sans fusion ni sublimation ; il n'est pas une simulation de la physique (Reiter le dit lui-même). Les `α > 2` que
-//! l'article essaie (2,003 ; 2,69 : le poids du centre est négatif) sont hors du modèle.
+//! Le bord de Reiter est un cercle euclidien. Le bord par défaut ici ([`Bord::Hexagonal`], celui de [`Flocon::new`]) est la
+//! couronne de l'hexagone (la symétrie d'ordre 6 est exacte dans les deux cas ; la couronne tient dans un entier) : ce n'est pas
+//! le cercle de l'auteur. Pour ses tables, son script (`sfn.ijs`, page auxiliaire) fixe à `β` les cases à distance euclidienne au
+//! moins `100 sin 60° ≈ 86,6` du germe pour une « région de rayon 100 » (`distance2 >= 7500`), et s'arrête quand la glace atteint
+//! `98 sin 60° ≈ 84,9` (`distance2 >= 7203`, voir [`Flocon::distance2_cristal`]). [`Bord::Circulaire`] est cette option, en
+//! entiers (`4 · distance2 >= 3 R²`) : **avec elle, les 240 cases de la table de Reiter (région de rayon 100, `α = 1`) sont
+//! retrouvées exactement** (les 219 numéros non plafonnés, et les 21 cases plafonnées à 9999 sans arrêt avant le 10000e pas ; mesuré
+//! par `tests/etape_3c_table.rs`). Le bord hexagonal n'en retrouve que **181 sur 240** (160 non plafonnées et les 21 plafonnées,
+//! avec l'arrêt à `distance2 >= 7203` comme avec l'arrêt au rayon hexagonal 85) : les 59 « dendrites lentes » (`β <= 0,5` et
+//! `γ <= 0,05`) y ont 0,1 à 4,9 % de pas en plus, parce que la couronne est plus loin des pointes que le cercle de 86,6 de l'auteur
+//! (la cause est le bord, ni une règle ni un arrondi : voir `references/etape-3-valeurs.md`). Pour un rayon d'hexagone d'au moins
+//! 96 le bord hexagonal ne change plus la croissance d'une dendrite jusqu'au rayon 85 (mesuré sur β = 0,35 et γ = 0 : même temps de
+//! 96 à 160). Le modèle est 2D et sans fusion ni sublimation ; il n'est pas une simulation de la physique (Reiter le dit lui-même).
+//! Les `α > 2` que l'article essaie (2,003 ; 2,69 : le poids du centre est négatif) sont hors du modèle.
 
 use crate::empreinte::sha256_hex;
 use crate::image;
@@ -271,6 +321,26 @@ pub enum Etat {
     Gelee,
 }
 
+/// Le bord d'un flocon : l'ensemble des cases remises à `β` à chaque pas (voir « Le bord » dans la documentation du module).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bord {
+    /// La couronne : les cases à distance hexagonale exactement `R` du centre. C'est le bord de [`Flocon::new`].
+    Hexagonal,
+    /// Les cases de l'hexagone avec `4 · distance2(q, r) >= 3 · R²` : hors du cercle de rayon `R sin 60°`, comme l'auteur.
+    Circulaire,
+}
+
+/// Le carré de la distance euclidienne de la case `(q, r)` au centre, quand deux cases voisines sont à distance 1 : `q² + q r +
+/// r²` (la case est au point `x = q + r/2`, `y = r sin 60°`, et `x² + y² = q² + q r + r²`). Un entier **exact**, jamais négatif,
+/// sans flottant ; il vaut 0 au centre et 1 aux six voisins du centre ; `distance2(3, 4) = 9 + 12 + 16 = 37` ;
+/// `distance2(3, -4) = 9 - 12 + 16 = 13`. Il est invariant par les douze symétries de l'hexagone (rotations de 60° et
+/// réflexions) et pair en `(q, r) -> (-q, -r)`. Exact **pour tous** les `i32` (pas de débordement : `distance2(i32::MIN,
+/// i32::MIN) = 3 · 2^62`).
+#[allow(unused_variables)]
+pub fn distance2(q: i32, r: i32) -> u64 {
+    todo!()
+}
+
 /// Un flocon de Reiter : un hexagone de masses, ses paramètres et son temps (voir la documentation du module). Les champs
 /// sont privés : seul le contrat des fonctions compte.
 #[derive(Clone, Debug)]
@@ -296,7 +366,8 @@ pub struct Flocon {
 
 impl Flocon {
     /// Le flocon de l'état initial (voir « L'état ») sur l'hexagone de rayon `rayon`, au temps 0 : toutes les masses valent
-    /// `parametres.beta`, sauf la case `(0, 0)` qui vaut `Fixe::UN`.
+    /// `parametres.beta`, sauf la case `(0, 0)` qui vaut `Fixe::UN`. Son bord est [`Bord::Hexagonal`] : c'est exactement
+    /// `Flocon::avec_bord(rayon, parametres, Bord::Hexagonal)` (même état, même écriture canonique, même empreinte, mêmes pas).
     ///
     /// # Panique
     ///
@@ -309,6 +380,18 @@ impl Flocon {
         let mut masses = vec![parametres.beta; hexagone.cases()];
         masses[hexagone.index(0, 0)] = Fixe::UN;
         Flocon::construire(hexagone, parametres, masses)
+    }
+
+    /// Le flocon de l'état initial (voir « L'état ») avec le bord `bord` : comme [`Flocon::new`], dont le bord est
+    /// [`Bord::Hexagonal`], mais les cases du bord sont celles de « Le bord » pour ce `bord` et ce `rayon`. Au temps 0, le bord
+    /// vaut `β` comme tout le fond. [`Flocon::bord`] rend `bord`.
+    ///
+    /// # Panique
+    ///
+    /// Si `rayon` est 0 (ou plus de 32768), ou si les paramètres ne sont pas valides ([`Parametres::sont_valides`]).
+    #[allow(unused_variables)]
+    pub fn avec_bord(rayon: u32, parametres: Parametres, bord: Bord) -> Flocon {
+        todo!()
     }
 
     /// Construit un flocon et ses tables à partir d'un état déjà rangé dans l'ordre canonique.
@@ -349,7 +432,7 @@ impl Flocon {
         }
     }
 
-    /// Un flocon d'état quelconque : `masses` donne la masse de chaque case **dans l'ordre canonique** de
+    /// Un flocon d'état quelconque à bord hexagonal : `masses` donne la masse de chaque case **dans l'ordre canonique** de
     /// [`Hexagone`] (`masses[Hexagone::new(rayon).index(q, r)]` est la masse de `(q, r)`), au temps 0. Les masses de la
     /// couronne sont prises telles quelles (elles ne sont remises à `β` qu'au premier pas). Sert à poser une configuration
     /// à la main.
@@ -368,6 +451,36 @@ impl Flocon {
             assert!(masse.0 < (1_i64 << 60), "masse de 2^60 brut ou plus");
         }
         Flocon::construire(hexagone, parametres, masses.to_vec())
+    }
+
+    /// Comme [`Flocon::depuis_masses`] (mêmes masses dans l'ordre canonique, au temps 0, mêmes paniques), mais avec le bord
+    /// `bord` : les masses du bord sont prises telles quelles (elles ne sont remises à `β` qu'au premier pas). Sert à poser une
+    /// configuration à la main pour un bord quelconque ; `depuis_masses(r, p, m)` est
+    /// `avec_bord_et_masses(r, p, Bord::Hexagonal, m)`.
+    ///
+    /// # Panique
+    ///
+    /// Comme [`Flocon::depuis_masses`] : si `rayon` est 0 ou trop grand, si les paramètres ne sont pas valides, si
+    /// `masses.len()` n'est pas le nombre de cases de l'hexagone, ou si une masse est négative ou vaut `2^60` en `brut` (ou plus).
+    #[allow(unused_variables)]
+    pub fn avec_bord_et_masses(rayon: u32, parametres: Parametres, bord: Bord, masses: &[Fixe]) -> Flocon {
+        todo!()
+    }
+
+    /// Le bord du flocon, tel qu'il a été choisi à la construction ([`Bord::Hexagonal`] pour [`Flocon::new`] et
+    /// [`Flocon::depuis_masses`]). Il ne change jamais.
+    #[allow(unused_variables)]
+    pub fn bord(&self) -> Bord {
+        todo!()
+    }
+
+    /// Vrai si la case `(q, r)` est **du bord** du flocon (voir « Le bord » : remise à `β` à chaque pas) : pour
+    /// [`Bord::Hexagonal`], si sa distance hexagonale au centre vaut exactement `R` ; pour [`Bord::Circulaire`], si elle est dans
+    /// l'hexagone et si `4 · distance2(q, r) >= 3 · R²`. Une case **hors de l'hexagone** n'est pas du bord (faux, sans panique,
+    /// pour tous les `i32`) ; le centre n'est jamais du bord.
+    #[allow(unused_variables)]
+    pub fn est_du_bord(&self, q: i32, r: i32) -> bool {
+        todo!()
     }
 
     /// Le rayon `R` de l'hexagone.
@@ -488,6 +601,17 @@ impl Flocon {
             }
         }
         rayon
+    }
+
+    /// Le plus grand [`distance2`]`(q, r)` d'une case gelée (masse au moins 1), 0 s'il n'y a aucune case gelée ou seulement le
+    /// centre. C'est la mesure d'arrêt de l'auteur : il s'arrête dès que `distance2_cristal() >= 7203` pour une région de rayon
+    /// 100 (en général dès que `4 · distance2_cristal() >= 3 · (R - 2)²`). Elle ne dépend pas du bord du flocon, et compte les
+    /// cases du bord qui sont gelées (par exemple posées par [`Flocon::avec_bord_et_masses`]). Le test de la table de Reiter l'appelle
+    /// à chaque pas d'un hexagone de rayon 100 (30 301 cases, jusqu'à 10 000 pas) : un appel doit coûter de l'ordre d'un pas (un seul
+    /// parcours des masses, aucune allocation, pas de recherche par case).
+    #[allow(unused_variables)]
+    pub fn distance2_cristal(&self) -> u64 {
+        todo!()
     }
 
     /// La compacité : `Fixe::rapport(gelees, 3 r (r + 1) + 1)` avec `r = rayon_cristal()` (voir « Les mesures »).
