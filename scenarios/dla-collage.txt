@@ -1,0 +1,5 @@
+# Une DLA à probabilité de collage réduite : un germe au centre d'une boîte de 301 sur 301, 2000 particules, un marcheur qui touche
+# l'amas ne colle qu'une fois sur dix (p = 0,1) : les branches s'épaississent.
+boite 301 301
+collage 0.1
+dla 2000
