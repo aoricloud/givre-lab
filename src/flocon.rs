@@ -154,10 +154,12 @@
 //! est 2D et sans fusion ni sublimation ; il n'est pas une simulation de la physique (Reiter le dit lui-même). Les `α > 2` que
 //! l'article essaie (2,003 ; 2,69 : le poids du centre est négatif) sont hors du modèle.
 
+use crate::empreinte::sha256_hex;
+use crate::image;
 use crate::lancer::Sortie;
 use crate::math::Fixe;
-use crate::reseau::Hexagone;
-use crate::scenario::Scenario;
+use crate::reseau::{DIRECTIONS_HEX, Hexagone, distance_hex, tourner60};
+use crate::scenario::{Forme, Scenario};
 
 /// Le plus grand nombre de pas qu'une directive `reiter` peut demander.
 pub const PAS_MAX: u64 = 1_000_000;
@@ -179,14 +181,20 @@ impl Parametres {
     /// Vrai si le jeu est valide : `0 <= alpha <= 2` (`Fixe::entier(2)` compris), `0 <= beta < 1` (`Fixe::UN` exclu :
     /// la couronne serait gelée) et `0 <= gamma <= 1` (`Fixe::UN` compris).
     pub fn sont_valides(&self) -> bool {
-        todo!()
+        self.alpha.0 >= 0
+            && self.alpha <= Fixe::entier(2)
+            && self.beta.0 >= 0
+            && self.beta < Fixe::UN
+            && self.gamma.0 >= 0
+            && self.gamma <= Fixe::UN
     }
 
     /// Lit trois décimaux écrits comme dans un scénario (voir [`lire_decimal`]) et rend les paramètres, ou `None` si l'un
     /// d'eux est mal écrit ou si le jeu n'est pas valide ([`Parametres::sont_valides`]).
-    #[allow(unused_variables)]
     pub fn lire(alpha: &str, beta: &str, gamma: &str) -> Option<Parametres> {
-        todo!()
+        let parametres =
+            Parametres { alpha: lire_decimal(alpha)?, beta: lire_decimal(beta)?, gamma: lire_decimal(gamma)? };
+        parametres.sont_valides().then_some(parametres)
     }
 }
 
@@ -199,17 +207,57 @@ impl Parametres {
 /// `Fixe::UN`.
 ///
 /// Rend `None` si le texte n'a pas cette forme, a plus de 18 chiffres, ou vaut `2^31` ou plus.
-#[allow(unused_variables)]
 pub fn lire_decimal(texte: &str) -> Option<Fixe> {
-    todo!()
+    let octets = texte.as_bytes();
+    let mut chiffres = 0_usize;
+    let mut valeur: i128 = 0;
+    let mut apres_point = false;
+    let mut decimaux = 0_usize;
+    let mut vu_chiffre_entier = false;
+    let mut vu_chiffre_decimal = false;
+    for &octet in octets {
+        match octet {
+            b'0'..=b'9' => {
+                chiffres += 1;
+                if chiffres > 18 {
+                    return None;
+                }
+                valeur = valeur * 10 + i128::from(octet - b'0');
+                if apres_point {
+                    decimaux += 1;
+                    vu_chiffre_decimal = true;
+                } else {
+                    vu_chiffre_entier = true;
+                }
+            }
+            b'.' => {
+                if apres_point {
+                    return None;
+                }
+                apres_point = true;
+            }
+            _ => return None,
+        }
+    }
+    // Il faut au moins un chiffre entier, et après un point au moins un chiffre décimal.
+    if !vu_chiffre_entier || (apres_point && !vu_chiffre_decimal) {
+        return None;
+    }
+    let denominateur = 10_i128.checked_pow(decimaux as u32)?;
+    // floor(N · 2^32 / 10^k + 1/2), en i128 : comme `Fixe::rapport(valeur, denominateur)`.
+    let numerateur = valeur * (1_i128 << 32);
+    let brut = (2 * numerateur + denominateur).div_euclid(2 * denominateur);
+    if brut > i128::from(i64::MAX) {
+        return None;
+    }
+    Some(Fixe(i64::try_from(brut).expect("brut dans l'intervalle i64")))
 }
 
 /// La réflexion `(q, r) -> (r, q)` : une symétrie miroir de l'hexagone (elle envoie les directions `[(1, 0), (0, 1),
 /// (-1, 1), (-1, 0), (0, -1), (1, -1)]` sur `[(0, 1), (1, 0), (1, -1), (0, -1), (-1, 0), (-1, 1)]`, donc les voisins
 /// d'une case sur ceux de son image, et un hexagone centré à l'origine sur lui-même). Elle est son propre inverse.
-#[allow(unused_variables)]
 pub fn reflechir(q: i32, r: i32) -> (i32, i32) {
-    todo!()
+    (r, q)
 }
 
 /// La classe d'une cellule (voir « Les classes de cellules »).
@@ -228,11 +276,22 @@ pub enum Etat {
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 pub struct Flocon {
-    // une suggestion : tout champ privé de plus (tables des voisins, tampons de calcul) est libre
     hexagone: Hexagone,
     parametres: Parametres,
     temps: u64,
     masses: Vec<Fixe>,
+    /// Pour chaque case, l'indice canonique de ses six voisins (`-1` : hors de l'hexagone, à sa place).
+    voisins: Vec<[i32; 6]>,
+    /// Les cases à distance strictement inférieure à `R`, dans l'ordre canonique : leurs six voisins existent.
+    interieurs: Vec<usize>,
+    /// Les cases de la couronne (distance exactement `R`), dans l'ordre canonique.
+    couronne: Vec<usize>,
+    /// Tampon des classes (0 : non réceptive, 1 : de bord, 2 : gelée), réutilisé à chaque pas.
+    classes: Vec<u8>,
+    /// Tampon de `u(x)` (la masse qui diffuse), réutilisé à chaque pas.
+    u: Vec<Fixe>,
+    /// Le nouvel état d'un pas, échangé avec `masses` à la fin.
+    tampon: Vec<Fixe>,
 }
 
 impl Flocon {
@@ -243,9 +302,51 @@ impl Flocon {
     ///
     /// Si `rayon` est 0 (ou plus de 32768, comme [`Hexagone::new`]), ou si les paramètres ne sont pas valides
     /// ([`Parametres::sont_valides`]).
-    #[allow(unused_variables)]
     pub fn new(rayon: u32, parametres: Parametres) -> Flocon {
-        todo!()
+        assert!(parametres.sont_valides(), "paramètres invalides");
+        assert!(rayon > 0, "le rayon doit être au moins 1");
+        let hexagone = Hexagone::new(rayon);
+        let mut masses = vec![parametres.beta; hexagone.cases()];
+        masses[hexagone.index(0, 0)] = Fixe::UN;
+        Flocon::construire(hexagone, parametres, masses)
+    }
+
+    /// Construit un flocon et ses tables à partir d'un état déjà rangé dans l'ordre canonique.
+    fn construire(hexagone: Hexagone, parametres: Parametres, masses: Vec<Fixe>) -> Flocon {
+        let cases = hexagone.cases();
+        assert_eq!(masses.len(), cases, "nombre de masses inattendu");
+        let mut voisins = vec![[-1_i32; 6]; cases];
+        let mut interieurs = Vec::new();
+        let mut couronne = Vec::new();
+        for (i, voisins_i) in voisins.iter_mut().enumerate() {
+            let (q, r) = hexagone.position(i);
+            let mut tous_presents = true;
+            for (k, &(dq, dr)) in DIRECTIONS_HEX.iter().enumerate() {
+                let (nq, nr) = (q + dq, r + dr);
+                if hexagone.contient(nq, nr) {
+                    voisins_i[k] = hexagone.index(nq, nr) as i32;
+                } else {
+                    tous_presents = false;
+                }
+            }
+            if tous_presents {
+                interieurs.push(i);
+            } else {
+                couronne.push(i);
+            }
+        }
+        Flocon {
+            hexagone,
+            parametres,
+            temps: 0,
+            masses,
+            voisins,
+            interieurs,
+            couronne,
+            classes: vec![0; cases],
+            u: vec![Fixe::ZERO; cases],
+            tampon: vec![Fixe::ZERO; cases],
+        }
     }
 
     /// Un flocon d'état quelconque : `masses` donne la masse de chaque case **dans l'ordre canonique** de
@@ -257,24 +358,31 @@ impl Flocon {
     ///
     /// Si `rayon` est 0 ou trop grand, si les paramètres ne sont pas valides, si `masses.len()` n'est pas le nombre de
     /// cases de l'hexagone, ou si une masse est négative ou vaut `2^60` en `brut` (ou plus).
-    #[allow(unused_variables)]
     pub fn depuis_masses(rayon: u32, parametres: Parametres, masses: &[Fixe]) -> Flocon {
-        todo!()
+        assert!(parametres.sont_valides(), "paramètres invalides");
+        assert!(rayon > 0, "le rayon doit être au moins 1");
+        let hexagone = Hexagone::new(rayon);
+        assert_eq!(masses.len(), hexagone.cases(), "nombre de masses inattendu");
+        for masse in masses {
+            assert!(masse.0 >= 0, "masse négative");
+            assert!(masse.0 < (1_i64 << 60), "masse de 2^60 brut ou plus");
+        }
+        Flocon::construire(hexagone, parametres, masses.to_vec())
     }
 
     /// Le rayon `R` de l'hexagone.
     pub fn rayon(&self) -> u32 {
-        todo!()
+        self.hexagone.rayon()
     }
 
     /// Les paramètres.
     pub fn parametres(&self) -> Parametres {
-        todo!()
+        self.parametres
     }
 
     /// Le temps : le nombre de pas faits depuis la construction (0 à la construction).
     pub fn temps(&self) -> u64 {
-        todo!()
+        self.temps
     }
 
     /// La masse de la case `(q, r)`.
@@ -282,14 +390,13 @@ impl Flocon {
     /// # Panique
     ///
     /// Si `(q, r)` n'est pas dans l'hexagone.
-    #[allow(unused_variables)]
     pub fn masse(&self, q: i32, r: i32) -> Fixe {
-        todo!()
+        self.masses[self.hexagone.index(q, r)]
     }
 
     /// Toutes les masses, **dans l'ordre canonique** de [`Hexagone`] (`cases()` valeurs).
     pub fn masses(&self) -> Vec<Fixe> {
-        todo!()
+        self.masses.clone()
     }
 
     /// La classe de la case `(q, r)` pour l'état courant (voir « Les classes de cellules »).
@@ -297,67 +404,194 @@ impl Flocon {
     /// # Panique
     ///
     /// Si `(q, r)` n'est pas dans l'hexagone.
-    #[allow(unused_variables)]
     pub fn etat(&self, q: i32, r: i32) -> Etat {
-        todo!()
+        let i = self.hexagone.index(q, r);
+        if self.masses[i].0 >= Fixe::UN.0 {
+            return Etat::Gelee;
+        }
+        for &voisin in &self.voisins[i] {
+            if voisin >= 0 && self.masses[voisin as usize].0 >= Fixe::UN.0 {
+                return Etat::DeBord;
+            }
+        }
+        Etat::NonReceptive
     }
 
     /// Un pas du modèle, à la lettre de « Un pas, à la lettre » : l'état est remplacé, le temps augmente de 1.
     pub fn pas(&mut self) {
-        todo!()
+        let alpha = self.parametres.alpha;
+        let beta = self.parametres.beta;
+        let gamma = self.parametres.gamma;
+        let seuil = Fixe::UN.0;
+
+        // 1–2. La classe de chaque case et la masse qui diffuse, à partir de l'état seul.
+        for (i, &masse) in self.masses.iter().enumerate() {
+            if masse.0 >= seuil {
+                self.classes[i] = 2;
+                self.u[i] = Fixe::ZERO;
+            } else {
+                let de_bord =
+                    self.voisins[i].iter().any(|&voisin| voisin >= 0 && self.masses[voisin as usize].0 >= seuil);
+                if de_bord {
+                    self.classes[i] = 1;
+                    self.u[i] = Fixe::ZERO;
+                } else {
+                    self.classes[i] = 0;
+                    self.u[i] = masse;
+                }
+            }
+        }
+
+        // 3. Les cases intérieures : diffusion, puis γ pour les réceptives.
+        for &i in &self.interieurs {
+            let mut somme: i64 = 0;
+            for &voisin in &self.voisins[i] {
+                somme += self.u[voisin as usize].0;
+            }
+            let moyenne = Fixe(somme).div_entier(6);
+            let ecart = moyenne - self.u[i];
+            let diffusion = (alpha * ecart).div_entier(2);
+            self.tampon[i] =
+                if self.classes[i] == 0 { self.masses[i] + diffusion } else { self.masses[i] + gamma + diffusion };
+        }
+
+        // 4. La couronne extérieure est maintenue à β.
+        for &i in &self.couronne {
+            self.tampon[i] = beta;
+        }
+
+        std::mem::swap(&mut self.masses, &mut self.tampon);
+        // 5. Le temps.
+        self.temps += 1;
     }
 
     /// `n` pas de suite : `n` appels de [`Flocon::pas`].
-    #[allow(unused_variables)]
     pub fn avancer(&mut self, n: u64) {
-        todo!()
+        for _ in 0..n {
+            self.pas();
+        }
     }
 
     /// Le nombre de cases gelées (masse au moins 1), couronne comprise.
     pub fn gelees(&self) -> usize {
-        todo!()
+        self.masses.iter().filter(|masse| masse.0 >= Fixe::UN.0).count()
     }
 
     /// Le rayon du cristal : la plus grande distance hexagonale au centre d'une case gelée (0 s'il n'y en a aucune, ou
     /// seulement le centre).
     pub fn rayon_cristal(&self) -> u32 {
-        todo!()
+        let mut rayon = 0;
+        for (i, masse) in self.masses.iter().enumerate() {
+            if masse.0 >= Fixe::UN.0 {
+                let (q, r) = self.hexagone.position(i);
+                rayon = rayon.max(distance_hex((0, 0), (q, r)));
+            }
+        }
+        rayon
     }
 
     /// La compacité : `Fixe::rapport(gelees, 3 r (r + 1) + 1)` avec `r = rayon_cristal()` (voir « Les mesures »).
     pub fn compacite(&self) -> Fixe {
-        todo!()
+        let rayon = i64::from(self.rayon_cristal());
+        let cases = 3 * rayon * (rayon + 1) + 1;
+        Fixe::rapport(self.gelees() as i64, cases)
     }
 
     /// Le nombre de cases gelées qui ont exactement un voisin gelé (voir « Les mesures »).
     pub fn pointes(&self) -> usize {
-        todo!()
+        let mut pointes = 0;
+        for (i, masse) in self.masses.iter().enumerate() {
+            if masse.0 < Fixe::UN.0 {
+                continue;
+            }
+            let voisins_gelees = self.voisins[i]
+                .iter()
+                .filter(|&&voisin| voisin >= 0 && self.masses[voisin as usize].0 >= Fixe::UN.0)
+                .count();
+            if voisins_gelees == 1 {
+                pointes += 1;
+            }
+        }
+        pointes
     }
 
     /// Le défaut de rotation : le nombre de cases `(q, r)` telles que `masse(q, r) != masse(tourner60(q, r))`.
     pub fn defaut_rotation(&self) -> usize {
-        todo!()
+        let mut defaut = 0;
+        for (i, masse) in self.masses.iter().enumerate() {
+            let (q, r) = self.hexagone.position(i);
+            let (q_image, r_image) = tourner60(q, r);
+            if *masse != self.masses[self.hexagone.index(q_image, r_image)] {
+                defaut += 1;
+            }
+        }
+        defaut
     }
 
     /// Le défaut de réflexion : le nombre de cases `(q, r)` telles que `masse(q, r) != masse(reflechir(q, r))`.
     pub fn defaut_reflexion(&self) -> usize {
-        todo!()
+        let mut defaut = 0;
+        for (i, masse) in self.masses.iter().enumerate() {
+            let (q, r) = self.hexagone.position(i);
+            let (q_image, r_image) = reflechir(q, r);
+            if *masse != self.masses[self.hexagone.index(q_image, r_image)] {
+                defaut += 1;
+            }
+        }
+        defaut
     }
 
     /// L'écriture canonique de l'état, `45 + 8 * cases` octets (voir « L'écriture canonique et l'empreinte »).
     pub fn ecriture_canonique(&self) -> Vec<u8> {
-        todo!()
+        let mut octets = Vec::with_capacity(45 + 8 * self.hexagone.cases());
+        octets.extend_from_slice(b"GIVRE003");
+        octets.push(1);
+        octets.extend_from_slice(&self.hexagone.rayon().to_le_bytes());
+        octets.extend_from_slice(&self.parametres.alpha.0.to_le_bytes());
+        octets.extend_from_slice(&self.parametres.beta.0.to_le_bytes());
+        octets.extend_from_slice(&self.parametres.gamma.0.to_le_bytes());
+        octets.extend_from_slice(&self.temps.to_le_bytes());
+        for masse in &self.masses {
+            octets.extend_from_slice(&masse.0.to_le_bytes());
+        }
+        octets
     }
 
     /// L'empreinte : le SHA-256 en hexadécimal minuscule (`empreinte::sha256_hex`) de [`Flocon::ecriture_canonique`].
     pub fn empreinte(&self) -> String {
-        todo!()
+        sha256_hex(&self.ecriture_canonique())
     }
 
     /// L'aperçu : l'image RVB carrée de côté `2R + 1`, `3 * (2R + 1)^2` octets (voir « L'aperçu »).
     pub fn apercu(&self) -> Vec<u8> {
-        todo!()
+        let rayon = self.hexagone.rayon();
+        let cote = (2 * rayon + 1) as usize;
+        let mut image = vec![0_u8; 3 * cote * cote];
+        for (i, &masse) in self.masses.iter().enumerate() {
+            let (q, r) = self.hexagone.position(i);
+            let x = (q + rayon as i32 + r.div_euclid(2)) as usize;
+            let y = (r + rayon as i32) as usize;
+            let couleur = if masse.0 >= Fixe::UN.0 {
+                [235, 245, 255]
+            } else {
+                let niveau = ((i128::from(masse.0) * 255) >> 32) as u8;
+                [0, niveau / 2, niveau]
+            };
+            let debut = 3 * (y * cote + x);
+            image[debut..debut + 3].copy_from_slice(&couleur);
+        }
+        image
     }
+}
+
+/// Écrit une ligne du CSV des mesures pour l'état courant : `temps,gelees,rayon,compacite`, la compacité en six
+/// décimales exactes (`ppm` calculé en entiers, voir « La directive `reiter` et ses sorties »).
+fn ecrire_mesure(mesures: &mut String, temps: u64, flocon: &Flocon) {
+    let gelees = flocon.gelees() as u64;
+    let rayon = u64::from(flocon.rayon_cristal());
+    let cases = 3 * rayon * (rayon + 1) + 1;
+    let ppm = (2_000_000 * gelees + cases) / (2 * cases);
+    mesures.push_str(&format!("{temps},{gelees},{rayon},{}.{:06}\n", ppm / 1_000_000, ppm % 1_000_000));
 }
 
 /// Lance la directive `reiter` d'un scénario (voir « La directive `reiter` et ses sorties ») : à n'appeler que lorsque
@@ -372,5 +606,49 @@ impl Flocon {
 /// la directive suivante, quelle qu'elle soit (il n'y a qu'une directive en plus de la forme). Rien n'est calculé alors.
 #[allow(unused_variables)]
 pub fn lancer_reiter(scenario: &Scenario) -> Result<Sortie, usize> {
-    todo!()
+    let Some(directive) = scenario.directives.first() else {
+        return Err(1);
+    };
+    let ligne = directive.ligne;
+    if directive.nom != "reiter" {
+        return Err(ligne);
+    }
+    let Forme::Hexagone { rayon } = scenario.forme else {
+        return Err(ligne);
+    };
+    if directive.args.len() != 4 {
+        return Err(ligne);
+    }
+    let Some(parametres) = Parametres::lire(&directive.args[0], &directive.args[1], &directive.args[2]) else {
+        return Err(ligne);
+    };
+    let pas = match directive.entier(3) {
+        Ok(pas) if (1..=PAS_MAX).contains(&pas) => pas,
+        _ => return Err(ligne),
+    };
+    if let Some(autre) = scenario.directives.get(1) {
+        return Err(autre.ligne);
+    }
+
+    // Aucun refus : le flocon, ses pas, puis les sorties.
+    let mut flocon = Flocon::new(rayon, parametres);
+    let intervalle = (pas / 20).max(1);
+
+    let mut mesures = String::from("temps,gelees,rayon,compacite\n");
+    ecrire_mesure(&mut mesures, 0, &flocon);
+    for t in 1..=pas {
+        flocon.pas();
+        if t % intervalle == 0 {
+            ecrire_mesure(&mut mesures, t, &flocon);
+        }
+    }
+    // Le dernier pas n'est ajouté que s'il n'est pas déjà un multiple de l'intervalle.
+    if pas % intervalle != 0 {
+        ecrire_mesure(&mut mesures, pas, &flocon);
+    }
+
+    let empreinte = flocon.empreinte();
+    let cote = 2 * rayon + 1;
+    let apercu = image::ecrire_png(cote, cote, &flocon.apercu());
+    Ok(Sortie { empreinte, mesures, apercu })
 }
