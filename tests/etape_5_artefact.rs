@@ -20,7 +20,8 @@ mod etape_5_commun;
 use std::collections::BTreeSet;
 
 use etape_5_commun::{
-    FONCTIONS, analyser, chemin_module, lancer_le_script, lire_module, natif, node_est_la, racine, reference,
+    FONCTIONS, FONCTIONS_Z1, Z1_ACTIVE, analyser, chemin_module, lancer_le_script, lire_module, natif, node_est_la,
+    racine, reference,
 };
 use givre_lab::empreinte::sha256_hex;
 
@@ -65,7 +66,17 @@ fn le_module_exporte_exactement_les_fonctions_de_la_vitrine() {
     let fonctions: BTreeSet<&str> =
         module.exportations.iter().filter(|e| e.genre == 0).map(|e| e.nom.as_str()).collect();
     let attendues: BTreeSet<&str> = FONCTIONS.iter().map(|(nom, _, _)| *nom).collect();
-    assert_eq!(fonctions, attendues, "les fonctions exportées ne sont pas celles de la liste");
+    // Étape Z1 : sans la fonctionnalité `etape-z1`, le module peut avoir les onze fonctions ou les quinze ; avec elle, les quinze seulement.
+    let etendues: BTreeSet<&str> =
+        attendues.iter().copied().chain(FONCTIONS_Z1.iter().map(|(nom, _, _)| *nom)).collect();
+    if Z1_ACTIVE {
+        assert_eq!(fonctions, etendues, "les fonctions exportées ne sont pas les quinze de la liste");
+    } else {
+        assert!(
+            fonctions == attendues || fonctions == etendues,
+            "les fonctions exportées ne sont pas celles de la liste"
+        );
+    }
 
     let autres: Vec<(&str, u8)> =
         module.exportations.iter().filter(|e| e.genre != 0).map(|e| (e.nom.as_str(), e.genre)).collect();
@@ -90,12 +101,13 @@ fn chaque_fonction_a_la_bonne_signature() {
     let module = analyser(&lire_module());
     assert_eq!(module.importations, 0, "les indices de fonction supposent qu'il n'y a aucune importation");
 
-    for (nom, parametres, resultats) in FONCTIONS {
-        let exportation = module
-            .exportations
-            .iter()
-            .find(|e| e.genre == 0 && e.nom == nom)
-            .unwrap_or_else(|| panic!("la fonction {nom} n'est pas exportée"));
+    // Étape Z1 : les quatre fonctions de mesure sont exigées avec `etape-z1`, vérifiées si elles sont là sans elle.
+    let toutes = FONCTIONS.iter().map(|f| (f, true)).chain(FONCTIONS_Z1.iter().map(|f| (f, Z1_ACTIVE)));
+    for (&(nom, parametres, resultats), exigee) in toutes {
+        let Some(exportation) = module.exportations.iter().find(|e| e.genre == 0 && e.nom == nom) else {
+            assert!(!exigee, "la fonction {nom} n'est pas exportée");
+            continue;
+        };
         let indice_de_type = *module
             .fonctions
             .get(exportation.indice as usize)
