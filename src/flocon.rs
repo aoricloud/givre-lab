@@ -155,10 +155,11 @@
 //! l'article essaie (2,003 ; 2,69 : le poids du centre est négatif) sont hors du modèle.
 
 use crate::empreinte::sha256_hex;
+use crate::image;
 use crate::lancer::Sortie;
 use crate::math::Fixe;
 use crate::reseau::{DIRECTIONS_HEX, Hexagone, distance_hex, tourner60};
-use crate::scenario::Scenario;
+use crate::scenario::{Forme, Scenario};
 
 /// Le plus grand nombre de pas qu'une directive `reiter` peut demander.
 pub const PAS_MAX: u64 = 1_000_000;
@@ -563,8 +564,34 @@ impl Flocon {
 
     /// L'aperçu : l'image RVB carrée de côté `2R + 1`, `3 * (2R + 1)^2` octets (voir « L'aperçu »).
     pub fn apercu(&self) -> Vec<u8> {
-        todo!()
+        let rayon = self.hexagone.rayon();
+        let cote = (2 * rayon + 1) as usize;
+        let mut image = vec![0_u8; 3 * cote * cote];
+        for (i, &masse) in self.masses.iter().enumerate() {
+            let (q, r) = self.hexagone.position(i);
+            let x = (q + rayon as i32 + r.div_euclid(2)) as usize;
+            let y = (r + rayon as i32) as usize;
+            let couleur = if masse.0 >= Fixe::UN.0 {
+                [235, 245, 255]
+            } else {
+                let niveau = ((i128::from(masse.0) * 255) >> 32) as u8;
+                [0, niveau / 2, niveau]
+            };
+            let debut = 3 * (y * cote + x);
+            image[debut..debut + 3].copy_from_slice(&couleur);
+        }
+        image
     }
+}
+
+/// Écrit une ligne du CSV des mesures pour l'état courant : `temps,gelees,rayon,compacite`, la compacité en six
+/// décimales exactes (`ppm` calculé en entiers, voir « La directive `reiter` et ses sorties »).
+fn ecrire_mesure(mesures: &mut String, temps: u64, flocon: &Flocon) {
+    let gelees = flocon.gelees() as u64;
+    let rayon = u64::from(flocon.rayon_cristal());
+    let cases = 3 * rayon * (rayon + 1) + 1;
+    let ppm = (2_000_000 * gelees + cases) / (2 * cases);
+    mesures.push_str(&format!("{temps},{gelees},{rayon},{}.{:06}\n", ppm / 1_000_000, ppm % 1_000_000));
 }
 
 /// Lance la directive `reiter` d'un scénario (voir « La directive `reiter` et ses sorties ») : à n'appeler que lorsque
@@ -579,5 +606,49 @@ impl Flocon {
 /// la directive suivante, quelle qu'elle soit (il n'y a qu'une directive en plus de la forme). Rien n'est calculé alors.
 #[allow(unused_variables)]
 pub fn lancer_reiter(scenario: &Scenario) -> Result<Sortie, usize> {
-    todo!()
+    let Some(directive) = scenario.directives.first() else {
+        return Err(1);
+    };
+    let ligne = directive.ligne;
+    if directive.nom != "reiter" {
+        return Err(ligne);
+    }
+    let Forme::Hexagone { rayon } = scenario.forme else {
+        return Err(ligne);
+    };
+    if directive.args.len() != 4 {
+        return Err(ligne);
+    }
+    let Some(parametres) = Parametres::lire(&directive.args[0], &directive.args[1], &directive.args[2]) else {
+        return Err(ligne);
+    };
+    let pas = match directive.entier(3) {
+        Ok(pas) if (1..=PAS_MAX).contains(&pas) => pas,
+        _ => return Err(ligne),
+    };
+    if let Some(autre) = scenario.directives.get(1) {
+        return Err(autre.ligne);
+    }
+
+    // Aucun refus : le flocon, ses pas, puis les sorties.
+    let mut flocon = Flocon::new(rayon, parametres);
+    let intervalle = (pas / 20).max(1);
+
+    let mut mesures = String::from("temps,gelees,rayon,compacite\n");
+    ecrire_mesure(&mut mesures, 0, &flocon);
+    for t in 1..=pas {
+        flocon.pas();
+        if t % intervalle == 0 {
+            ecrire_mesure(&mut mesures, t, &flocon);
+        }
+    }
+    // Le dernier pas n'est ajouté que s'il n'est pas déjà un multiple de l'intervalle.
+    if pas % intervalle != 0 {
+        ecrire_mesure(&mut mesures, pas, &flocon);
+    }
+
+    let empreinte = flocon.empreinte();
+    let cote = 2 * rayon + 1;
+    let apercu = image::ecrire_png(cote, cote, &flocon.apercu());
+    Ok(Sortie { empreinte, mesures, apercu })
 }
