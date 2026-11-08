@@ -19,6 +19,36 @@
 //! `deposer_couche`, l'empreinte de l'état final, le CSV `couches,rugosite` aux instants 1, 2, 4, … puis `couches`, et
 //! l'aperçu de la surface finale vue de côté.
 //!
+//! # Ce que fait l'étape 1 : la directive `dla`
+//!
+//! **Cette section est le contrat de [`lancer`] à l'étape 1** (reprise de la documentation de [`crate::dla`], § « La directive
+//! `dla` et la sortie de `lancer` »). Une directive `dla <particules>` (lue par [`crate::dla::particules`]) sur une
+//! `boite largeur hauteur` lance une DLA : `lancer` fait croître un [`crate::dla::Amas`] de graine `graine` et de
+//! `demi_cote = demi_cote_de_la_boite(largeur, hauteur)`, par des appels de [`crate::dla::Amas::essayer_ajouter`] (jamais
+//! [`crate::dla::Amas::ajouter`], qui paniquerait), jusqu'à `particules` sites (germe compris), et rend, **à la place** des
+//! sorties du scénario vide de l'étape 0 :
+//!
+//! - **l'empreinte** : [`crate::dla::Amas::empreinte`] de l'amas final (deux boîtes de même `demi_cote` ont donc la même
+//!   empreinte) ;
+//! - **les mesures** : le CSV `particules,rayon,rayon_giration`, la ligne d'en-tête puis une ligne par nombre `k` de sites,
+//!   dans cet ordre croissant : les puissances de 2 `2, 4, 8, …` qui sont `<= particules`, puis `particules` lui-même s'il
+//!   n'est pas déjà dans la liste (jamais deux fois la même ligne ; `dla 1` ne donne que la ligne `1`). La ligne `k` est
+//!   `k,<rayon>,<giration>` : `<rayon>` est [`crate::dla::Amas::rayon`] de l'amas quand il avait `k` sites (en décimal),
+//!   `<giration>` est [`crate::mesures::rayon_de_giration`] de ses `k` premiers sites, écrit avec **six décimales**
+//!   (`format!("{:.6}", g)` : `0.000000` pour le germe seul). Chaque ligne, la dernière comprise, finit par un seul `\n`
+//!   (pas de `\r`) ;
+//! - **l'aperçu** : le PNG ([`crate::image::ecrire_png`]) de [`crate::dla::amas_colore`]`(amas.sites(), COTE_APERCU)`.
+//!
+//! **Les refus**, tous `ErreurLancer::DirectiveInconnue(ligne)` (l'énumération de l'étape 0 n'a pas d'autre variante ; ni elle
+//! ni `src/main.rs` ne changent), où `ligne` est la **plus petite** des lignes refusées : une directive dont le nom n'est pas
+//! `dla` (sa ligne) ; une directive `dla` que [`crate::dla::particules`] refuse (la ligne que `particules` rend) ; une
+//! directive `dla` sur un `hexagone` (la ligne de la première `dla`). Puis, si rien n'est refusé, un amas qui sort du réseau
+//! avant d'avoir `particules` sites (`essayer_ajouter` rend `None`) : la ligne de la directive `dla`. Rien n'est rendu d'autre
+//! dans ces cas. Un scénario sans directive `dla` (et sans autre directive) se comporte exactement comme à l'étape 0.
+//!
+//! L'aperçu est [`crate::dla::amas_colore`], avec la palette [`crate::dla::PALETTE`], le fond [`crate::dla::FOND`] et
+//! [`crate::dla::couleur_du_rang`].
+//!
 //! # L'écriture canonique de l'état du scénario vide
 //!
 //! L'empreinte est le SHA-256 (`empreinte::sha256_hex`) de cette suite d'octets, dans cet ordre :
@@ -51,7 +81,9 @@
 //! [`lancer`] et écrit `empreinte.txt` (l'empreinte puis `\n`), `mesures.csv` et `apercu.png` dans le dossier.
 
 use crate::alea::Alea;
-use crate::scenario::{Directive, Forme, Scenario};
+use crate::dla::{Amas, COTE_APERCU, amas_colore, demi_cote_de_la_boite, particules};
+use crate::mesures::rayon_de_giration;
+use crate::scenario::{Directive, ErreurLecture, Forme, Scenario};
 use crate::surface::{COUCHES_MAX, LARGEUR_MAX, Modele, Surface};
 use crate::{empreinte, image, rendu};
 
@@ -78,14 +110,19 @@ pub enum ErreurLancer {
 /// Lance le scénario avec cette graine (voir la documentation du module). Pour le même scénario et la même graine, le
 /// résultat est toujours le même, octet pour octet, sur toutes les machines.
 ///
-/// Sans directive, c'est le scénario vide de l'étape 0. Avec des directives, la première doit être une `surface` bien
-/// formée et il ne doit y en avoir aucune autre.
+/// Sans directive, c'est le scénario vide de l'étape 0. S'il contient une directive `dla`, c'est le lancer DLA de
+/// l'étape 1 (voir « Ce que fait l'étape 1 : la directive `dla` »). Sinon, avec des directives, la première doit être une
+/// `surface` bien formée et il ne doit y en avoir aucune autre (étape 2s).
 ///
 /// # Erreurs
 ///
-/// `ErreurLancer::DirectiveInconnue(ligne)` si les directives ne forment pas exactement une `surface` bien formée : `ligne`
-/// est celle de la première directive fautive. C'est la seule erreur de `lancer`, et rien d'autre n'est calculé alors.
+/// `ErreurLancer::DirectiveInconnue(ligne)` si les directives ne forment pas exactement ce que l'étape attend : `ligne` est
+/// celle de la première directive fautive (pour `dla`, la plus petite des lignes refusées, voir la documentation du
+/// module). C'est la seule erreur de `lancer`, et rien d'autre n'est calculé alors.
 pub fn lancer(scenario: &Scenario, graine: u64) -> Result<Sortie, ErreurLancer> {
+    if scenario.directives.iter().any(|directive| directive.nom == "dla") {
+        return lancer_dla(scenario, graine);
+    }
     if let Some(directive) = scenario.directives.first() {
         let Some((modele, largeur, couches)) = surface_bien_formee(directive) else {
             return Err(ErreurLancer::DirectiveInconnue(directive.ligne));
@@ -201,4 +238,83 @@ fn lancer_surface(modele: Modele, largeur: usize, couches: u64, graine: u64) -> 
     let apercu = image::ecrire_png(largeur as u32, hauteur_image, &rvb);
 
     Sortie { empreinte: surface.empreinte(), mesures, apercu }
+}
+
+/// Le lancer de la directive `dla` (étape 1) : les refus de la documentation du module, puis l'amas, l'empreinte, les
+/// mesures CSV et l'aperçu.
+fn lancer_dla(scenario: &Scenario, graine: u64) -> Result<Sortie, ErreurLancer> {
+    // La plus petite ligne refusée : une directive dont le nom n'est pas `dla`, une `dla` que `particules` refuse (une
+    // seconde `dla` comprise, à sa propre ligne), une `dla` sur un `hexagone`.
+    let mut refus: Option<usize> = None;
+    let mut refuser = |ligne: usize| {
+        refus = Some(refus.map_or(ligne, |autre| autre.min(ligne)));
+    };
+    let mut ligne_dla: Option<usize> = None;
+    for directive in &scenario.directives {
+        if directive.nom == "dla" {
+            if ligne_dla.is_none() {
+                ligne_dla = Some(directive.ligne);
+            }
+        } else {
+            refuser(directive.ligne);
+        }
+    }
+    if let Err(ErreurLecture::LigneInvalide(ligne)) = particules(scenario) {
+        refuser(ligne);
+    }
+    if matches!(scenario.forme, Forme::Hexagone { .. })
+        && let Some(ligne) = ligne_dla
+    {
+        refuser(ligne);
+    }
+    if let Some(ligne) = refus {
+        return Err(ErreurLancer::DirectiveInconnue(ligne));
+    }
+
+    // Ici, au moins une `dla`, toutes les directives sont des `dla`, une seule (sinon `particules` refuserait), elle est
+    // bien formée, et la forme est une boîte.
+    let Some(ligne_dla) = ligne_dla else {
+        return Err(ErreurLancer::DirectiveInconnue(scenario.directives.first().map_or(1, |d| d.ligne)));
+    };
+    let Ok(Some(nombre)) = particules(scenario) else {
+        return Err(ErreurLancer::DirectiveInconnue(ligne_dla));
+    };
+    let Forme::Boite { largeur, hauteur } = scenario.forme else {
+        return Err(ErreurLancer::DirectiveInconnue(ligne_dla));
+    };
+
+    // Les instants des mesures : les puissances de 2 au plus égales à `nombre`, puis `nombre` s'il n'y figure pas.
+    let mut instants = Vec::new();
+    let mut instant = 2_usize;
+    while instant <= nombre {
+        instants.push(instant);
+        instant *= 2;
+    }
+    if instants.last() != Some(&nombre) {
+        instants.push(nombre);
+    }
+
+    // L'amas, site par site, en relevant les mesures aux instants voulus ; un débordement du réseau est le refus à la ligne
+    // de la directive `dla`.
+    let mut amas = Amas::new(graine, demi_cote_de_la_boite(largeur, hauteur));
+    let mut mesures = String::from("particules,rayon,rayon_giration\n");
+    let mut prochain = 0;
+    for k in 1..=nombre {
+        while amas.sites().len() < k {
+            if amas.essayer_ajouter().is_none() {
+                return Err(ErreurLancer::DirectiveInconnue(ligne_dla));
+            }
+        }
+        if prochain < instants.len() && instants[prochain] == k {
+            let rayon = amas.rayon();
+            let giration = rayon_de_giration(&amas.sites()[..k]);
+            mesures.push_str(&format!("{k},{rayon},{giration:.6}\n"));
+            prochain += 1;
+        }
+    }
+
+    let empreinte = amas.empreinte();
+    let (largeur_image, hauteur_image, rvb) = amas_colore(amas.sites(), COTE_APERCU);
+    let apercu = image::ecrire_png(largeur_image, hauteur_image, &rvb);
+    Ok(Sortie { empreinte, mesures, apercu })
 }

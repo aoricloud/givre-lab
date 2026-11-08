@@ -47,7 +47,9 @@ impl Bitmap {
     /// Si `largeur` ou `hauteur` vaut 0, ou si `largeur * hauteur` ne tient pas dans un `usize`.
     #[allow(unused_variables)]
     pub fn new(largeur: usize, hauteur: usize) -> Bitmap {
-        todo!()
+        assert!(largeur != 0 && hauteur != 0, "une image de {largeur} × {hauteur} n'a pas de pixel");
+        let nombre = largeur.checked_mul(hauteur).expect("l'image dépasse la capacité d'un usize");
+        Bitmap { largeur, hauteur, pixels: vec![false; nombre] }
     }
 
     /// L'image des sites `sites`, avec la position de son centre. L'image est la **boîte englobante** des sites **et de
@@ -62,17 +64,40 @@ impl Bitmap {
     /// Si l'image dépasse la capacité d'un `usize` (des coordonnées d'ordre `2^31` aux deux bouts).
     #[allow(unused_variables)]
     pub fn depuis_sites(sites: &[(i32, i32)]) -> (Bitmap, (usize, usize)) {
-        todo!()
+        let mut x_min = 0_i64;
+        let mut x_max = 0_i64;
+        let mut y_min = 0_i64;
+        let mut y_max = 0_i64;
+        for &(x, y) in sites {
+            let (x, y) = (x as i64, y as i64);
+            x_min = x_min.min(x);
+            x_max = x_max.max(x);
+            y_min = y_min.min(y);
+            y_max = y_max.max(y);
+        }
+        let largeur = usize::try_from(x_max - x_min + 1).expect("l'image dépasse la capacité d'un usize");
+        let hauteur = usize::try_from(y_max - y_min + 1).expect("l'image dépasse la capacité d'un usize");
+        let mut image = Bitmap::new(largeur, hauteur);
+        for &(x, y) in sites {
+            let px = usize::try_from(x as i64 - x_min).expect("coordonnée hors de l'image");
+            let py = usize::try_from(y as i64 - y_min).expect("coordonnée hors de l'image");
+            image.allumer(px, py);
+        }
+        let centre = (
+            usize::try_from(-x_min).expect("centre hors de l'image"),
+            usize::try_from(-y_min).expect("centre hors de l'image"),
+        );
+        (image, centre)
     }
 
     /// Le nombre de colonnes.
     pub fn largeur(&self) -> usize {
-        todo!()
+        self.largeur
     }
 
     /// Le nombre de lignes.
     pub fn hauteur(&self) -> usize {
-        todo!()
+        self.hauteur
     }
 
     /// Allume le pixel `(x, y)` (sans effet s'il l'est déjà).
@@ -82,7 +107,8 @@ impl Bitmap {
     /// Si `x >= largeur` ou `y >= hauteur`.
     #[allow(unused_variables)]
     pub fn allumer(&mut self, x: usize, y: usize) {
-        todo!()
+        assert!(x < self.largeur && y < self.hauteur, "pixel ({x}, {y}) hors de l'image");
+        self.pixels[y * self.largeur + x] = true;
     }
 
     /// Vrai si le pixel `(x, y)` est allumé.
@@ -92,12 +118,13 @@ impl Bitmap {
     /// Si `x >= largeur` ou `y >= hauteur`.
     #[allow(unused_variables)]
     pub fn est_allume(&self, x: usize, y: usize) -> bool {
-        todo!()
+        assert!(x < self.largeur && y < self.hauteur, "pixel ({x}, {y}) hors de l'image");
+        self.pixels[y * self.largeur + x]
     }
 
     /// Le nombre de pixels allumés.
     pub fn nombre_allumes(&self) -> usize {
-        todo!()
+        self.pixels.iter().filter(|&&allume| allume).count()
     }
 }
 
@@ -120,7 +147,27 @@ impl Bitmap {
 /// égaux : la pente n'existe pas).
 #[allow(unused_variables)]
 pub fn pente(xs: &[f64], ys: &[f64]) -> f64 {
-    todo!()
+    assert_eq!(xs.len(), ys.len(), "xs et ys n'ont pas la même longueur");
+    assert!(xs.len() >= 2, "une pente demande au moins deux points");
+    let n = xs.len() as f64;
+    let mut somme_x = 0.0;
+    let mut somme_y = 0.0;
+    for k in 0..xs.len() {
+        somme_x += xs[k];
+        somme_y += ys[k];
+    }
+    let moyenne_x = somme_x / n;
+    let moyenne_y = somme_y / n;
+    let mut numerateur = 0.0;
+    let mut denominateur = 0.0;
+    for k in 0..xs.len() {
+        let dx = xs[k] - moyenne_x;
+        let dy = ys[k] - moyenne_y;
+        numerateur += dx * dy;
+        denominateur += dx * dx;
+    }
+    assert!(denominateur != 0.0, "tous les x sont égaux : la pente n'existe pas");
+    numerateur / denominateur
 }
 
 /// Le nombre de boîtes de côté `cote` qui contiennent au moins un pixel allumé : `N(cote)`. Les boîtes pavent le plan à
@@ -135,7 +182,23 @@ pub fn pente(xs: &[f64], ys: &[f64]) -> f64 {
 /// Si `cote` vaut 0.
 #[allow(unused_variables)]
 pub fn boites_occupees(image: &Bitmap, cote: usize) -> usize {
-    todo!()
+    assert!(cote != 0, "un côté de boîte nul");
+    let colonnes = image.largeur.div_ceil(cote);
+    let lignes = image.hauteur.div_ceil(cote);
+    let mut occupees = vec![false; colonnes * lignes];
+    let mut nombre = 0;
+    for y in 0..image.hauteur {
+        for x in 0..image.largeur {
+            if image.est_allume(x, y) {
+                let boite = (y / cote) * colonnes + x / cote;
+                if !occupees[boite] {
+                    occupees[boite] = true;
+                    nombre += 1;
+                }
+            }
+        }
+    }
+    nombre
 }
 
 /// La dimension de comptage de boîtes : la [`pente`] des points `(-ln c, ln N(c))`, un point par côté `c` de `cotes` (dans
@@ -152,7 +215,15 @@ pub fn boites_occupees(image: &Bitmap, cote: usize) -> usize {
 /// sans pixel allumé).
 #[allow(unused_variables)]
 pub fn dimension_boites(image: &Bitmap, cotes: &[usize]) -> f64 {
-    todo!()
+    let mut xs = Vec::with_capacity(cotes.len());
+    let mut ys = Vec::with_capacity(cotes.len());
+    for &cote in cotes {
+        let nombre = boites_occupees(image, cote);
+        assert!(nombre != 0, "l'image n'a aucun pixel allumé pour le côté {cote}");
+        xs.push(-crate::math::logarithme(cote as f64));
+        ys.push(crate::math::logarithme(nombre as f64));
+    }
+    pente(&xs, &ys)
 }
 
 /// La masse dans le disque de rayon `rayon` autour de `centre` : le nombre de sites `(x, y)` de `sites` (répétitions
@@ -161,7 +232,18 @@ pub fn dimension_boites(image: &Bitmap, cotes: &[usize]) -> f64 {
 /// ne compte que les sites égaux au centre. Exact pour toutes les valeurs de `i32` et de `u32` (calcul en `i128`).
 #[allow(unused_variables)]
 pub fn masse_dans_rayon(sites: &[(i32, i32)], centre: (i32, i32), rayon: u32) -> usize {
-    todo!()
+    let cx = centre.0 as i128;
+    let cy = centre.1 as i128;
+    let rayon_carre = (rayon as i128) * (rayon as i128);
+    let mut masse = 0;
+    for &(x, y) in sites {
+        let dx = x as i128 - cx;
+        let dy = y as i128 - cy;
+        if dx * dx + dy * dy <= rayon_carre {
+            masse += 1;
+        }
+    }
+    masse
 }
 
 /// Les points de la courbe log-log de la masse-rayon : pour chaque `r` de `rayons` (dans l'ordre donné), le couple
@@ -172,7 +254,14 @@ pub fn masse_dans_rayon(sites: &[(i32, i32)], centre: (i32, i32), rayon: u32) ->
 /// Si un rayon vaut 0 ou si `N(r)` vaut 0 pour un rayon (aucun site dans le disque).
 #[allow(unused_variables)]
 pub fn points_masse_rayon(sites: &[(i32, i32)], centre: (i32, i32), rayons: &[u32]) -> Vec<(f64, f64)> {
-    todo!()
+    let mut points = Vec::with_capacity(rayons.len());
+    for &rayon in rayons {
+        assert!(rayon != 0, "un rayon nul");
+        let masse = masse_dans_rayon(sites, centre, rayon);
+        assert!(masse != 0, "aucun site dans le disque de rayon {rayon}");
+        points.push((crate::math::logarithme(rayon as f64), crate::math::logarithme(masse as f64)));
+    }
+    points
 }
 
 /// La dimension de masse-rayon : la [`pente`] des points de [`points_masse_rayon`] (`ln r` en abscisse, `ln N(r)` en
@@ -183,7 +272,10 @@ pub fn points_masse_rayon(sites: &[(i32, i32)], centre: (i32, i32), rayons: &[u3
 /// Dans les cas de [`points_masse_rayon`] et de [`pente`] (moins de deux rayons, ou tous égaux).
 #[allow(unused_variables)]
 pub fn dimension_masse_rayon(sites: &[(i32, i32)], centre: (i32, i32), rayons: &[u32]) -> f64 {
-    todo!()
+    let points = points_masse_rayon(sites, centre, rayons);
+    let xs: Vec<f64> = points.iter().map(|point| point.0).collect();
+    let ys: Vec<f64> = points.iter().map(|point| point.1).collect();
+    pente(&xs, &ys)
 }
 
 /// Le rayon de giration de `sites` : la racine de la moyenne des carrés des distances au **centre de masse** (la moyenne des
@@ -201,5 +293,20 @@ pub fn dimension_masse_rayon(sites: &[(i32, i32)], centre: (i32, i32), rayons: &
 /// Si `sites` est vide.
 #[allow(unused_variables)]
 pub fn rayon_de_giration(sites: &[(i32, i32)]) -> f64 {
-    todo!()
+    assert!(!sites.is_empty(), "aucun site");
+    let n = sites.len() as i128;
+    let mut somme_x = 0_i128;
+    let mut somme_y = 0_i128;
+    let mut somme_xx = 0_i128;
+    let mut somme_yy = 0_i128;
+    for &(x, y) in sites {
+        let (x, y) = (x as i128, y as i128);
+        somme_x += x;
+        somme_y += y;
+        somme_xx += x * x;
+        somme_yy += y * y;
+    }
+    let numerateur = n * (somme_xx + somme_yy) - (somme_x * somme_x + somme_y * somme_y);
+    let denominateur = n * n;
+    ((numerateur as f64) / (denominateur as f64)).sqrt()
 }
