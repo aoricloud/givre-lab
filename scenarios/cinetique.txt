@@ -1,0 +1,4 @@
+# Une face de Kossel (modele solide sur solide) de 32 x 32 colonnes : J/kT = 1 (16 seiziemes), delta-mu/kT = 1,5 (24 seiziemes),
+# 400 balayages. Une face plane que la sursaturation fait croitre et devenir rugueuse.
+boite 32 32
+cinetique 16 24 400
