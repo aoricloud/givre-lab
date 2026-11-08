@@ -56,29 +56,31 @@ impl Grille {
     /// Si `largeur` ou `hauteur` vaut 0, ou si `largeur * hauteur` ne tient pas dans un `usize`.
     #[allow(unused_variables)]
     pub fn new(largeur: usize, hauteur: usize) -> Grille {
-        todo!()
+        assert!(largeur > 0 && hauteur > 0, "les dimensions doivent être au moins 1");
+        assert!(largeur.checked_mul(hauteur).is_some(), "largeur * hauteur déborde un usize");
+        Grille { largeur, hauteur }
     }
 
     /// Le nombre de colonnes.
     pub fn largeur(&self) -> usize {
-        todo!()
+        self.largeur
     }
 
     /// Le nombre de lignes.
     pub fn hauteur(&self) -> usize {
-        todo!()
+        self.hauteur
     }
 
     /// Le nombre de cases : `largeur * hauteur`.
     pub fn cases(&self) -> usize {
-        todo!()
+        self.largeur * self.hauteur
     }
 
     /// Vrai si `(x, y)` est une case de la grille : `0 <= x < largeur` et `0 <= y < hauteur`. Les coordonnées
     /// signées permettent de demander une case voisine sans risque de débordement.
     #[allow(unused_variables)]
     pub fn contient(&self, x: isize, y: isize) -> bool {
-        todo!()
+        x >= 0 && y >= 0 && (x as usize) < self.largeur && (y as usize) < self.hauteur
     }
 
     /// L'indice de la case `(x, y)` dans le rangement par lignes : `y * largeur + x`.
@@ -88,7 +90,8 @@ impl Grille {
     /// Si `x >= largeur` ou `y >= hauteur` (une abscisse trop grande ne glisse pas sur la ligne suivante).
     #[allow(unused_variables)]
     pub fn index(&self, x: usize, y: usize) -> usize {
-        todo!()
+        assert!(x < self.largeur && y < self.hauteur, "case hors de la grille");
+        y * self.largeur + x
     }
 
     /// La case d'indice `i` : l'inverse de [`Grille::index`], `(i % largeur, i / largeur)`.
@@ -98,7 +101,8 @@ impl Grille {
     /// Si `i >= cases()`.
     #[allow(unused_variables)]
     pub fn position(&self, i: usize) -> (usize, usize) {
-        todo!()
+        assert!(i < self.cases(), "indice hors de la grille");
+        (i % self.largeur, i / self.largeur)
     }
 
     /// Les quatre voisins de `(x, y)`, dans l'ordre de [`VOISINS4`] : l'élément `k` est
@@ -110,7 +114,17 @@ impl Grille {
     /// Si `(x, y)` n'est pas dans la grille.
     #[allow(unused_variables)]
     pub fn voisins4(&self, x: usize, y: usize) -> [Option<(usize, usize)>; 4] {
-        todo!()
+        assert!(x < self.largeur && y < self.hauteur, "case hors de la grille");
+        let mut voisins = [None; 4];
+        for (k, &(dx, dy)) in VOISINS4.iter().enumerate() {
+            if let (Some(nx), Some(ny)) = (x.checked_add_signed(dx), y.checked_add_signed(dy))
+                && nx < self.largeur
+                && ny < self.hauteur
+            {
+                voisins[k] = Some((nx, ny));
+            }
+        }
+        voisins
     }
 
     /// Les huit voisins de `(x, y)`, dans l'ordre de [`VOISINS8`], avec les mêmes règles que
@@ -121,7 +135,17 @@ impl Grille {
     /// Si `(x, y)` n'est pas dans la grille.
     #[allow(unused_variables)]
     pub fn voisins8(&self, x: usize, y: usize) -> [Option<(usize, usize)>; 8] {
-        todo!()
+        assert!(x < self.largeur && y < self.hauteur, "case hors de la grille");
+        let mut voisins = [None; 8];
+        for (k, &(dx, dy)) in VOISINS8.iter().enumerate() {
+            if let (Some(nx), Some(ny)) = (x.checked_add_signed(dx), y.checked_add_signed(dy))
+                && nx < self.largeur
+                && ny < self.hauteur
+            {
+                voisins[k] = Some((nx, ny));
+            }
+        }
+        voisins
     }
 
     /// L'abscisse enroulée sur la largeur : le reste **euclidien** de `x` par `largeur`, toujours dans
@@ -129,7 +153,8 @@ impl Grille {
     /// toute valeur de `x` raisonnable (`|x| < 2^31`).
     #[allow(unused_variables)]
     pub fn enrouler_x(&self, x: isize) -> usize {
-        todo!()
+        let reste = x.unsigned_abs() % self.largeur;
+        if x < 0 && reste != 0 { self.largeur - reste } else { reste }
     }
 }
 
@@ -138,7 +163,19 @@ impl Grille {
 /// que `(0, 0)`. Exact pour toutes les valeurs de `i32` et de `u32`, sans débordement.
 #[allow(unused_variables)]
 pub fn dans_disque(dx: i32, dy: i32, rayon: u32) -> bool {
-    todo!()
+    let dx = i64::from(dx).unsigned_abs();
+    let dy = i64::from(dy).unsigned_abs();
+    let rayon = u64::from(rayon);
+    dx * dx + dy * dy <= rayon * rayon
+}
+
+/// Le nombre de cases des rangées strictement avant la rangée `r`, pour un hexagone de rayon `rayon`.
+fn cases_avant(rayon: i64, r: i64) -> i64 {
+    if r >= 0 {
+        rayon * (3 * rayon + 1) / 2 + r * (2 * rayon + 1) - r * (r - 1) / 2
+    } else {
+        (rayon + r) * (2 * rayon + 1) - (rayon - r + 1) * (rayon + r) / 2
+    }
 }
 
 /// Le grand hexagone de rayon `R` en coordonnées axiales `(q, r)` (voir la documentation du module).
@@ -164,24 +201,29 @@ impl Hexagone {
     /// Si `rayon > 32768`.
     #[allow(unused_variables)]
     pub fn new(rayon: u32) -> Hexagone {
-        todo!()
+        assert!(rayon <= 32768, "le rayon doit être au plus 32768");
+        Hexagone { rayon }
     }
 
     /// Le rayon.
     pub fn rayon(&self) -> u32 {
-        todo!()
+        self.rayon
     }
 
     /// Le nombre de cases : `3 * R * (R + 1) + 1`.
     pub fn cases(&self) -> usize {
-        todo!()
+        let rayon = self.rayon as usize;
+        3 * rayon * (rayon + 1) + 1
     }
 
     /// Vrai si `(q, r)` est une case : `max(|q|, |r|, |s|) <= R` avec `s = -q - r` (le bord de l'hexagone en fait
     /// partie). Exact pour toutes les valeurs de `i32`.
     #[allow(unused_variables)]
     pub fn contient(&self, q: i32, r: i32) -> bool {
-        todo!()
+        let q = i64::from(q);
+        let r = i64::from(r);
+        let s = -q - r;
+        q.abs().max(r.abs()).max(s.abs()) <= i64::from(self.rayon)
     }
 
     /// L'indice canonique de la case `(q, r)` (voir « L'ordre canonique des cases »).
@@ -191,7 +233,12 @@ impl Hexagone {
     /// Si `(q, r)` n'est pas une case de l'hexagone.
     #[allow(unused_variables)]
     pub fn index(&self, q: i32, r: i32) -> usize {
-        todo!()
+        assert!(self.contient(q, r), "case hors de l'hexagone");
+        let rayon = i64::from(self.rayon);
+        let q = i64::from(q);
+        let r = i64::from(r);
+        let debut = (-rayon).max(-rayon - r);
+        (cases_avant(rayon, r) + (q - debut)) as usize
     }
 
     /// La case d'indice `i` : l'inverse de [`Hexagone::index`].
@@ -201,7 +248,22 @@ impl Hexagone {
     /// Si `i >= cases()`.
     #[allow(unused_variables)]
     pub fn position(&self, i: usize) -> (i32, i32) {
-        todo!()
+        assert!(i < self.cases(), "indice hors de l'hexagone");
+        let rayon = i64::from(self.rayon);
+        let indice = i as i64;
+        let mut bas = -rayon;
+        let mut haut = rayon + 1;
+        while bas + 1 < haut {
+            let milieu = bas + (haut - bas) / 2;
+            if cases_avant(rayon, milieu) <= indice {
+                bas = milieu;
+            } else {
+                haut = milieu;
+            }
+        }
+        let debut = (-rayon).max(-rayon - bas);
+        let q = debut + (indice - cases_avant(rayon, bas));
+        (q as i32, bas as i32)
     }
 
     /// Les six voisins de `(q, r)` dans l'ordre de [`DIRECTIONS_HEX`] : l'élément `k` est
@@ -213,7 +275,15 @@ impl Hexagone {
     /// Si `(q, r)` n'est pas une case de l'hexagone.
     #[allow(unused_variables)]
     pub fn voisins(&self, q: i32, r: i32) -> [Option<(i32, i32)>; 6] {
-        todo!()
+        assert!(self.contient(q, r), "case hors de l'hexagone");
+        let mut voisins = [None; 6];
+        for (k, &(dq, dr)) in DIRECTIONS_HEX.iter().enumerate() {
+            let (nq, nr) = (q + dq, r + dr);
+            if self.contient(nq, nr) {
+                voisins[k] = Some((nq, nr));
+            }
+        }
+        voisins
     }
 }
 
@@ -225,7 +295,9 @@ impl Hexagone {
 /// Exacte tant que `q + r` tient dans un `i32` (sinon, panique au débordement).
 #[allow(unused_variables)]
 pub fn tourner60(q: i32, r: i32) -> (i32, i32) {
-    todo!()
+    let nq = r.checked_neg().expect("la rotation déborde un i32");
+    let nr = q.checked_add(r).expect("q + r déborde un i32");
+    (nq, nr)
 }
 
 /// La distance hexagonale entre deux cases `(q, r)` : le nombre minimal de pas de voisin à voisin, soit
@@ -234,5 +306,8 @@ pub fn tourner60(q: i32, r: i32) -> (i32, i32) {
 /// contient `(q, r)`. Exacte pour `|q|` et `|r|` d'au plus 2^29 (le résultat tient alors dans un `u32`).
 #[allow(unused_variables)]
 pub fn distance_hex(a: (i32, i32), b: (i32, i32)) -> u32 {
-    todo!()
+    let dq = i64::from(a.0) - i64::from(b.0);
+    let dr = i64::from(a.1) - i64::from(b.1);
+    let ds = -dq - dr;
+    dq.abs().max(dr.abs()).max(ds.abs()) as u32
 }
