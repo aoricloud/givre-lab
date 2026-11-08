@@ -61,7 +61,9 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use etape_5_commun::{FONCTIONS, chemin_module, lancer_le_script, lire_page, natif, node_est_la, racine};
+use etape_5_commun::{
+    FONCTIONS, FONCTIONS_Z1, Z1_ACTIVE, chemin_module, lancer_le_script, lire_page, natif, node_est_la, racine,
+};
 use givre_lab::empreinte::sha256_hex;
 
 /// Le plafond de la page, tous fichiers de `docs/` confondus sauf le module : 200 Ko.
@@ -354,15 +356,21 @@ fn app_js_anime_et_dessine_sur_le_canvas() {
 #[cfg_attr(not(feature = "etape-5"), ignore)]
 fn app_js_emploie_exactement_les_exportations_du_module() {
     let code = format!("{}\n{}", lire_le_code_de_app_js(), lire_le_code_de_lecture_js());
-    let exportees: BTreeSet<String> = FONCTIONS.iter().map(|(nom, _, _)| nom.to_string()).collect();
+    let onze: BTreeSet<String> = FONCTIONS.iter().map(|(nom, _, _)| nom.to_string()).collect();
+    // Étape Z1 : avec `etape-z1` la page emploie les quinze fonctions ; sans elle, les onze ou les quinze.
+    let quinze: BTreeSet<String> =
+        onze.iter().cloned().chain(FONCTIONS_Z1.iter().map(|(nom, _, _)| nom.to_string())).collect();
     let employes = noms_employes(&code);
+    let exportees = if Z1_ACTIVE || employes == quinze { quinze } else { onze };
 
     let inconnus: Vec<&String> = employes.difference(&exportees).collect();
     assert!(inconnus.is_empty(), "app.js emploie des noms que le module n'exporte pas : {inconnus:?}");
     let oublies: Vec<&String> = exportees.difference(&employes).collect();
     assert!(oublies.is_empty(), "app.js n'emploie pas ces exportations du module : {oublies:?}");
 
-    for (nom, parametres, _) in FONCTIONS {
+    for (nom, parametres, _) in
+        FONCTIONS.iter().chain(FONCTIONS_Z1.iter()).filter(|(nom, _, _)| exportees.contains(*nom))
+    {
         let arites = arites_des_appels(&code, nom);
         assert!(!arites.is_empty(), "app.js n'appelle jamais {nom}(…)");
         for arite in arites {
