@@ -478,9 +478,23 @@ pub fn variante_du_scenario(scenario: &Scenario) -> Result<Option<Variante>, Err
 /// # Panique
 ///
 /// Si `sites` est vide ou si `num` vaut 0 (le rayon de giration est nul : un site seul, ou des sites tous confondus).
-#[allow(unused_variables)]
 pub fn densite(sites: &[(i32, i32)]) -> f64 {
-    todo!()
+    assert!(!sites.is_empty(), "aucun site : la densité n'existe pas");
+    let n = sites.len() as i128;
+    let mut somme_x = 0_i128;
+    let mut somme_y = 0_i128;
+    let mut somme_xx = 0_i128;
+    let mut somme_yy = 0_i128;
+    for &(x, y) in sites {
+        let (x, y) = (x as i128, y as i128);
+        somme_x += x;
+        somme_y += y;
+        somme_xx += x * x;
+        somme_yy += y * y;
+    }
+    let num = n * (somme_xx + somme_yy) - (somme_x * somme_x + somme_y * somme_y);
+    assert!(num != 0, "le rayon de giration est nul : la densité n'existe pas");
+    ((n * n * n) as f64) / (num as f64)
 }
 
 /// L'anisotropie d'ordre 4 autour de l'**origine** `(0, 0)` (le germe, pas le centre de masse) :
@@ -493,7 +507,15 @@ pub fn densite(sites: &[(i32, i32)]) -> f64 {
 ///
 /// Exact tant que `|x|` et `|y|` restent au plus `2^24` et qu'il y a moins de `2^28` sites ; au-delà le résultat n'est pas défini
 /// (une panique par débordement est possible).
-#[allow(unused_variables)]
 pub fn anisotropie(sites: &[(i32, i32)]) -> f64 {
-    todo!()
+    let mut num = 0_i128;
+    let mut den = 0_i128;
+    for &(x, y) in sites {
+        let (x, y) = (x as i128, y as i128);
+        let (x2, y2) = (x * x, y * y);
+        let r2 = x2 + y2;
+        num += x2 * x2 - 6 * x2 * y2 + y2 * y2;
+        den += r2 * r2;
+    }
+    if den == 0 { 0.0 } else { (num as f64) / (den as f64) }
 }
