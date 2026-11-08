@@ -294,3 +294,59 @@ ces tailles. Constats non testés : le collage partiel épaissit l'amas sans acc
 - Que le collage partiel mène aux quatre bras : à N = 1000 il n'accroît pas S4 ; à très grand N, non mesuré.
 - Le contrat de `lancer` pour des scénarios qui mêlent `surface` et les directives de la DLA : seuls trois cas de refus le fixent.
 - Qu'une implémentation qui boucle échoue vite : elle échoue au bout de 120 s (le délai des simulations des tests).
+
+## Étape 5 : la vitrine (la DLA et les flocons de Reiter dans une page web, en WebAssembly)
+
+La vitrine fait tourner dans un navigateur le code des étapes 1 et 3, sans le réécrire : `src/vitrine.rs` est compilé deux fois,
+en natif (les tests l'appellent comme n'importe quelle fonction Rust) et en WebAssembly (`docs/givre.wasm`, cible
+`wasm32-unknown-unknown`, module sans importation). Onze fonctions exportées `givre_*`, qui ne prennent et ne rendent que des
+nombres : démarrer l'un de quatre modèles (0 la DLA, 1 la plaque, 2 l'étoile, 3 la dendrite, avec les réglages des scénarios
+d'exemple), avancer, lire le temps, la durée, la taille de l'image et ses pixels (`0x00RRGGBB`, `u32::MAX` hors de l'image), le
+nombre de sites, le rayon, la compacité et les huit mots de l'empreinte. La page (`docs/index.html`, `docs/app.js`,
+`docs/lecture.js`) les appelle, dessine l'image sur un canvas et affiche l'empreinte. Les règles, le temps, l'état avant tout
+démarrage et les valeurs « hors de portée » sont dans la doc de `src/vitrine.rs` ; les valeurs attendues des tests, chacune avec
+sa source, dans `references/etape-5-valeurs.md`.
+
+La preuve de l'étape est la phrase de la feuille de route : **l'empreinte d'une graine, lue dans la page, est celle du code
+natif**. Pour la DLA de graine 1 jouée jusqu'au bout, c'est le contenu de `references/dla-graine-1.empreinte`.
+
+### Références
+
+- MDN, `WebAssembly.instantiate()` (lu) : `instantiate(bufferSource, importObject)` rend `{ module, instance }` ; l'objet
+  d'importations est facultatif ; une importation non fournie donne `LinkError`. MDN, `ImageData()` (lu) : `new ImageData(dataArray,
+  width, height)` attend un `Uint8ClampedArray` de `4 × largeur × hauteur` octets.
+- La spécification de l'interface JavaScript de WebAssembly (lue) : un `i32` rendu est lu comme un nombre signé (d'où le
+  `>>> 0` qui le relit non signé) ; un `i64` serait un `BigInt` ; un `f64` NaN devient `NaN`. Le format binaire du module (lu) :
+  `\0asm`, version 1, sections, exportations ; c'est ce que lit le petit lecteur de `tests/etape_5_commun/mod.rs`.
+- La référence de Rust (lue) : `#[unsafe(no_mangle)]` est obligatoire dès l'édition 2024 ; une panique qui atteint une fonction
+  `extern "C"` devient un abandon du processus : aucune fonction de la vitrine ne panique, en natif comme en WebAssembly. Node,
+  « process I/O » (lu) : les écritures sur un tube sont asynchrones sous POSIX et synchrones sous Windows, d'où `process.exitCode`
+  dans les scripts de test. Non lu : un exemple officiel de `cdylib` pour `wasm32-unknown-unknown` (la commande de construction
+  est éprouvée par six reconstructions identiques).
+
+### Ce que les tests établissent
+
+Tout est comparé à l'état du code natif par une **égalité exacte** (entiers, octets, mots, bits de `f64`) ou à un calcul fermé
+(couleurs d'un flocon au temps 0, tailles d'image, indépendants du code) : aucune tolérance statistique, aucun hasard à mesurer.
+Le module commité, lu sous Node, redonne l'empreinte, les accesseurs et l'image du code natif (huit cas dont des morceaux
+inégaux, la DLA de graine 1 jusqu'au bout, un morceau qui dépasse la durée) ; `docs/lecture.js` (l'empreinte affichée, l'image
+dessinée, la graine du champ) est éprouvé sous Node contre le natif. Ce qu'aucun test ne joue mais que le juge a mesuré : le module se reconstruit identique à l'octet par la commande de la
+doc (six constructions, trois dossiers de travail, deux de cible).
+
+### Ce que cette étape n'établit pas
+
+- **Que la page marche dans un navigateur.** `lecture.js` est éprouvé sous Node contre le natif ; le reste de la page (que
+  l'empreinte soit bien écrite dans `#empreinte`, que l'image soit bien dessinée, que la graine du champ soit passée, l'animation,
+  le curseur de vitesse, l'arrêt au bout) n'est éprouvé que par sa forme (des tests de texte, étiquetés `forme`) et par un coup
+  d'œil humain, une fois, dans Chromium. Jamais Firefox, Safari ni un téléphone.
+- **Que `docs/givre.wasm` soit le module de la dernière source** : les tests comparent son **comportement** au code natif, pas
+  ses octets. Un changement voulu de l'état ou des couleurs de `dla`, `flocon` ou `vitrine` rend le test du module rouge tant
+  qu'il n'est pas reconstruit ; un changement sans effet de comportement laisse un module différent à l'octet mais égal par le
+  comportement.
+- **Que la construction soit reproductible ailleurs que sur la machine virtuelle** (six constructions identiques, chaîne 1.99.1) ni
+  que le module se comporte de même sur un autre moteur WebAssembly que Node 20 (V8).
+- **Node sous Windows** : les scripts ont tourné sous Linux ; la CI de `windows-latest` est le premier essai.
+- **Un amas de DLA qui sortirait du réseau** (`givre_avancer` s'arrête alors sans panique ; impossible pour 3000 sites), **l'état
+  avant tout démarrage en natif** (l'état est global : seul Node, sur un module neuf, le lit), **un accesseur de largeur échangé avec
+  celui de hauteur** (les images sont carrées), **les performances sur un téléphone**.
+- **La justesse physique des images** : celle des étapes 1 et 3, reprise telle quelle.
