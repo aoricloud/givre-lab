@@ -30,3 +30,11 @@ embellir une image ne change aucune d'entre elles.
 Un aperçu est pour l'œil, jamais une preuve : les valeurs attendues et les empreintes sont dans `references/`, et
 embellir une image ne change aucune d'entre elles.
 
+## Aperçus de l'étape 4
+
+- `etape-4-faces.png` : cinq faces de 64 × 64 colonnes à Δμ = 0 (J/kT = 2 ; 1,5 ; 1 ; 0,75 ; 0,5), après 300 balayages depuis une face plate (graine 1), chacune l'aperçu min-max de `Face::apercu`, séparées par un filet : de la face lisse, uniforme, à la face rugueuse.
+- `etape-4-rugosite.png` : la rugosité d'équilibre `w` contre `J/kT`, de 0,25 à 2 par pas de 1/16, pour L = 16 et L = 32 (une couleur par taille), en échelle logarithmique en `w`, avec les deux axes, la grille et leurs repères, sans texte ; chaque point est `w = √<w²>` après 300 balayages de transitoire puis 300 balayages moyennés, sur les graines 1 à 8.
+
+Un aperçu est pour l'œil, jamais une preuve : les valeurs attendues et les empreintes sont dans `references/`, et
+embellir une image ne change aucune d'entre elles.
+
