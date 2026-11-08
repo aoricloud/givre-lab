@@ -167,7 +167,8 @@ Le modèle de C. A. Reiter, *A local cellular model for snow crystal growth*, Ch
 l'hexagone de `reseau` (coordonnées axiales), sans aucun hasard, en virgule fixe `Fixe` (Q31.32) : la symétrie d'ordre 6 (rotations
 de 60° et réflexion) de tout l'état est donc exacte au bit près. Chaque cellule porte une masse d'eau ; elle est gelée si sa masse
 vaut au moins 1, de bord si elle touche une cellule gelée, réceptive dans ces deux cas. Un pas : la masse des cellules non
-réceptives diffuse (poids 1 − α/2 au centre, α/12 aux six voisines), celle des cellules réceptives ne diffuse pas et reçoit γ ; la
+réceptives diffuse (poids 1 − α/2 au centre, α/12 aux six voisines), celle des cellules réceptives ne diffuse pas vers ses voisines et reçoit γ (elle reçoit, comme toute cellule, la diffusion
+venue de ses voisines non réceptives) ; la
 couronne extérieure est remise à β à chaque pas ; l'état initial vaut β partout, sauf le germe à 1. Les règles, l'ordre et
 l'arrondi de chaque opération en virgule fixe, l'écriture canonique et le contrat de `lancer` sont dans la doc de `src/flocon.rs` ;
 les valeurs attendues des tests, chacune avec sa source, dans `references/etape-3-valeurs.md`.
@@ -175,14 +176,17 @@ les valeurs attendues des tests, chacune avec sa source, dans `references/etape-
 ### Références
 
 - Reiter 2005 : préimpression (texte lu) et page auxiliaire de l'auteur, dont le script J `sfn.ijs` (page `sfn.html`) qui donne
-  la table du temps de croissance en fonction de β et γ pour une région de rayon 100. Les règles de la doc sont celles du script,
-  ligne pour ligne, sauf la géométrie du bord (voir ci-dessous) et les flottants (Q31.32 ici).
+  la table du temps de croissance en fonction de β et γ pour une région de rayon 100. Les règles de la doc sont celles du script (la table de
+  240 cases est retrouvée exactement par un modèle écrit à part avec ces règles et la géométrie de l'auteur), sauf la géométrie du
+  bord (voir ci-dessous) et les flottants (Q31.32 ici).
 - « β = 0, γ = 0 : no growth » et « β = 0, γ > 0 : plates » (préimpression) : la plaque est un test « juste » (forme close).
 - Gravner et Griffeath, Physica D 237 (2008) 385 (lu), reprennent le modèle ; Libbrecht 2005 et Gravner et Griffeath 2009 n'ont pas
-  été relus : aucun test n'en dépend. Les figures 3 à 7 de la préimpression n'ont pas été lues (des images).
-- Le jeu « dendrite » (β = 0,4, γ = 0,001) est celui d'une animation de la page de l'auteur, légendée seulement par ces valeurs ;
-  le jeu « étoile » (β = 0,45, γ = 0,1) n'a aucune source nommée (la préimpression dit seulement « stellar or more abstract forms »
-  pour un γ élevé) : les tests de classe de forme (compacité, pointes) et la vitesse radiale sont des « régressions », pas des preuves.
+  été relus : aucun test n'en dépend. Les figures de la préimpression n'ont pas été lues (des images).
+- Le jeu « dendrite » (β = 0,4, γ = 0,001) est celui de la vignette `h0o4_x0o001` de la table de l'auteur et des exemples de sa page
+  et de la figure 5 ; le jeu « étoile » (β = 0,45, γ = 0,1) est celui de la vignette `h0o45_x0o1` de la même table (une étoile
+  pleine à six pointes), la préimpression ne disant que « stellar or more abstract forms » pour un γ élevé : le nom de classe
+  « étoile » est le nôtre, pas celui de l'auteur. Les tests de classe de forme (compacité, pointes) et la vitesse radiale sont des
+  « régressions », pas des preuves.
 
 ### Ce qui est mesuré, et l'écart à la valeur publiée
 
@@ -200,6 +204,49 @@ géométries donnent le même nombre.
   que la bibliothèque n'a pas ; aucun test gelé ne la porte.
 - Le script qui a produit la table (seul celui de l'animation est publié).
 - Que les classes étoile, secteur et dendrite soient les « vraies » : aucune valeur publiée ne les chiffre.
-- Les tables de rayon 200 et 400, les configurations initiales aléatoires de la figure 6 (le modèle n'a pas de hasard) et les
-  changements de paramètres en cours de croissance (figure 7).
+- Les tables de rayon 200 et 400, et tout ce que montrent les figures de la préimpression, non lues.
 - Le temps d'exécution sur la CI de GitHub (estimé, non mesuré).
+
+## Étape 4 : attachement et détachement thermiques (le modèle « solide sur solide », Metropolis)
+
+Le modèle SOS (« solid on solid », de Kossel) d'une face cristalline : une face carrée L × L périodique de hauteurs entières, de
+hamiltonien H = J Σ |h_i − h_j| − Δμ Σ h_i (la somme des écarts de hauteur porte sur chaque paire de plus proches voisins une
+fois ; Δμ est la différence de potentiel chimique qui pousse la croissance). Un essai : une colonne au hasard, « ajouter » ou
+« ôter » une particule avec une chance sur deux, acceptation avec la probabilité min(1, exp(−ΔH/kT)) lue dans la table
+`math::EXP_NEG` (J/kT et Δμ/kT en seizièmes entiers : aucune exponentielle dans le code). Le temps se compte en balayages (L²
+essais). Les règles, le hasard consommé appel par appel, l'écriture canonique et le contrat de `lancer` sont dans la doc de
+`src/cinetique.rs` ; les valeurs attendues des tests, chacune avec sa source, dans `references/etape-4-valeurs.md`.
+
+**Ce n'est pas la cinétique de Gilmer et Bennema** : c'est un Metropolis à une particule, qui a le même état d'équilibre que leur
+modèle mais pas leur loi de taux ; les vitesses de croissance de cette étape ne se comparent donc à aucune valeur publiée. Le nom
+« Monte-Carlo cinétique » de la feuille de route doit se lire ainsi.
+
+### Références
+
+- M. Hasenbusch et K. Pinn, J. Phys. A 30, 63 (1997), arXiv cond-mat/9605019 (lu) : le modèle SOS absolu (ASOS), H = K Σ |h_x − h_y|
+  sur les paires de plus proches voisins, la température de transition rugueuse K_R = 0,80608(2), la largeur qui diverge en ln L du
+  côté rugueux et reste finie du côté lisse ; arXiv hep-lat/9710079 (lu) recoupe la convention (J par liaison, chaque liaison une fois).
+- La pente 1/π² de la largeur contre ln L à la transition : Hasenbusch, Meyer et Pütz, arXiv hep-lat/9601011 (lu, pour l'interface
+  d'Ising 3D ; appliquée au SOS par universalité, ce que la fiche dit).
+- Libbrecht, Rep. Prog. Phys. 68, 855 (2005) (texte lu) : la vitesse v = α v_cin σ ; une face rugueuse a α ≈ 1, une face lisse croît
+  par nucléation bidimensionnelle, α ≈ A exp(−σ_crit/σ). Gilmer et Bennema, J. Appl. Phys. 43, 1347 (1972) : résumé seul. Weeks et
+  Gilmer (1979), Burton, Cabrera et Frank (1951) et van Beijeren (1977) n'ont pas été lus.
+- K_R = 0,806 vaut environ 12,9 seizièmes : les faces dites lisses des tests (J/kT = 1, 1,25, 1,5, 2) sont du côté lisse, les rugueuses
+  (J/kT = 0,375, 0,5, 0,75) du côté rugueux.
+
+### Ce que les tests établissent, et ce qu'ils n'établissent pas
+
+Sont « justes » : le simulateur naïf écrit dans les tests (mêmes hauteurs, au bit) ; le cas J = 0, où la vitesse moyenne par balayage
+vaut exactement (1 − p)/2 avec p = EXP_NEG[Δμ en seizièmes] / 2³² ; la distribution de Boltzmann exacte d'une face 3 × 3 (par
+énumération) ; la pente de w² contre ln L, qui passe par 1/π² entre J/kT = 0,75 et 0,875 : le modèle encadre K_R = 0,806 au seizième
+près (avec 12 à 29 % d'excès de pente à J/kT = 0,8125, des corrections en 1/ln L que la source annonce). Sont des « régressions »
+(la forme décrite par les sources, à des tailles et des durées écrites) : la nucléation à bas T, la linéarité à haut T, la
+rugosité qui croît avec T.
+
+- Aucune vitesse de croissance publiée n'est reproduite, et aucune ne peut l'être avec cette dynamique : seules les propriétés
+  d'équilibre (Boltzmann sur 3 × 3, K_R, la pente 1/π²) se comparent à la littérature.
+- K_R n'est encadré qu'au seizième (0,75 < K_R < 0,875) ; le mesurer demanderait une autre grille de J ou de bien plus grandes faces.
+- Il n'y a pas de seuil de nucléation au sens strict : « quasi nulle » dépend de la taille et de la durée ; ni la loi exp(−σ_crit/Δμ)
+  ni σ_crit ne sont testées.
+- La linéarité à haut T est mesurée à un seul J, une seule taille, sur une plage de Δμ ; la mobilité n'est comparée à rien de publié.
+- L'égalité entre Linux et Windows est établie sur 40 faces et sur la suite entière ; la CI la rejoue par la référence d'empreinte.
