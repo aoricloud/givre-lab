@@ -5,8 +5,24 @@ croissance de surface, flocons de neige à facettes, attachement et détachement
 en nombres d'après son article (une dimension fractale, un exposant de croissance, une classe de formes), avec un
 rendu qu'on prend plaisir à regarder : le givre pousse en dendrites et en facettes.
 
-**Où il en est** : rien ne tourne encore. La V0, six étapes de l'agrégat de Witten et Sander à la page web, est décrite
-dans [FEUILLE-DE-ROUTE.md](FEUILLE-DE-ROUTE.md).
+**Où il en est** : la V0 est faite. Les six étapes, de l'agrégat de Witten et Sander à la page web, sont fusionnées,
+chacune avec sa preuve. [FEUILLE-DE-ROUTE.md](FEUILLE-DE-ROUTE.md) dit le plan ; [MODELE.md](MODELE.md) dit, pour chaque
+modèle, ses équations, sa référence, ce que ses tests établissent et ce qu'ils n'établissent pas (il y en a, et ils sont
+écrits : une valeur publiée qu'on n'atteint pas s'y dit telle quelle).
+
+## Essayer
+
+Lancer un scénario (l'empreinte de l'état, les mesures en CSV et les aperçus vont dans le dossier de sortie) :
+
+```text
+cargo run --release -- lancer scenarios/dla.txt --graine 1 --sortie sortie
+```
+
+La vitrine est la page `docs/index.html` : la DLA et les flocons de Reiter, calculés en WebAssembly (`docs/givre.wasm`,
+construit depuis `src/vitrine.rs`) et dessinés sur un canvas, avec l'empreinte affichée (celle d'une graine y est la même
+qu'en natif). Pour la voir en local, servir le dossier `docs/` par un serveur statique, par exemple
+`python -m http.server --directory docs`, puis ouvrir `http://localhost:8000`. Elle se publie sur GitHub Pages quand
+l'humain qui mène le dépôt l'active (dossier `/docs` de la branche `main`) ; ensuite chaque fusion la republie.
 
 ## Ce qui le tient
 
