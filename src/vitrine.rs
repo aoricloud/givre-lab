@@ -117,8 +117,67 @@
 //! en dix minutes (mesuré sur le prototype sans cache : plus de 600 s, contre 4 s avec). Une image gardée d'avant un `avancer`
 //! est la faute typique : les tests lisent l'image après chaque morceau.
 
-// Les corps sont neutres (0, `u32::MAX`, `NaN`) : à remplir par la vague du code, d'après la doc ci-dessus. Les
-// signatures et leurs attributs sont ceux du module final et ne changent pas.
+use std::sync::{Mutex, MutexGuard};
+
+use crate::dla::{Amas, COTE_APERCU, amas_colore};
+use crate::empreinte::sha256;
+use crate::flocon::{Flocon, Parametres};
+
+/// Une image d'aperçu gardée en mémoire : ses dimensions et ses octets R, V, B, ligne par ligne de haut en bas.
+struct Image {
+    largeur: u32,
+    hauteur: u32,
+    rvb: Vec<u8>,
+}
+
+/// Le modèle en cours : l'amas de DLA ou le flocon de Reiter.
+enum Modele {
+    Dla(Amas),
+    Flocon(Flocon),
+}
+
+/// L'état global : le modèle, la durée de son scénario et l'image de l'état courant (refaite quand l'état change).
+struct Etat {
+    modele: Modele,
+    duree: u32,
+    image: Image,
+}
+
+/// Le seul état de la vitrine ; `None` avant tout démarrage réussi.
+static ETAT: Mutex<Option<Etat>> = Mutex::new(None);
+
+/// Prend le verrou de l'état ; un verrou empoisonné par une panique se reprend par `into_inner` (jamais de panique ici).
+fn verrouiller() -> MutexGuard<'static, Option<Etat>> {
+    ETAT.lock().unwrap_or_else(|empoisonne| empoisonne.into_inner())
+}
+
+/// L'image de l'aperçu d'un modèle : `amas_colore` pour la DLA, `Flocon::apercu` pour un flocon.
+fn image_de(modele: &Modele) -> Image {
+    match modele {
+        Modele::Dla(amas) => {
+            let (largeur, hauteur, rvb) = amas_colore(amas.sites(), COTE_APERCU);
+            Image { largeur, hauteur, rvb }
+        }
+        Modele::Flocon(flocon) => {
+            let cote = 2 * flocon.rayon() + 1;
+            Image { largeur: cote, hauteur: cote, rvb: flocon.apercu() }
+        }
+    }
+}
+
+/// Le temps du modèle en cours (voir « Le temps ») : les sites moins le germe pour la DLA, `Flocon::temps` sinon.
+fn temps_de(modele: &Modele) -> u32 {
+    match modele {
+        Modele::Dla(amas) => amas.sites().len().saturating_sub(1) as u32,
+        Modele::Flocon(flocon) => u32::try_from(flocon.temps()).unwrap_or(u32::MAX),
+    }
+}
+
+/// Construit un flocon d'après les trois textes de paramètres du scénario ; `None` s'ils ne se lisent pas (ils se lisent).
+fn flocon_de(rayon: u32, alpha: &str, beta: &str, gamma: &str) -> Option<Flocon> {
+    let parametres = Parametres::lire(alpha, beta, gamma)?;
+    Some(Flocon::new(rayon, parametres))
+}
 
 /// (Re)construit le modèle `modele` (0 à 3, voir « Les quatre modèles ») au temps 0 et rend 1 ; `graine` n'est lue que par la
 /// DLA (`Amas::new(u64::from(graine), 200)` : un `u32` entier, de 0 à `u32::MAX`, sans troncature ni signe) et ignorée par les
@@ -129,7 +188,19 @@
 #[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_demarrer(modele: u32, graine: u32) -> u32 {
-    0
+    // Les réglages sont ceux des scénarios d'exemple (voir « Les quatre modèles ») : ils sont écrits ici, sans fichier.
+    let construit = match modele {
+        0 => Some((Modele::Dla(Amas::new(u64::from(graine), 200)), 2999)),
+        1 => flocon_de(30, "1", "0", "0.05").map(|flocon| (Modele::Flocon(flocon), 400)),
+        2 => flocon_de(40, "1", "0.45", "0.1").map(|flocon| (Modele::Flocon(flocon), 120)),
+        3 => flocon_de(60, "1", "0.4", "0.001").map(|flocon| (Modele::Flocon(flocon), 800)),
+        _ => None,
+    };
+    let Some((modele, duree)) = construit else { return 0 };
+    let image = image_de(&modele);
+    let mut garde = verrouiller();
+    *garde = Some(Etat { modele, duree, image });
+    1
 }
 
 /// Joue `min(n, duree - temps)` unités de temps (voir « Le temps ») et rend ce nombre : `n` si le scénario n'est pas fini, moins
@@ -141,31 +212,61 @@ pub extern "C" fn givre_demarrer(modele: u32, graine: u32) -> u32 {
 #[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_avancer(n: u32) -> u32 {
-    0
+    let mut garde = verrouiller();
+    let Some(etat) = garde.as_mut() else { return 0 };
+    let reste = etat.duree.saturating_sub(temps_de(&etat.modele));
+    let a_jouer = n.min(reste);
+    if a_jouer == 0 {
+        return 0;
+    }
+    let jouees = match &mut etat.modele {
+        Modele::Dla(amas) => {
+            let mut jouees = 0;
+            while jouees < a_jouer {
+                if amas.essayer_ajouter().is_none() {
+                    break;
+                }
+                jouees += 1;
+            }
+            jouees
+        }
+        Modele::Flocon(flocon) => {
+            flocon.avancer(u64::from(a_jouer));
+            a_jouer
+        }
+    };
+    if jouees > 0 {
+        etat.image = image_de(&etat.modele);
+    }
+    jouees
 }
 
 /// Le temps : les unités jouées depuis le démarrage (voir « Le temps »), de 0 à [`givre_duree`] ; 0 avant tout démarrage.
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_temps() -> u32 {
-    0
+    let garde = verrouiller();
+    garde.as_ref().map_or(0, |etat| temps_de(&etat.modele))
 }
 
 /// La durée du scénario du modèle en cours : 2999, 400, 120 ou 800 (voir « Les quatre modèles ») ; 0 avant tout démarrage.
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_duree() -> u32 {
-    0
+    let garde = verrouiller();
+    garde.as_ref().map_or(0, |etat| etat.duree)
 }
 
 /// La largeur, en pixels, de l'image de l'état courant (voir « L'image ») ; 0 avant tout démarrage.
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_largeur() -> u32 {
-    0
+    let garde = verrouiller();
+    garde.as_ref().map_or(0, |etat| etat.image.largeur)
 }
 
 /// La hauteur, en pixels, de l'image de l'état courant (voir « L'image ») ; 0 avant tout démarrage.
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_hauteur() -> u32 {
-    0
+    let garde = verrouiller();
+    garde.as_ref().map_or(0, |etat| etat.image.hauteur)
 }
 
 /// La couleur du pixel `(x, y)` de l'image de l'état courant, empaquetée en `0x00RRGGBB` (voir « L'image »).
@@ -174,26 +275,56 @@ pub extern "C" fn givre_hauteur() -> u32 {
 #[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_pixel(x: u32, y: u32) -> u32 {
-    u32::MAX
+    let garde = verrouiller();
+    let Some(etat) = garde.as_ref() else { return u32::MAX };
+    let image = &etat.image;
+    if x >= image.largeur || y >= image.hauteur {
+        return u32::MAX;
+    }
+    let indice = (y as usize)
+        .checked_mul(image.largeur as usize)
+        .and_then(|ligne| ligne.checked_add(x as usize))
+        .and_then(|pixel| pixel.checked_mul(3));
+    let Some(indice) = indice else { return u32::MAX };
+    let Some(fin) = indice.checked_add(3) else { return u32::MAX };
+    match image.rvb.get(indice..fin) {
+        Some([r, v, b]) => (u32::from(*r) << 16) | (u32::from(*v) << 8) | u32::from(*b),
+        _ => u32::MAX,
+    }
 }
 
 /// Le nombre de sites de l'amas (germe compris) pour la DLA, de cases gelées pour un flocon (voir « Les mesures ») ; 0 avant
 /// tout démarrage.
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_sites() -> u32 {
-    0
+    let garde = verrouiller();
+    let Some(etat) = garde.as_ref() else { return 0 };
+    match &etat.modele {
+        Modele::Dla(amas) => amas.sites().len() as u32,
+        Modele::Flocon(flocon) => flocon.gelees() as u32,
+    }
 }
 
 /// Le rayon de l'amas (DLA) ou du cristal (flocon), voir « Les mesures » ; 0 avant tout démarrage.
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_rayon() -> u32 {
-    0
+    let garde = verrouiller();
+    let Some(etat) = garde.as_ref() else { return 0 };
+    match &etat.modele {
+        Modele::Dla(amas) => amas.rayon(),
+        Modele::Flocon(flocon) => flocon.rayon_cristal(),
+    }
 }
 
 /// La compacité du flocon (`Flocon::compacite().vers_f64()`, de 0 à 1) ; `NaN` pour la DLA et avant tout démarrage.
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_compacite() -> f64 {
-    f64::NAN
+    let garde = verrouiller();
+    let Some(etat) = garde.as_ref() else { return f64::NAN };
+    match &etat.modele {
+        Modele::Dla(_) => f64::NAN,
+        Modele::Flocon(flocon) => flocon.compacite().vers_f64(),
+    }
 }
 
 /// Le `i`-ième mot (0 à 7) de 32 bits, gros-boutiste, du SHA-256 de l'écriture canonique de l'état (voir « L'empreinte »).
@@ -203,5 +334,20 @@ pub extern "C" fn givre_compacite() -> f64 {
 #[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_empreinte_mot(i: u32) -> u32 {
-    0
+    if i >= 8 {
+        return 0;
+    }
+    let garde = verrouiller();
+    let Some(etat) = garde.as_ref() else { return 0 };
+    let ecriture = match &etat.modele {
+        Modele::Dla(amas) => amas.ecriture_canonique(),
+        Modele::Flocon(flocon) => flocon.ecriture_canonique(),
+    };
+    let empreinte = sha256(&ecriture);
+    let debut = 4 * i as usize;
+    let Some(fin) = debut.checked_add(4) else { return 0 };
+    match empreinte.get(debut..fin) {
+        Some([a, b, c, d]) => u32::from_be_bytes([*a, *b, *c, *d]),
+        _ => 0,
+    }
 }
