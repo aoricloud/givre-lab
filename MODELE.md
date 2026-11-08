@@ -168,8 +168,9 @@ l'hexagone de `reseau` (coordonnées axiales), sans aucun hasard, en virgule fix
 de 60° et réflexion) de tout l'état est donc exacte au bit près. Chaque cellule porte une masse d'eau ; elle est gelée si sa masse
 vaut au moins 1, de bord si elle touche une cellule gelée, réceptive dans ces deux cas. Un pas : la masse des cellules non
 réceptives diffuse (poids 1 − α/2 au centre, α/12 aux six voisines), celle des cellules réceptives ne diffuse pas vers ses voisines et reçoit γ (elle reçoit, comme toute cellule, la diffusion
-venue de ses voisines non réceptives) ; la
-couronne extérieure est remise à β à chaque pas ; l'état initial vaut β partout, sauf le germe à 1. Les règles, l'ordre et
+venue de ses voisines non réceptives) ; le
+bord est remis à β à chaque pas (la couronne extérieure de l'hexagone par défaut, ou le cercle de l'auteur avec `Bord::Circulaire`, voir « Le bord
+circulaire » plus bas) ; l'état initial vaut β partout, sauf le germe à 1. Les règles, l'ordre et
 l'arrondi de chaque opération en virgule fixe, l'écriture canonique et le contrat de `lancer` sont dans la doc de `src/flocon.rs` ;
 les valeurs attendues des tests, chacune avec sa source, dans `references/etape-3-valeurs.md`.
 
@@ -188,20 +189,33 @@ les valeurs attendues des tests, chacune avec sa source, dans `references/etape-
   « étoile » est le nôtre, pas celui de l'auteur. Les tests de classe de forme (compacité, pointes) et la vitesse radiale sont des
   « régressions », pas des preuves.
 
+### Le bord circulaire (étape 3c)
+
+Un flocon a un bord au choix (`Bord`) : `Hexagonal` (la couronne de l'hexagone, le défaut de `Flocon::new`, inchangé) ou `Circulaire`
+(`Flocon::avec_bord`) : les cases de l'hexagone dont `4 · (q² + q r + r²) >= 3 R²`, c'est-à-dire hors du cercle de rayon `R sin 60°`, le bord du
+script de l'auteur (`ocir` de `sfn.ijs` ; pour `R = 100` : `d² >= 7500`). L'entier `q² + q r + r²` est le carré exact de la distance euclidienne au
+centre (deux cases voisines à 1) : tout reste en entiers, sans flottant ni racine, et la symétrie d'ordre 6 reste exacte au bit près. La couronne est toujours dans le bord circulaire
+(une preuve de quelques lignes dans la doc de `src/flocon.rs`) ; le bord circulaire est la couronne pour `R <= 7` et en a davantage dès `R = 8` (54 cases contre 48).
+`Flocon::distance2_cristal` est la mesure d'arrêt de l'auteur (`d² >= 7203` pour une région de rayon 100). L'écriture canonique garde l'étiquette `GIVRE003`
+et change l'octet de forme : 1 (hexagonal, comme avant) ou 2 (circulaire). Seule la bibliothèque change : ni `lancer`, ni la vitrine, ni la page n'emploient encore le bord circulaire.
+L'en-tête de `tests/etape_3_publie.rs` (gelé à l'étape 3, laissé tel quel) parle du seul bord hexagonal : les 59 cases qu'il écarte sont désormais testées
+avec `Bord::Circulaire` par `tests/etape_3c_table.rs`.
+
 ### Ce qui est mesuré, et l'écart à la valeur publiée
 
-**Valeur publiée non atteinte, cause établie** : la table de Reiter (région de rayon 100) est reproduite exactement par ce modèle
-sur un hexagone de rayon 100 pour 160 des 219 cases non plafonnées (toutes celles où β ≥ 0,55 ou γ ≥ 0,1). Pour β ≤ 0,5 et γ ≤ 0,05 ce
-modèle met de 0,1 à 4,9 % de pas en plus : le script de l'auteur fixe à β les cases à distance euclidienne d'au moins 100 sin 60° ≈ 86,6
-du germe (un cercle), alors que la couronne de l'hexagone est plus loin des pointes ; avec la géométrie de l'auteur et les mêmes
-règles, un modèle écrit à part retrouve les 240 cases. Le bord circulaire n'est pas dans la bibliothèque (un bord en flottants, ou
-en carrés de distances entiers, serait un changement de conception) ; le test de la table ne porte que sur des cases où les deux
-géométries donnent le même nombre.
+**La table de Reiter (région de rayon 100, α = 1) est retrouvée en entier avec le bord circulaire : 240 cases sur 240** (`tests/etape_3c_table.rs`) : les 219 numéros
+non plafonnés sont égaux, et pour les 21 cases plafonnées à 9999 aucun arrêt n'a lieu avant le 10000e pas (la table ne distingue pas un arrêt exactement au 10000e pas).
+**Avant** (le bord hexagonal, l'arrêt à `d² >= 7203` ou au rayon hexagonal 85, c'est la même chose ici) : **181 sur 240** (160 non plafonnées et les 21 plafonnées) ; les 59
+autres, les « dendrites lentes » (`β` de 0,05 à 0,5 et `γ <= 0,05`), ont 0,1 à 4,9 % de pas en plus (au pire `β = 0,2`, `γ = 0` : numéro 9435 contre 8994 publié). Le script J de l'auteur
+(`sfn.ijs`) fixe à `β` les cases à distance euclidienne `d >= 100 sin 60° ≈ 86,6` du germe, un cercle à 1,6 case des pointes quand elles atteignent 85, alors que la couronne
+de l'hexagone de rayon 100 en est à 15 cases : la vapeur maintenue à `β` arrive plus vite chez l'auteur. Ni une règle, ni un arrondi, ni la lecture du numéro n'y sont pour quelque chose.
+Le bord hexagonal reste le défaut (rien de ce qui existait ne change, à l'octet) ; `Bord::Circulaire` est l'option qui retrouve la table.
 
 ### Ce que cette étape n'établit pas
 
-- La fidélité à la table pour les 59 cases des dendrites lentes : établie seulement par un outil à part, avec un bord circulaire
-  que la bibliothèque n'a pas ; aucun test gelé ne la porte.
+- La table de Reiter de rayon 100 est retrouvée en entier avec `Bord::Circulaire` (240 cases sur 240, α = 1) ; le bord hexagonal, lui, n'en retrouve que 181. Mais :
+  les 21 cases plafonnées à 9999 ne disent que « pas d'arrêt avant le 10000e pas » ; les tables de rayon 200 et 400 de l'auteur ne sont pas testées ; seule la
+  bibliothèque a le bord circulaire (pas `lancer`, ni la vitrine, ni la page) ; la table complète (467 245 pas de simulation) est un test ignoré par défaut.
 - Le script qui a produit la table (seul celui de l'animation est publié).
 - Que les classes étoile, secteur et dendrite soient les « vraies » : aucune valeur publiée ne les chiffre.
 - Les tables de rayon 200 et 400, et tout ce que montrent les figures de la préimpression, non lues.
