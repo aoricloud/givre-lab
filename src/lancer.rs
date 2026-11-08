@@ -4,9 +4,20 @@
 //! # Ce que fait l'étape 0
 //!
 //! Le scénario vide : une forme (`boite` ou `hexagone`) et rien d'autre. Il n'y a encore rien à simuler : l'état est la
-//! forme et la graine. L'étape 0 ne comprend **aucune directive** en plus de la forme (voir
-//! [`crate::scenario::Scenario::directives`]) : la première directive restante fait refuser le scénario
-//! ([`ErreurLancer::DirectiveInconnue`]). Les étapes suivantes feront consommer leurs directives par `lancer`.
+//! forme et la graine. Sans directive (voir [`crate::scenario::Scenario::directives`]), `lancer` produit l'empreinte, les
+//! mesures et l'aperçu décrits ci-dessous.
+//!
+//! # Ce que fait l'étape 2s : la directive `surface`
+//!
+//! Une fois la forme lue (elle est **ignorée** de `surface`), les directives doivent être exactement une
+//! `surface <modele> <largeur> <couches>` : `modele` est l'un des noms de [`crate::surface::Modele::nom`], `largeur`
+//! vaut de 1 à [`crate::surface::LARGEUR_MAX`], `couches` de 1 à [`crate::surface::COUCHES_MAX`]. La première directive
+//! doit être cette `surface` bien formée, et il ne doit y en avoir aucune autre ; sinon `lancer` rend
+//! [`ErreurLancer::DirectiveInconnue`] avec la ligne de la première directive fautive (la première si elle est mal formée
+//! ou n'est pas `surface`, sinon la seconde). Le détail des sorties de `surface` est dans la documentation du module
+//! [`crate::surface`], § « Le scénario : la directive `surface` et ses sorties » : `Surface::new` puis `couches` appels à
+//! `deposer_couche`, l'empreinte de l'état final, le CSV `couches,rugosite` aux instants 1, 2, 4, … puis `couches`, et
+//! l'aperçu de la surface finale vue de côté.
 //!
 //! # L'écriture canonique de l'état du scénario vide
 //!
@@ -40,7 +51,8 @@
 //! [`lancer`] et écrit `empreinte.txt` (l'empreinte puis `\n`), `mesures.csv` et `apercu.png` dans le dossier.
 
 use crate::alea::Alea;
-use crate::scenario::{Forme, Scenario};
+use crate::scenario::{Directive, Forme, Scenario};
+use crate::surface::{COUCHES_MAX, LARGEUR_MAX, Modele, Surface};
 use crate::{empreinte, image, rendu};
 
 /// Ce que produit un lancer.
@@ -66,14 +78,22 @@ pub enum ErreurLancer {
 /// Lance le scénario avec cette graine (voir la documentation du module). Pour le même scénario et la même graine, le
 /// résultat est toujours le même, octet pour octet, sur toutes les machines.
 ///
+/// Sans directive, c'est le scénario vide de l'étape 0. Avec des directives, la première doit être une `surface` bien
+/// formée et il ne doit y en avoir aucune autre.
+///
 /// # Erreurs
 ///
-/// `ErreurLancer::DirectiveInconnue(ligne)` si `scenario.directives` n'est pas vide : `ligne` est le numéro de ligne
-/// de sa première directive. Rien d'autre n'est calculé alors.
-#[allow(unused_variables)]
+/// `ErreurLancer::DirectiveInconnue(ligne)` si les directives ne forment pas exactement une `surface` bien formée : `ligne`
+/// est celle de la première directive fautive. C'est la seule erreur de `lancer`, et rien d'autre n'est calculé alors.
 pub fn lancer(scenario: &Scenario, graine: u64) -> Result<Sortie, ErreurLancer> {
     if let Some(directive) = scenario.directives.first() {
-        return Err(ErreurLancer::DirectiveInconnue(directive.ligne));
+        let Some((modele, largeur, couches)) = surface_bien_formee(directive) else {
+            return Err(ErreurLancer::DirectiveInconnue(directive.ligne));
+        };
+        if let Some(autre) = scenario.directives.get(1) {
+            return Err(ErreurLancer::DirectiveInconnue(autre.ligne));
+        }
+        return Ok(lancer_surface(modele, largeur, couches, graine));
     }
 
     // L'écriture canonique : l'étiquette, la forme, puis l'état du générateur tout juste amorcé.
@@ -106,4 +126,79 @@ pub fn lancer(scenario: &Scenario, graine: u64) -> Result<Sortie, ErreurLancer> 
     let apercu = image::ecrire_png(largeur, hauteur, &rendu::apercu_graine(largeur, hauteur, graine));
 
     Ok(Sortie { empreinte, mesures, apercu })
+}
+
+/// La directive `surface` bien formée : le modèle, la largeur et le nombre de couches, ou `None` (mauvais nom, nombre
+/// d'arguments, modèle, entier ou bornes).
+fn surface_bien_formee(directive: &Directive) -> Option<(Modele, usize, u64)> {
+    if directive.nom != "surface" || directive.args.len() != 3 {
+        return None;
+    }
+    let modele = Modele::depuis_nom(&directive.args[0])?;
+    let largeur = directive.entier(1).ok()?;
+    let couches = directive.entier(2).ok()?;
+    if !(1..=LARGEUR_MAX as u64).contains(&largeur) || !(1..=COUCHES_MAX).contains(&couches) {
+        return None;
+    }
+    Some((modele, largeur as usize, couches))
+}
+
+/// Le lancer de la directive `surface` : `couches` couches complètes, puis l'empreinte, les mesures CSV et l'aperçu.
+fn lancer_surface(modele: Modele, largeur: usize, couches: u64, graine: u64) -> Sortie {
+    let mut surface = Surface::new(modele, largeur, graine);
+
+    // Les instants des mesures : les puissances de 2 au plus égales à `couches`, puis `couches` s'il n'y figure pas.
+    let mut instants = Vec::new();
+    let mut instant = 1_u64;
+    while instant <= couches {
+        instants.push(instant);
+        instant *= 2;
+    }
+    if instants.last() != Some(&couches) {
+        instants.push(couches);
+    }
+
+    // Pour l'aperçu : `couche_de[x][r]` est la première couche complète après laquelle `h[x] > r` (la hauteur ne décroît
+    // jamais, donc chaque rangée n'est franchie qu'une fois).
+    let mut couche_de: Vec<Vec<u32>> = vec![Vec::new(); largeur];
+    let mut precedent = vec![0_u64; largeur];
+
+    let mut mesures = String::from("couches,rugosite\n");
+    let mut prochain = 0;
+    for t in 1..=couches {
+        surface.deposer_couche();
+        let hauteurs = surface.hauteurs();
+        for x in 0..largeur {
+            while precedent[x] < hauteurs[x] {
+                couche_de[x].push(t as u32);
+                precedent[x] += 1;
+            }
+        }
+        if prochain < instants.len() && instants[prochain] == t {
+            mesures.push_str(&format!("{t},{:.6}\n", surface.rugosite()));
+            prochain += 1;
+        }
+    }
+
+    // L'aperçu : la surface finale vue de côté, `largeur` × `max(1, h_max)`.
+    let finale = surface.hauteurs();
+    let hauteur_max = finale.iter().copied().max().expect("une surface a au moins une colonne");
+    let hauteur_image = hauteur_max.max(1) as u32;
+    let diviseur = couches.saturating_sub(1).max(1);
+    let mut rvb = Vec::with_capacity(3 * largeur * hauteur_image as usize);
+    for y in 0..hauteur_image {
+        let r = u64::from(hauteur_image - 1 - y);
+        for x in 0..largeur {
+            if r >= finale[x] {
+                rvb.extend_from_slice(&[240, 240, 240]);
+            } else {
+                let a = u64::from(couche_de[x][r as usize]);
+                let v = (a - 1) * 255 / diviseur;
+                rvb.extend_from_slice(&[v as u8, 96, (255 - v) as u8]);
+            }
+        }
+    }
+    let apercu = image::ecrire_png(largeur as u32, hauteur_image, &rvb);
+
+    Sortie { empreinte: surface.empreinte(), mesures, apercu }
 }
