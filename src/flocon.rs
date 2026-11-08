@@ -154,9 +154,10 @@
 //! est 2D et sans fusion ni sublimation ; il n'est pas une simulation de la physique (Reiter le dit lui-même). Les `α > 2` que
 //! l'article essaie (2,003 ; 2,69 : le poids du centre est négatif) sont hors du modèle.
 
+use crate::empreinte::sha256_hex;
 use crate::lancer::Sortie;
 use crate::math::Fixe;
-use crate::reseau::{DIRECTIONS_HEX, Hexagone};
+use crate::reseau::{DIRECTIONS_HEX, Hexagone, distance_hex, tourner60};
 use crate::scenario::Scenario;
 
 /// Le plus grand nombre de pas qu'une directive `reiter` peut demander.
@@ -472,43 +473,92 @@ impl Flocon {
 
     /// Le nombre de cases gelées (masse au moins 1), couronne comprise.
     pub fn gelees(&self) -> usize {
-        todo!()
+        self.masses.iter().filter(|masse| masse.0 >= Fixe::UN.0).count()
     }
 
     /// Le rayon du cristal : la plus grande distance hexagonale au centre d'une case gelée (0 s'il n'y en a aucune, ou
     /// seulement le centre).
     pub fn rayon_cristal(&self) -> u32 {
-        todo!()
+        let mut rayon = 0;
+        for (i, masse) in self.masses.iter().enumerate() {
+            if masse.0 >= Fixe::UN.0 {
+                let (q, r) = self.hexagone.position(i);
+                rayon = rayon.max(distance_hex((0, 0), (q, r)));
+            }
+        }
+        rayon
     }
 
     /// La compacité : `Fixe::rapport(gelees, 3 r (r + 1) + 1)` avec `r = rayon_cristal()` (voir « Les mesures »).
     pub fn compacite(&self) -> Fixe {
-        todo!()
+        let rayon = i64::from(self.rayon_cristal());
+        let cases = 3 * rayon * (rayon + 1) + 1;
+        Fixe::rapport(self.gelees() as i64, cases)
     }
 
     /// Le nombre de cases gelées qui ont exactement un voisin gelé (voir « Les mesures »).
     pub fn pointes(&self) -> usize {
-        todo!()
+        let mut pointes = 0;
+        for (i, masse) in self.masses.iter().enumerate() {
+            if masse.0 < Fixe::UN.0 {
+                continue;
+            }
+            let voisins_gelees = self.voisins[i]
+                .iter()
+                .filter(|&&voisin| voisin >= 0 && self.masses[voisin as usize].0 >= Fixe::UN.0)
+                .count();
+            if voisins_gelees == 1 {
+                pointes += 1;
+            }
+        }
+        pointes
     }
 
     /// Le défaut de rotation : le nombre de cases `(q, r)` telles que `masse(q, r) != masse(tourner60(q, r))`.
     pub fn defaut_rotation(&self) -> usize {
-        todo!()
+        let mut defaut = 0;
+        for (i, masse) in self.masses.iter().enumerate() {
+            let (q, r) = self.hexagone.position(i);
+            let (q_image, r_image) = tourner60(q, r);
+            if *masse != self.masses[self.hexagone.index(q_image, r_image)] {
+                defaut += 1;
+            }
+        }
+        defaut
     }
 
     /// Le défaut de réflexion : le nombre de cases `(q, r)` telles que `masse(q, r) != masse(reflechir(q, r))`.
     pub fn defaut_reflexion(&self) -> usize {
-        todo!()
+        let mut defaut = 0;
+        for (i, masse) in self.masses.iter().enumerate() {
+            let (q, r) = self.hexagone.position(i);
+            let (q_image, r_image) = reflechir(q, r);
+            if *masse != self.masses[self.hexagone.index(q_image, r_image)] {
+                defaut += 1;
+            }
+        }
+        defaut
     }
 
     /// L'écriture canonique de l'état, `45 + 8 * cases` octets (voir « L'écriture canonique et l'empreinte »).
     pub fn ecriture_canonique(&self) -> Vec<u8> {
-        todo!()
+        let mut octets = Vec::with_capacity(45 + 8 * self.hexagone.cases());
+        octets.extend_from_slice(b"GIVRE003");
+        octets.push(1);
+        octets.extend_from_slice(&self.hexagone.rayon().to_le_bytes());
+        octets.extend_from_slice(&self.parametres.alpha.0.to_le_bytes());
+        octets.extend_from_slice(&self.parametres.beta.0.to_le_bytes());
+        octets.extend_from_slice(&self.parametres.gamma.0.to_le_bytes());
+        octets.extend_from_slice(&self.temps.to_le_bytes());
+        for masse in &self.masses {
+            octets.extend_from_slice(&masse.0.to_le_bytes());
+        }
+        octets
     }
 
     /// L'empreinte : le SHA-256 en hexadécimal minuscule (`empreinte::sha256_hex`) de [`Flocon::ecriture_canonique`].
     pub fn empreinte(&self) -> String {
-        todo!()
+        sha256_hex(&self.ecriture_canonique())
     }
 
     /// L'aperçu : l'image RVB carrée de côté `2R + 1`, `3 * (2R + 1)^2` octets (voir « L'aperçu »).
