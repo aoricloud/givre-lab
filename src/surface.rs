@@ -562,9 +562,27 @@ pub fn variance_rugosite_carre_depot(n: u64, l: u64) -> f64 {
 /// # Panique
 ///
 /// Si `xs` et `ys` n'ont pas la même longueur ou moins de deux éléments.
-#[allow(unused_variables)]
 pub fn pente(xs: &[f64], ys: &[f64]) -> f64 {
-    todo!()
+    assert_eq!(xs.len(), ys.len(), "xs et ys n'ont pas la même longueur");
+    assert!(xs.len() >= 2, "une pente demande au moins deux points");
+    let n = xs.len() as f64;
+    let mut somme_x = 0.0;
+    let mut somme_y = 0.0;
+    for k in 0..xs.len() {
+        somme_x += xs[k];
+        somme_y += ys[k];
+    }
+    let moyenne_x = somme_x / n;
+    let moyenne_y = somme_y / n;
+    let mut numerateur = 0.0;
+    let mut denominateur = 0.0;
+    for k in 0..xs.len() {
+        let dx = xs[k] - moyenne_x;
+        let dy = ys[k] - moyenne_y;
+        numerateur += dx * dy;
+        denominateur += dx * dx;
+    }
+    numerateur / denominateur
 }
 
 /// Le `w²` moyen aux instants `instants`, sur les graines `graines` : pour chaque graine, une surface `Surface::new(modele,
@@ -575,9 +593,27 @@ pub fn pente(xs: &[f64], ys: &[f64]) -> f64 {
 /// # Panique
 ///
 /// Si `graines` ou `instants` est vide, si `instants` n'est pas strictement croissant, ou si son premier élément est 0.
-#[allow(unused_variables)]
 pub fn rugosites_moyennes(modele: Modele, largeur: usize, graines: &[u64], instants: &[u64]) -> Vec<f64> {
-    todo!()
+    assert!(!graines.is_empty(), "aucune graine");
+    assert!(!instants.is_empty(), "aucun instant");
+    assert!(instants[0] != 0, "le premier instant vaut 0");
+    for k in 1..instants.len() {
+        assert!(instants[k] > instants[k - 1], "les instants ne sont pas strictement croissants");
+    }
+    let mut sommes = vec![0.0_f64; instants.len()];
+    for &graine in graines {
+        let mut surface = Surface::new(modele, largeur, graine);
+        let mut faites = 0_u64;
+        for (k, &instant) in instants.iter().enumerate() {
+            while faites < instant {
+                surface.deposer_couche();
+                faites += 1;
+            }
+            sommes[k] += surface.rugosite_carre();
+        }
+    }
+    let nombre = graines.len() as f64;
+    sommes.iter().map(|somme| somme / nombre).collect()
 }
 
 /// L'exposant de croissance `β` mesuré : la [`pente`] de `0,5 · ln(w²moyen)` contre `ln(t)` aux instants `instants` (voir
@@ -588,7 +624,10 @@ pub fn rugosites_moyennes(modele: Modele, largeur: usize, graines: &[u64], insta
 /// # Panique
 ///
 /// Comme [`rugosites_moyennes`], et si `instants` a moins de deux éléments.
-#[allow(unused_variables)]
 pub fn exposant(modele: Modele, largeur: usize, graines: &[u64], instants: &[u64]) -> f64 {
-    todo!()
+    assert!(instants.len() >= 2, "un exposant demande au moins deux instants");
+    let carres = rugosites_moyennes(modele, largeur, graines, instants);
+    let xs: Vec<f64> = instants.iter().map(|&t| crate::math::logarithme(t as f64)).collect();
+    let ys: Vec<f64> = carres.iter().map(|&w2| 0.5 * crate::math::logarithme(w2)).collect();
+    pente(&xs, &ys)
 }
