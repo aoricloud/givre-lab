@@ -105,3 +105,58 @@ pas que β tende vers 1/3.
   0,239 et 0,2425, toutes dans la tolérance ; seuls les tests exacts les distinguent.
 - Le temps d'une implémentation honnête mais lente : la doc dit qu'un pas d'Eden doit coûter un temps constant ; aucun test
   ne borne le temps.
+
+## Étape 1 : l'agrégat de Witten et Sander (DLA sur grille carrée)
+
+Un germe occupe le site (0, 0) ; des marcheurs sont lancés un à un sur un anneau autour de l'amas, marchent au hasard sur la
+grille, sont abandonnés s'ils s'éloignent trop, et collent au premier contact : dès qu'un des quatre voisins du marcheur est
+dans l'amas, il s'arrête et son site s'ajoute. Les règles, le hasard consommé appel par appel (un tirage par lancement, un par
+pas de marche) et l'écriture canonique de l'état sont dans la doc de `src/dla.rs` ; les mesures dans celle de `src/mesures.rs` ;
+les valeurs attendues des tests, chacune avec sa source, dans `references/etape-1-valeurs.md`.
+
+### Références
+
+- T. A. Witten et L. M. Sander, *Diffusion-limited aggregation, a kinetic critical phenomenon*, Phys. Rev. Lett. 47, 1400
+  (1981), et *Diffusion-limited aggregation*, Phys. Rev. B 27, 5686 (1983). Le texte intégral de l'article de 1981 n'a pas pu
+  être lu ici : ce que le plan de ce dépôt disait de sa valeur de D (« un peu plus basse que 1,71 ») n'est pas vérifié, et
+  aucun test ne s'y appuie.
+- La convention de lancement à « rayon de l'amas + 5 » et d'abandon à deux fois le rayon est celle des premières simulations
+  sur grille (Y. L. Loh, arXiv:1407.2586, 2014, qui cite Witten et Sander). Un abandon suivi d'un nouveau tirage uniforme sur
+  l'anneau n'est pas le retour exact du marcheur : c'est une approximation connue, mesurée sans effet sur D ni sur β à
+  l'erreur-type près (0,007 environ) à 4000, 10 000 et 30 000 sites.
+- La valeur admise de la dimension fractale en 2D, environ 1,71, vient de grands amas : Meakin (1983), Tolman et Meakin
+  (1989), Ball et Witten (1984), Sander (2000) ; Loh (2014) montre qu'au-delà d'environ 10⁵ sites l'anisotropie de la grille
+  l'emporte. Meakin et Tolman et Meakin n'ont été lus que par leur résumé.
+- Le rayon de giration croît comme N^(1/D) (Witten et Sander). Les dimensions de masse-rayon et de boîtes se mesurent sur des
+  images synthétiques dont la réponse est connue (segment → 1, carré plein → 2, fractale de Vicsek → ln 5 / ln 3, tapis de
+  Sierpinski → ln 8 / ln 3), d'où l'exactitude des mesures : les images se fabriquent dans les tests.
+
+### Ce qui est mesuré, et l'écart à la valeur publiée
+
+Sur 24 à 40 graines par taille, avec un simulateur écrit à part (autres structures de données, mêmes sites que la
+bibliothèque aux réglages de la doc) ; chaque valeur est une moyenne ± son erreur-type :
+
+| Taille de l'amas | masse-rayon, de 6 à R/2 | 1/β, exposant du rayon de giration |
+|---|---|---|
+| 4000 sites | 1,663 ± 0,007 | 1,697 |
+| 10 000 sites | 1,682 ± 0,006 | 1,714 |
+| 30 000 sites | 1,689 ± 0,006 | 1,723 |
+
+**Valeur publiée non atteinte (masse-rayon)** : à 4000 sites la dimension de masse-rayon vaut 1,66, soit 0,04 sous 1,71. Ce n'est
+pas une faute de règle : elle est la même, à l'erreur-type près, avec la règle de ce dépôt, un abandon cinq fois plus loin, une
+marge quatre fois plus grande ou le retour exact sans abandon ; elle monte avec la taille de l'amas (effet de taille finie de
+l'estimateur). L'exposant du rayon de giration, lui, donne 1/β entre 1,70 et 1,72 à toutes ces tailles, comme la valeur
+publiée ; c'est le test « juste » de l'étape, le test de masse-rayon étant une « régression » de ce que fait ce modèle à 4000
+sites. La dimension de boîtes de l'amas (environ 1,49) n'est que rapportée : aucune valeur publiée ne la fixe.
+
+### Ce que cette étape n'établit pas
+
+- Que la DLA sur grille carrée a la dimension 1,71 : l'exposant de giration la donne (1,70 à 1,72), la masse-rayon depuis le
+  germe donne 1,66 à 1,69 et monte avec la taille. Au-delà d'environ 10⁵ sites l'anisotropie de la grille l'emporterait : rien
+  n'est testé à ces tailles.
+- Que l'abandon suivi d'une relance uniforme est sans effet : mesuré sans effet à l'erreur-type près ; un biais plus petit ne
+  se verrait pas.
+- Que le modèle est exactement celui de l'article de 1981 : son texte n'a pas été lu.
+- Que la dimension de boîtes de l'amas a un sens : elle n'est que rapportée.
+- Qu'une implémentation qui boucle sans fin échoue vite : elle n'échoue qu'au délai de la CI.
+- Le comportement de `lancer` sur de très grandes boîtes (4095 × 4095, mémoire du réseau) : aucun test à cette taille.
