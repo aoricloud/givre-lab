@@ -1,0 +1,4 @@
+# Surface en bande : dépôt avec relaxation de surface (modèle de Family), 64 colonnes, 200 couches.
+# La boîte est exigée par le format de fichier ; `surface` ne lit que sa propre directive.
+boite 64 200
+surface relaxation 64 200
