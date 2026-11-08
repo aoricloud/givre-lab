@@ -49,6 +49,32 @@
 //! L'aperçu est [`crate::dla::amas_colore`], avec la palette [`crate::dla::PALETTE`], le fond [`crate::dla::FOND`] et
 //! [`crate::dla::couleur_du_rang`].
 //!
+//! # Ce que fait l'étape 3 : la directive `reiter`
+//!
+//! **Cette section est le contrat de [`lancer`] à l'étape 3** (reprise de la documentation de [`crate::flocon`], § « La
+//! directive `reiter` et ses sorties »). Le scénario est `hexagone <rayon>` et **une seule** directive,
+//! `reiter <alpha> <beta> <gamma> <pas>`. Quand la **première** directive s'appelle `reiter`, [`lancer`] appelle
+//! [`crate::flocon::lancer_reiter`] et rend sa [`Sortie`] ; son `Err(ligne)` devient
+//! [`ErreurLancer::DirectiveInconnue`]`(ligne)`. La graine n'est pas utilisée (le modèle n'a aucun hasard : deux graines
+//! donnent la même sortie, octet pour octet). Toute autre première directive se comporte comme avant (les étapes 0, 1 et
+//! 2s ci-dessus).
+//!
+//! Les sorties de `reiter` sont : **l'empreinte** de [`crate::flocon::Flocon::empreinte`] de l'état final ; **les
+//! mesures**, le CSV `temps,gelees,rayon,compacite`, avec une ligne à l'instant 0, puis à chaque instant `t` multiple de
+//! `intervalle = max(1, pas / 20)` (division entière) tel que `1 <= t <= pas`, puis une dernière ligne à `t = pas` si ce
+//! n'est pas déjà un multiple ; `gelees`, `rayon` et `compacite` sont [`crate::flocon::Flocon::gelees`],
+//! [`crate::flocon::Flocon::rayon_cristal`] et la compacité écrite avec **six décimales exactes** (calculée en entiers,
+//! voir la documentation de [`crate::flocon`]) ; chaque ligne finit par un seul `\n` ; **l'aperçu**, le PNG
+//! ([`crate::image::ecrire_png`]) de [`crate::flocon::Flocon::apercu`], un carré de côté `2 * rayon + 1`.
+//!
+//! **Les refus**, tous `ErreurLancer::DirectiveInconnue(ligne)` : la ligne de la **première directive fautive dans l'ordre
+//! du fichier**. C'est la ligne de la directive `reiter` elle-même si la forme n'est pas un `hexagone`, si elle n'a pas
+//! exactement quatre arguments, si `alpha`, `beta` ou `gamma` ne se lisent pas par
+//! [`crate::flocon::Parametres::lire`] ou si `pas` n'est pas un entier décimal de 1 à [`crate::flocon::PAS_MAX`] ; sinon
+//! c'est la ligne de la directive suivante, quelle qu'elle soit (il n'y a qu'une directive en plus de la forme). Rien
+//! n'est calculé alors. Les refus des étapes 0, 1 et 2s restent ceux d'avant (par exemple une `dla` sur un `hexagone`),
+//! et une première directive qui n'est ni `reiter`, ni `dla`, ni `surface` est refusée à sa ligne.
+//!
 //! # L'écriture canonique de l'état du scénario vide
 //!
 //! L'empreinte est le SHA-256 (`empreinte::sha256_hex`) de cette suite d'octets, dans cet ordre :
@@ -110,16 +136,21 @@ pub enum ErreurLancer {
 /// Lance le scénario avec cette graine (voir la documentation du module). Pour le même scénario et la même graine, le
 /// résultat est toujours le même, octet pour octet, sur toutes les machines.
 ///
-/// Sans directive, c'est le scénario vide de l'étape 0. S'il contient une directive `dla`, c'est le lancer DLA de
-/// l'étape 1 (voir « Ce que fait l'étape 1 : la directive `dla` »). Sinon, avec des directives, la première doit être une
-/// `surface` bien formée et il ne doit y en avoir aucune autre (étape 2s).
+/// La première directive choisit le lancer : `reiter` appelle [`crate::flocon::lancer_reiter`] (étape 3) ; sinon, si une
+/// directive `dla` est présente, c'est le lancer DLA de l'étape 1 ; sinon, avec des directives, la première doit être une
+/// `surface` bien formée et il ne doit y en avoir aucune autre (étape 2s) ; sans directive, c'est le scénario vide de
+/// l'étape 0.
 ///
 /// # Erreurs
 ///
-/// `ErreurLancer::DirectiveInconnue(ligne)` si les directives ne forment pas exactement ce que l'étape attend : `ligne` est
-/// celle de la première directive fautive (pour `dla`, la plus petite des lignes refusées, voir la documentation du
-/// module). C'est la seule erreur de `lancer`, et rien d'autre n'est calculé alors.
+/// `ErreurLancer::DirectiveInconnue(ligne)` si les directives ne forment pas exactement ce que l'étape attend. Pour
+/// `reiter`, `ligne` est celle de la première directive fautive dans l'ordre du fichier (voir « Ce que fait l'étape 3 :
+/// la directive `reiter` ») ; pour `dla`, la plus petite des lignes refusées ; pour `surface`, la première directive
+/// fautive. C'est la seule erreur de `lancer`, et rien d'autre n'est calculé alors.
 pub fn lancer(scenario: &Scenario, graine: u64) -> Result<Sortie, ErreurLancer> {
+    if scenario.directives.first().is_some_and(|directive| directive.nom == "reiter") {
+        return crate::flocon::lancer_reiter(scenario).map_err(ErreurLancer::DirectiveInconnue);
+    }
     if scenario.directives.iter().any(|directive| directive.nom == "dla") {
         return lancer_dla(scenario, graine);
     }
