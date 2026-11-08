@@ -14,3 +14,11 @@ empreintes dans `references/*.empreinte` ; embellir un aperçu ne change aucune 
 Un aperçu est pour l'œil, jamais une preuve : les valeurs attendues et les empreintes sont dans `references/`, et
 embellir une image ne change aucune d'entre elles.
 
+## Aperçus de l'étape 1
+
+- `etape-1-amas.png` : l'amas de DLA de la graine 1 (4000 sites, réseau de demi-côté 200), chaque site coloré par son ordre d'arrivée, du blanc pour le germe au rose pour le dernier site.
+- `etape-1-loglog.png` : la courbe log-log de la masse dans le rayon autour du germe contre le rayon (rayons 2 à R), avec deux axes, leurs repères et la droite de pente 1,71 en repère pointillé.
+
+Un aperçu est pour l'œil, jamais une preuve : les valeurs attendues et les empreintes sont dans `references/`, et
+embellir une image ne change aucune d'entre elles.
+
