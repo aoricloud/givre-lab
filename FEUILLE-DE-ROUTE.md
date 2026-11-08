@@ -60,7 +60,7 @@ Chaque étape a deux vagues : les tests, puis le code. Sa preuve est
 `cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check`. Les tolérances sont fixées par le juge
 des tests, sur un prototype honnête.
 
-**État au 08/11 : les six étapes sont fusionnées**, chacune avec sa preuve et sa section « Ce que cela n'établit pas » dans `MODELE.md`. Les écarts sont dits là : l'étape 3 ne reprend pas le bord circulaire de l'auteur ; l'étape 4 est un Metropolis à une particule, pas la cinétique de Gilmer et Bennema ; la page de l'étape 5 n'est éprouvée dans un navigateur que par sa forme et un coup d'œil humain.
+**État au 08/11 : les six étapes sont fusionnées**, chacune avec sa preuve et sa section « Ce que cela n'établit pas » dans `MODELE.md`. Les écarts sont dits là : l'étape 3 retrouve les 240 cases de la table de l'auteur avec son bord circulaire (`Bord::Circulaire`, en option : le bord hexagonal reste le défaut) ; l'étape 4 est un Metropolis à une particule, pas la cinétique de Gilmer et Bennema ; la page de l'étape 5 n'est éprouvée dans un navigateur que par sa forme et un coup d'œil humain.
 
 | Étape | Ce qu'elle fait | Sa preuve | Ce qu'on voit |
 |---|---|---|---|
