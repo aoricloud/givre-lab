@@ -329,19 +329,41 @@ impl Face {
     /// L'écriture canonique de l'état, ajoutée à la suite de `sortie` (voir la documentation du module).
     #[allow(unused_variables, clippy::ptr_arg)]
     pub fn ecrire_canonique(&self, sortie: &mut Vec<u8>) {
-        todo!()
+        sortie.extend_from_slice(b"GIVRE004");
+        sortie.extend_from_slice(&(self.taille as u32).to_le_bytes());
+        sortie.extend_from_slice(&self.j_seiziemes.to_le_bytes());
+        sortie.extend_from_slice(&self.mu_seiziemes.to_le_bytes());
+        for &hauteur in &self.hauteurs {
+            sortie.extend_from_slice(&hauteur.to_le_bytes());
+        }
+        sortie.extend_from_slice(&self.alea.octets());
     }
 
     /// L'empreinte de l'état : le SHA-256 en hexadécimal minuscule de son écriture canonique.
     #[allow(unused_variables)]
     pub fn empreinte(&self) -> String {
-        todo!()
+        let mut octets = Vec::new();
+        self.ecrire_canonique(&mut octets);
+        crate::empreinte::sha256_hex(&octets)
     }
 
     /// L'aperçu RVB `taille × taille` (voir « L'aperçu » dans la documentation du module) : `3 · taille²` octets.
     #[allow(unused_variables)]
     pub fn apercu(&self) -> Vec<u8> {
-        todo!()
+        let h_min = *self.hauteurs.iter().min().expect("une face a au moins une hauteur");
+        let h_max = *self.hauteurs.iter().max().expect("une face a au moins une hauteur");
+        let mut rvb = Vec::with_capacity(3 * self.hauteurs.len());
+        for &h in &self.hauteurs {
+            let v = if h_max > h_min {
+                let numerateur = 255 * (i64::from(h) - i64::from(h_min));
+                let denominateur = i64::from(h_max) - i64::from(h_min);
+                (numerateur / denominateur) as u8
+            } else {
+                128
+            };
+            rvb.extend_from_slice(&[v, v, v]);
+        }
+        rvb
     }
 }
 
@@ -355,7 +377,12 @@ impl Face {
 /// Si `balayages` vaut 0.
 #[allow(unused_variables)]
 pub fn vitesse_croissance(face: &mut Face, balayages: usize) -> f64 {
-    todo!()
+    assert!(balayages != 0, "balayages nul : la vitesse n'est pas définie");
+    let n = (face.taille * face.taille) as i128;
+    let avant = face.somme_hauteurs();
+    face.balayages(balayages);
+    let apres = face.somme_hauteurs();
+    (apres - avant) as f64 / (n * balayages as i128) as f64
 }
 
 /// La rugosité moyenne : fait `balayages` balayages de plus sur `face` ; après **chacun**, ajoute le numérateur exact
@@ -367,7 +394,16 @@ pub fn vitesse_croissance(face: &mut Face, balayages: usize) -> f64 {
 /// Si `balayages` vaut 0.
 #[allow(unused_variables)]
 pub fn rugosite_moyenne(face: &mut Face, balayages: usize) -> f64 {
-    todo!()
+    assert!(balayages != 0, "balayages nul : la rugosité moyenne n'est pas définie");
+    let n = (face.taille * face.taille) as i128;
+    let mut total: i128 = 0;
+    for _ in 0..balayages {
+        face.balayage();
+        let s = i128::from(face.somme_hauteurs());
+        let q = face.somme_carres() as i128;
+        total += n * q - s * s;
+    }
+    total as f64 / (n * n * balayages as i128) as f64
 }
 
 /// Fait `balayages` balayages sur `face` et rend le CSV des mesures. L'en-tête est `balayage,hauteur_moyenne,rugosite\n`
@@ -381,5 +417,28 @@ pub fn rugosite_moyenne(face: &mut Face, balayages: usize) -> f64 {
 /// `balayages = 0` : l'en-tête et la ligne de `t = 0`.
 #[allow(unused_variables)]
 pub fn simuler(face: &mut Face, balayages: usize) -> String {
-    todo!()
+    let n = (face.taille * face.taille) as i128;
+    let pas = std::cmp::max(1, balayages / 50);
+    let ligne = |face: &Face, t: usize| {
+        let s = i128::from(face.somme_hauteurs());
+        let q = face.somme_carres() as i128;
+        format!("{t},{},{}\n", millionieme(s, n), millionieme(n * q - s * s, n * n))
+    };
+    let mut sortie = String::from("balayage,hauteur_moyenne,rugosite\n");
+    sortie.push_str(&ligne(face, 0));
+    for t in 1..=balayages {
+        face.balayage();
+        if t % pas == 0 || t == balayages {
+            sortie.push_str(&ligne(face, t));
+        }
+    }
+    sortie
+}
+
+/// `num / den` arrondi au plus proche au millionième, demi-cas vers `+∞`, écrit avec exactement six chiffres après la
+/// virgule (voir [`simuler`]) : `floor((2·num·10^6 + den) / (2·den))`, calculé en entiers (`den > 0`).
+fn millionieme(num: i128, den: i128) -> String {
+    let m = (2 * num * 1_000_000 + den).div_euclid(2 * den);
+    let signe = if m < 0 { "-" } else { "" };
+    format!("{signe}{}.{:06}", m.abs() / 1_000_000, m.abs() % 1_000_000)
 }
