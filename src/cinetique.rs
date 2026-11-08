@@ -143,6 +143,7 @@
 //! de l'étape 0 ; les directives des autres étapes suivent leur propre doc).
 
 use crate::alea::Alea;
+use crate::math::EXP_NEG;
 
 /// Le plus petit côté d'une face : 3 (en dessous, deux voisins d'une colonne seraient la même colonne).
 pub const TAILLE_MIN: usize = 3;
@@ -174,7 +175,8 @@ impl Face {
     /// Si `taille` n'est pas entre [`TAILLE_MIN`] et [`TAILLE_MAX`] (inclus).
     #[allow(unused_variables)]
     pub fn new(taille: usize, j_seiziemes: u32, mu_seiziemes: i32, graine: u64) -> Face {
-        todo!()
+        assert!((TAILLE_MIN..=TAILLE_MAX).contains(&taille), "taille {taille} hors de {TAILLE_MIN}..={TAILLE_MAX}");
+        Face { taille, j_seiziemes, mu_seiziemes, hauteurs: vec![0; taille * taille], alea: Alea::new(graine) }
     }
 
     /// Une face de hauteurs données : `hauteurs[y * taille + x]` est la hauteur de la colonne `(x, y)`. Le reste est
@@ -185,13 +187,15 @@ impl Face {
     /// Si `taille` n'est pas entre [`TAILLE_MIN`] et [`TAILLE_MAX`], ou si `hauteurs.len() != taille * taille`.
     #[allow(unused_variables)]
     pub fn depuis_hauteurs(taille: usize, j_seiziemes: u32, mu_seiziemes: i32, graine: u64, hauteurs: &[i32]) -> Face {
-        todo!()
+        assert!((TAILLE_MIN..=TAILLE_MAX).contains(&taille), "taille {taille} hors de {TAILLE_MIN}..={TAILLE_MAX}");
+        assert_eq!(hauteurs.len(), taille * taille, "nombre de hauteurs incohérent avec la taille");
+        Face { taille, j_seiziemes, mu_seiziemes, hauteurs: hauteurs.to_vec(), alea: Alea::new(graine) }
     }
 
     /// Le côté `L` de la face.
     #[allow(unused_variables)]
     pub fn taille(&self) -> usize {
-        todo!()
+        self.taille
     }
 
     /// La hauteur de la colonne `(x, y)`.
@@ -201,13 +205,15 @@ impl Face {
     /// Si `x >= taille` ou `y >= taille`.
     #[allow(unused_variables)]
     pub fn hauteur(&self, x: usize, y: usize) -> i32 {
-        todo!()
+        assert!(x < self.taille, "x = {x} hors de la face de côté {}", self.taille);
+        assert!(y < self.taille, "y = {y} hors de la face de côté {}", self.taille);
+        self.hauteurs[y * self.taille + x]
     }
 
     /// Toutes les hauteurs, dans l'ordre des numéros `i = y * taille + x`.
     #[allow(unused_variables)]
     pub fn hauteurs(&self) -> &[i32] {
-        todo!()
+        &self.hauteurs
     }
 
     /// Le nombre de seizièmes de `kT` du changement d'énergie `k` d'un essai sur la colonne `(x, y)` **dans l'état
@@ -220,51 +226,104 @@ impl Face {
     /// Si `x >= taille` ou `y >= taille`.
     #[allow(unused_variables)]
     pub fn indice(&self, x: usize, y: usize, ajout: bool) -> i64 {
-        todo!()
+        assert!(x < self.taille, "x = {x} hors de la face de côté {}", self.taille);
+        assert!(y < self.taille, "y = {y} hors de la face de côté {}", self.taille);
+        let l = self.taille;
+        let h = self.hauteurs[y * l + x];
+        let voisins = [
+            self.hauteurs[y * l + (x + 1) % l],
+            self.hauteurs[(y + 1) % l * l + x],
+            self.hauteurs[y * l + (x + l - 1) % l],
+            self.hauteurs[(y + l - 1) % l * l + x],
+        ];
+        let mut n = 0_i64;
+        for v in voisins {
+            let compte = if ajout { v <= h } else { v >= h };
+            if compte {
+                n += 1;
+            }
+        }
+        let j = i64::from(self.j_seiziemes);
+        let mu = i64::from(self.mu_seiziemes);
+        let base = j * (2 * n - 4);
+        if ajout { base - mu } else { base + mu }
     }
 
     /// Un essai (voir « Un essai » et « La consommation du hasard » dans la documentation du module). Rend `true` si
     /// l'essai est accepté (une hauteur a changé de 1), `false` sinon.
     #[allow(unused_variables)]
     pub fn essai(&mut self) -> bool {
-        todo!()
+        let l = self.taille;
+        let i = self.alea.borne((l * l) as u32) as usize;
+        let (x, y) = (i % l, i / l);
+        let ajout = self.alea.suivant() >> 31 == 1;
+        let k = self.indice(x, y, ajout);
+        let accepte = if k <= 0 {
+            true
+        } else if k >= 366 {
+            false
+        } else {
+            u64::from(self.alea.suivant()) < EXP_NEG[k as usize]
+        };
+        if accepte {
+            let pas = if ajout { 1 } else { -1 };
+            let case = y * l + x;
+            self.hauteurs[case] =
+                self.hauteurs[case].checked_add(pas).expect("dépassement d'un i32 : hauteur hors bornes");
+        }
+        accepte
     }
 
     /// Un balayage : `taille²` essais l'un après l'autre.
     #[allow(unused_variables)]
     pub fn balayage(&mut self) {
-        todo!()
+        for _ in 0..self.taille * self.taille {
+            self.essai();
+        }
     }
 
     /// `n` balayages l'un après l'autre.
     #[allow(unused_variables)]
     pub fn balayages(&mut self, n: usize) {
-        todo!()
+        for _ in 0..n {
+            self.balayage();
+        }
     }
 
     /// La somme `S` des hauteurs (exacte).
     #[allow(unused_variables)]
     pub fn somme_hauteurs(&self) -> i64 {
-        todo!()
+        self.hauteurs.iter().map(|&h| i64::from(h)).sum()
     }
 
     /// La somme `Q` des carrés des hauteurs (exacte).
     #[allow(unused_variables)]
     pub fn somme_carres(&self) -> u128 {
-        todo!()
+        self.hauteurs
+            .iter()
+            .map(|&h| {
+                let h = i128::from(h);
+                (h * h) as u128
+            })
+            .sum()
     }
 
     /// La hauteur moyenne `S / N` : `S as f64 / N as f64` (une seule division).
     #[allow(unused_variables)]
     pub fn hauteur_moyenne(&self) -> f64 {
-        todo!()
+        let n = self.taille * self.taille;
+        self.somme_hauteurs() as f64 / n as f64
     }
 
     /// La rugosité `w² = (N·Q − S²) / N²` (voir la documentation du module) : le numérateur exact converti en `f64`,
     /// divisé par `(N²) as f64`.
     #[allow(unused_variables)]
     pub fn rugosite_carree(&self) -> f64 {
-        todo!()
+        let n = (self.taille * self.taille) as i128;
+        let s = i128::from(self.somme_hauteurs());
+        let q = self.somme_carres() as i128;
+        let numerateur = n * q - s * s;
+        numerateur as f64 / (n * n) as f64
     }
 
     /// L'écriture canonique de l'état, ajoutée à la suite de `sortie` (voir la documentation du module).
