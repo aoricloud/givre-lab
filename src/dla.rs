@@ -367,7 +367,25 @@ pub fn demi_cote_de_la_boite(largeur: u32, hauteur: u32) -> u32 {
 /// Si `nombre == 0` ou `rang >= nombre`.
 #[allow(unused_variables)]
 pub fn couleur_du_rang(rang: usize, nombre: usize) -> [u8; 3] {
-    todo!()
+    assert!(nombre > 0, "un amas a au moins un site");
+    assert!(rang < nombre, "le rang {rang} dépasse le nombre de sites {nombre}");
+    if nombre == 1 {
+        return PALETTE[0];
+    }
+    let d = (nombre - 1) as u64;
+    let s = 4 * rang as u64;
+    let k = (s / d).min(3) as usize;
+    let f = s - k as u64 * d;
+    let a = PALETTE[k];
+    let b = PALETTE[k + 1];
+    let (d, f) = (u128::from(d), u128::from(f));
+    let mut couleur = [0_u8; 3];
+    for (canal, valeur) in couleur.iter_mut().enumerate() {
+        let a = u128::from(a[canal]);
+        let b = u128::from(b[canal]);
+        *valeur = ((a * (d - f) + b * f + d / 2) / d) as u8;
+    }
+    couleur
 }
 
 /// L'aperçu de l'amas : les sites colorés par ordre d'arrivée. Rend `(largeur, hauteur, rvb)` : l'image (carrée) et ses
@@ -388,5 +406,36 @@ pub fn couleur_du_rang(rang: usize, nombre: usize) -> [u8; 3] {
 /// Si `sites` est vide, ou si l'image serait trop grande pour un `usize`.
 #[allow(unused_variables)]
 pub fn amas_colore(sites: &[(i32, i32)], cote_cible: u32) -> (u32, u32, Vec<u8>) {
-    todo!()
+    assert!(!sites.is_empty(), "un amas a au moins un site");
+    // La fenêtre, centrée sur le germe, est le carré `[-m, m] × [-m, m]`.
+    let mut m: i64 = 0;
+    for &(x, y) in sites {
+        m = m.max(i64::from(x).abs()).max(i64::from(y).abs());
+    }
+    let cote = 2 * m as u64 + 1;
+    let echelle = (u64::from(cote_cible) / cote).max(1);
+    let largeur = u32::try_from(cote.checked_mul(echelle).expect("image trop grande")).expect("image trop grande");
+    let pixels = (largeur as usize).checked_mul(largeur as usize).expect("image trop grande");
+    let octets = pixels.checked_mul(3).expect("image trop grande");
+
+    // Le fond, puis chaque site coloré par son rang dans un bloc `echelle × echelle`.
+    let mut rvb = Vec::with_capacity(octets);
+    for _ in 0..pixels {
+        rvb.extend_from_slice(&FOND);
+    }
+    let echelle = echelle as usize;
+    let largeur = largeur as usize;
+    for (rang, &(x, y)) in sites.iter().enumerate() {
+        let couleur = couleur_du_rang(rang, sites.len());
+        let px0 = (i64::from(x) + m) as usize * echelle;
+        let py0 = (i64::from(y) + m) as usize * echelle;
+        for py in py0..py0 + echelle {
+            let ligne = 3 * py * largeur;
+            for px in px0..px0 + echelle {
+                let indice = ligne + 3 * px;
+                rvb[indice..indice + 3].copy_from_slice(&couleur);
+            }
+        }
+    }
+    (largeur as u32, largeur as u32, rvb)
 }
