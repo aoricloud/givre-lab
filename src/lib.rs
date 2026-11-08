@@ -16,3 +16,4 @@ pub mod rendu;
 pub mod reseau;
 pub mod scenario;
 pub mod surface;
+pub mod vitrine;
