@@ -364,3 +364,111 @@ doc (six constructions, trois dossiers de travail, deux de cible).
   avant tout démarrage en natif** (l'état est global : seul Node, sur un module neuf, le lit), **un accesseur de largeur échangé avec
   celui de hauteur** (les images sont carrées), **les performances sur un téléphone**.
 - **La justesse physique des images** : celle des étapes 1 et 3, reprise telle quelle.
+
+## Étape Z1 : la corrélation densité-densité (la troisième mesure de D, et le zinc en repère)
+
+La DLA de l'étape 1 se mesure par la masse-rayon et par le rayon de giration. Cette étape ajoute la mesure de Matsushita et coll. : la **corrélation
+densité-densité** `C(r)`. Pour un amas de `n` sites, `C(r)` est le nombre de paires ordonnées de sites à distance `<= r`, divisé par `n` et par le nombre de
+cases d'un disque plein de rayon `r`, centre exclu ; elle vaut exactement 1 sur un plan plein et varie comme `r^(D-2)` pour un amas fractal. La pente de `ln C`
+contre `ln r`, plus 2, donne `D`. Tout le comptage se fait en entiers (distances au carré, comptes en `u64`, dénominateur en `u128`) ; les seules fonctions de
+`f64` sont `+ - * /`, `sqrt` et `math::logarithme` : **la règle des nombres d'`AGENTS.md` ne change pas**. Le module est `src/correlation.rs` (fonctionnalité
+`etape-z1`) ; les règles, la formule et l'ordre exact des opérations sont dans sa doc ; la page (bouton « Mesurer D », courbe log-log, repère du zinc) et les
+quatre fonctions de mesure de `src/vitrine.rs` sont décrites dans la doc de ce fichier et dans `tests/etape_z1_page.rs` ; les valeurs attendues des tests,
+chacune avec sa source, dans `references/etape-z1-valeurs.md`.
+
+La **forme cumulée** (paires à distance `<= r`) est celle du module. Matsushita et coll. comptent, d'après leur résumé, « la corrélation densité-densité » des
+photographies numérisées sans que la forme exacte (par couronne ou cumulée) ait été lue. Sur le prototype, la forme par couronne (paires à distance dans
+`]r-1, r]`, divisées par les cases de la couronne) est **moins bonne** sur une grille carrée : sur sept formes à solution connue l'erreur absolue à la dimension
+exacte est en moyenne de 0,045 pour la forme cumulée et de 0,077 pour la couronne (la diagonale donne même `NaN` à la couronne : des couronnes sans aucune
+paire), et sur la DLA l'écart-type d'une graine est de 0,018 contre 0,029 à 4000 sites et de 0,013 contre 0,024 à 10 000 sites (30 graines). La pente moyenne est
+la même à 0,01 près (1,645 contre 1,644 à 4000 sites ; 1,653 contre 1,659 à 10 000).
+
+### La fenêtre d'ajustement
+
+La pente se mesure sur **tous les rayons entiers de 4 à `étendue / 8`** (division entière ; l'étendue est le plus long côté de la boîte qui contient l'amas, en
+nombre de pas), au moins 6 rayons (donc une étendue d'au moins 72 : pour la DLA de 465 à 774 sites). Elle ne dépend que de l'étendue de l'amas : ni de l'ordre
+des sites, ni de leur position, ni de la valeur que la mesure donne. C'est la fenêtre que le plan suggérait (de 4 au quart du rayon de l'amas environ) ; **ce
+n'est pas la meilleure sur les formes** (voir la table), seulement dans le palier des fenêtres raisonnables.
+
+Sensibilité mesurée sur le prototype (dimension pour chaque fenêtre ; les cinq formes sont des images à solution connue, la DLA est la moyenne de 120 graines
+à 4000 sites et de 90 graines à 10 000 sites) :
+
+| fenêtre | trait de 243 sites (1) | carré plein 243² (2) | Vicsek en croix, niveau 5 (1,465) | Vicsek en X, niveau 5 (1,465) | tapis, niveau 5 (1,893) | DLA 4000 sites | DLA 10 000 sites |
+|---|---|---|---|---|---|---|---|
+| 4 à `étendue / 12` | 0,967 | 1,964 | 1,472 | 1,548 | 1,850 | 1,639 | 1,649 |
+| 4 à `étendue / 10` | 0,966 | 1,959 | 1,451 | 1,532 | 1,848 | 1,643 | 1,654 |
+| **4 à `étendue / 8` (la fenêtre de la doc)** | 0,962 | 1,951 | 1,444 | 1,509 | 1,841 | **1,649** | **1,661** |
+| 4 à `étendue / 6` | 0,956 | 1,939 | 1,465 | 1,476 | 1,824 | 1,655 | 1,667 |
+| 4 à `étendue / 4` | 0,943 | 1,916 | 1,456 | 1,488 | 1,799 | 1,657 | 1,670 |
+| 4 à `étendue / 3` | 0,930 | 1,892 | 1,426 | 1,476 | 1,780 | 1,647 | 1,661 |
+| 6 à `étendue / 2` | 0,893 | 1,827 | 1,423 | 1,423 | 1,712 | 1,596 | 1,615 |
+| 2 à `étendue / 8` | 0,966 | 1,960 | 1,459 | 1,488 | 1,850 | 1,638 | 1,651 |
+| 6 à `étendue / 8` | 0,956 | 1,945 | 1,441 | 1,468 | 1,832 | 1,655 | 1,667 |
+| 8 à `étendue / 8` | 0,955 | 1,939 | 1,432 | 1,484 | 1,827 | 1,660 | 1,672 |
+
+Lecture : tant que le haut de la fenêtre est entre `étendue / 12` et `étendue / 4` et le bas entre 2 et 8, la DLA donne de 1,638 à 1,660 à 4000 sites et de 1,649 à
+1,672 à 10 000 sites (une dispersion de 0,02 ; l'écart-type d'une graine est 0,015 à 0,02). Une fenêtre qui monte jusqu'à `étendue / 2` mord sur le bord de l'amas
+et fait chuter la valeur de 0,05 (1,596) : c'est l'effet de bord, présent aussi sur le carré plein (1,83 au lieu de 2). Sur les formes, l'écart moyen à la
+dimension exacte (13 formes pour les fenêtres qui existent sur toutes) est 0,044 pour la fenêtre de la doc, 0,039 pour `4 à étendue / 6`, 0,031 pour
+`2 à étendue / 8` et 0,109 pour `6 à étendue / 2`.
+
+### Les trois mesures de la dimension de la DLA, avant et après
+
+Avant l'étape : deux mesures (masse-rayon depuis le germe sur les rayons 6 à `R / 2`, et `1/β` du rayon de giration). Après : trois. Moyennes sur 12 à 120 graines (Rust,
+amas de la bibliothèque, `Amas::new(graine, 400)` ou 800), avec l'écart-type d'UNE graine entre parenthèses :
+
+| taille (graines) | corrélation (nouvelle) | masse-rayon | 1/β (giration) |
+|---|---|---|---|
+| 4000 sites (120) | **1,6486** (0,022) | 1,6737 (0,047) | 1,7101 (0,060) |
+| 10 000 sites (120) | **1,6587** (0,015) | 1,6803 (0,035) | 1,7127 (0,054) |
+| 30 000 sites (12) | **1,6665** | 1,6828 | 1,7079 |
+
+Les trois s'ordonnent `corrélation < masse-rayon < 1/β` à chaque taille, dans tous les blocs de 24 graines essayés, avec des écarts moyens de 0,02 à 0,03 (corrélation
+et masse-rayon) et de 0,05 à 0,06 (corrélation et `1/β`) ; la corrélation est la plus régulière d'une graine à l'autre. Elles s'accordent donc à un dixième près, pas
+à la précision d'une graine ni au centième. Les mesures de l'étape 1 sont retrouvées (la masse-rayon à 4000 sites : 1,6737 sur 120 graines contre 1,670 sur 250).
+
+### Les valeurs publiées, dites telles quelles
+
+- **1,713 ± 0,003** (B. Davidovitch, A. Levermann et I. Procaccia, arXiv:cond-mat/0008053, 2000 ; Phys. Rev. E 62, R5919) est la dimension asymptotique de la DLA
+  **calculée** par une renormalisation du premier coefficient de Laurent d'une application conforme, sur de petits amas de 1 à 20 particules (le texte donne ±0,005 pour
+  sa forme révisée) : ce n'est ni une mesure de corrélation ni une mesure de masse sur un grand amas. La corrélation du banc est **0,064 en dessous** à 4000 sites
+  (1,649), 0,054 à 10 000 (1,659) et 0,046 à 30 000 sites (1,667) : elle monte lentement avec la taille et **n'atteint pas** 1,713, à aucune des tailles essayées. On dit
+  « compatible avec une dimension qui monte vers 1,7 », jamais « retrouvé ». Aucun test ne s'appuie sur cette valeur.
+- **1,66 ± 0,03** (M. Matsushita, M. Sano, Y. Hayakawa, H. Honjo et Y. Sawada, Phys. Rev. Lett. 53, 286, 1984, feuilles de zinc électrodéposées, « dimension de
+  Hausdorff moyennée sur de nombreux exemples », mesurée par la corrélation densité-densité des photographies numérisées) est un **repère**, jamais un test : à 4000 et
+  à 10 000 sites la corrélation du banc (1,65 et 1,66) tombe dans la barre `1,63 à 1,69`, et la masse-rayon aussi (1,67 et 1,68), alors que `1/β` (1,71) est au-dessus. Cela ne
+  prouve rien : le texte intégral de l'article n'a pas été ouvert, **la taille d'amas du zinc n'a pas été relevée** (la page dit « taille d'amas du zinc non relevée »), pas
+  plus que la fenêtre de `r` du 1,66 ni la forme de `C(r)` ; et un amas de zinc n'est pas un amas de DLA sur grille carrée. Après une mesure, la page dit « compatible, ce qui ne prouve pas
+  que le zinc suit la DLA » si `|D - 1,66| <= 0,03`, et « hors de la barre du zinc » sinon ; avant toute mesure, ni l'une ni l'autre.
+
+### Le plafond de la page
+
+La mesure est en `O(n²)`. Temps natif (profil `release`, une graine, le meilleur de trois) : 0,008 s à 2000 sites, 0,018 s à 3000, 0,025 s à 4000, 0,040 s à 5000, 0,17 s à 10 000,
+0,69 s à 20 000, 1,67 s à 30 000. La DLA de la page s'arrête à 3000 sites : le plafond (`vitrine::MESURE_SITES_MAX = 10 000`) n'est atteint par aucun modèle de la page ; il garde la
+page vive si un modèle plus grand s'y ajoute. Le module WebAssembly est plus lent d'un facteur **non mesuré** (ni Node ni la cible `wasm32-unknown-unknown` n'étaient disponibles) ; le
+plafond se relève sur une mesure du module.
+
+### Références
+
+- M. Matsushita, M. Sano, Y. Hayakawa, H. Honjo et Y. Sawada, *Fractal Structures of Zinc Metal Leaves Grown by Electrodeposition*, Phys. Rev. Lett. 53, 286 (1984) : le
+  résumé de l'éditeur seulement (lu) : 1,66 ± 0,03, corrélation densité-densité des photographies numérisées, accord avec la DLA 2D.
+- B. Davidovitch, A. Levermann et I. Procaccia, *Convergent Calculation of the Asymptotic Dimension of Diffusion Limited Aggregates: Scaling and Renormalization of Small
+  Clusters*, arXiv:cond-mat/0008053 (2000) : lu (résumé et texte) ; le détail des équations n'est pas relu.
+- OEIS A000328, « Number of points of norm <= n^2 in square lattice » (lue) : le nombre de cases du disque plein, bord compris.
+- Les dimensions de similarité de la fractale de Vicsek (`ln 5 / ln 3`) et du tapis de Sierpinski (`ln 8 / ln 3`) sont celles de l'étape 1 (Wikipedia, non relues ici).
+
+### Ce que cette étape n'établit pas
+
+- **Que la DLA a la dimension 1,713, ou que son amas du banc la mesure** : la corrélation donne 1,65 à 1,67 de 4000 à 30 000 sites et monte lentement ; rien n'est testé au-delà.
+  Les trois mesures s'accordent à un dixième près, pas davantage : le test est un contrôle croisé (une « régression » de ce modèle), pas une preuve de la dimension.
+- **Que le zinc suit la DLA** : le repère 1,66 est un résumé d'article ; sa taille d'amas, sa fenêtre et la forme exacte de sa corrélation n'ont pas été lues, et aucun test
+  n'y compare le banc.
+- **Que la fenêtre `4 à étendue / 8` soit la bonne** : elle est dans un palier (de 1,64 à 1,67 pour la DLA, de 0,03 à 0,045 d'écart aux formes) mais n'est pas la meilleure sur les
+  formes (`2 à étendue / 8` fait mieux) ; elle ne se règle pas sur la DLA.
+- **Que la forme cumulée soit celle de Matsushita** (non lu), ni que la mesure vaille au-delà de la grille carrée (la DLA sur grille carrée devient anisotrope au-delà d'environ 10⁵
+  sites, Loh 2014 ; non essayé).
+- **Que la mesure marche dans le module WebAssembly et dans la page** : le module n'a pas pu être reconstruit ici ; les tests de Node (`tests/etape_z1/correlation-wasm.mjs`) n'ont
+  pas été exécutés ; la page (bouton, courbe, barre) n'a pas été vue dans un navigateur ; Firefox, Safari et un téléphone : jamais essayés. Les tests de forme ne disent pas que le
+  DOM est bien relié.
+- **Le temps du module** (non mesuré) ; **un amas au-delà du plafond dans la page** (la DLA de la vitrine s'arrête à 3000 sites : aucun test ne l'atteint).
+- Que la mesure est sûre pour des coordonnées de l'ordre de `2^31` en dehors des cas testés (deux sites aux extrémités de l'`i32`).
