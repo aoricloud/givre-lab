@@ -1,0 +1,4 @@
+# Reiter, une plaque : pas de vapeur ambiante (beta = 0), la glace gagne un anneau tous les 20 pas (gamma = 0,05).
+# L'hexagone de rayon 30 est assez grand pour que le bord ne compte pas pendant 400 pas.
+hexagone 30
+reiter 1 0 0.05 400

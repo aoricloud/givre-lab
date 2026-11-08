@@ -1,0 +1,3 @@
+# Reiter, une étoile : une vapeur ambiante moyenne (beta = 0,45) et beaucoup de masse ajoutée (gamma = 0,1) : six pointes, une étoile pleine.
+hexagone 40
+reiter 1 0.45 0.1 120
