@@ -22,3 +22,11 @@ embellir une image ne change aucune d'entre elles.
 Un aperçu est pour l'œil, jamais une preuve : les valeurs attendues et les empreintes sont dans `references/`, et
 embellir une image ne change aucune d'entre elles.
 
+## Aperçus de l'étape 3
+
+- `etape-3-planche.png` : neuf flocons de Reiter (α = 1, hexagone de rayon 60, 250 pas) en grille 3 × 3, β = 0,3, 0,45 et 0,6 en colonnes et γ = 0,001, 0,01 et 0,1 en lignes, chacun l'aperçu de `Flocon::apercu`, séparés par un filet.
+- `etape-3-plaque.png` : l'aperçu, écrit tel quel, du scénario `scenarios/reiter-plaque.txt` (hexagone de rayon 30, α = 1, β = 0, γ = 0,05, 400 pas).
+
+Un aperçu est pour l'œil, jamais une preuve : les valeurs attendues et les empreintes sont dans `references/`, et
+embellir une image ne change aucune d'entre elles.
+
