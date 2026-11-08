@@ -336,9 +336,25 @@ pub enum Bord {
 /// `distance2(3, -4) = 9 - 12 + 16 = 13`. Il est invariant par les douze symétries de l'hexagone (rotations de 60° et
 /// réflexions) et pair en `(q, r) -> (-q, -r)`. Exact **pour tous** les `i32` (pas de débordement : `distance2(i32::MIN,
 /// i32::MIN) = 3 · 2^62`).
-#[allow(unused_variables)]
 pub fn distance2(q: i32, r: i32) -> u64 {
-    todo!()
+    let q = i128::from(q);
+    let r = i128::from(r);
+    (q * q + q * r + r * r) as u64
+}
+
+/// Vrai si la case `(q, r)` est du bord `bord` de l'hexagone `hexagone` (voir « Le bord ») : hors de l'hexagone, faux.
+fn est_du_bord_dans(hexagone: &Hexagone, bord: Bord, q: i32, r: i32) -> bool {
+    if !hexagone.contient(q, r) {
+        return false;
+    }
+    match bord {
+        Bord::Hexagonal => distance_hex((0, 0), (q, r)) == hexagone.rayon(),
+        Bord::Circulaire => {
+            let carre = u128::from(distance2(q, r));
+            let rayon = u128::from(hexagone.rayon());
+            4 * carre >= 3 * rayon * rayon
+        }
+    }
 }
 
 /// Un flocon de Reiter : un hexagone de masses, ses paramètres et son temps (voir la documentation du module). Les champs
@@ -348,6 +364,8 @@ pub fn distance2(q: i32, r: i32) -> u64 {
 pub struct Flocon {
     hexagone: Hexagone,
     parametres: Parametres,
+    /// Le bord choisi à la construction : les cases qu'il désigne sont remises à `β` à chaque pas.
+    bord: Bord,
     temps: u64,
     masses: Vec<Fixe>,
     /// Pour chaque case, l'indice canonique de ses six voisins (`-1` : hors de l'hexagone, à sa place).
@@ -356,6 +374,10 @@ pub struct Flocon {
     interieurs: Vec<usize>,
     /// Les cases de la couronne (distance exactement `R`), dans l'ordre canonique.
     couronne: Vec<usize>,
+    /// Les cases du bord du flocon, dans l'ordre canonique : elles sont remises à `β` à chaque pas.
+    cases_bord: Vec<usize>,
+    /// Les cases hors du bord, dans l'ordre canonique : ce sont elles qui diffusent (leurs six voisins existent).
+    cases_diffusantes: Vec<usize>,
     /// Tampon des classes (0 : non réceptive, 1 : de bord, 2 : gelée), réutilisé à chaque pas.
     classes: Vec<u8>,
     /// Tampon de `u(x)` (la masse qui diffuse), réutilisé à chaque pas.
@@ -374,12 +396,7 @@ impl Flocon {
     /// Si `rayon` est 0 (ou plus de 32768, comme [`Hexagone::new`]), ou si les paramètres ne sont pas valides
     /// ([`Parametres::sont_valides`]).
     pub fn new(rayon: u32, parametres: Parametres) -> Flocon {
-        assert!(parametres.sont_valides(), "paramètres invalides");
-        assert!(rayon > 0, "le rayon doit être au moins 1");
-        let hexagone = Hexagone::new(rayon);
-        let mut masses = vec![parametres.beta; hexagone.cases()];
-        masses[hexagone.index(0, 0)] = Fixe::UN;
-        Flocon::construire(hexagone, parametres, masses)
+        Flocon::avec_bord(rayon, parametres, Bord::Hexagonal)
     }
 
     /// Le flocon de l'état initial (voir « L'état ») avec le bord `bord` : comme [`Flocon::new`], dont le bord est
@@ -389,18 +406,24 @@ impl Flocon {
     /// # Panique
     ///
     /// Si `rayon` est 0 (ou plus de 32768), ou si les paramètres ne sont pas valides ([`Parametres::sont_valides`]).
-    #[allow(unused_variables)]
     pub fn avec_bord(rayon: u32, parametres: Parametres, bord: Bord) -> Flocon {
-        todo!()
+        assert!(parametres.sont_valides(), "paramètres invalides");
+        assert!(rayon > 0, "le rayon doit être au moins 1");
+        let hexagone = Hexagone::new(rayon);
+        let mut masses = vec![parametres.beta; hexagone.cases()];
+        masses[hexagone.index(0, 0)] = Fixe::UN;
+        Flocon::construire(hexagone, parametres, bord, masses)
     }
 
     /// Construit un flocon et ses tables à partir d'un état déjà rangé dans l'ordre canonique.
-    fn construire(hexagone: Hexagone, parametres: Parametres, masses: Vec<Fixe>) -> Flocon {
+    fn construire(hexagone: Hexagone, parametres: Parametres, bord: Bord, masses: Vec<Fixe>) -> Flocon {
         let cases = hexagone.cases();
         assert_eq!(masses.len(), cases, "nombre de masses inattendu");
         let mut voisins = vec![[-1_i32; 6]; cases];
         let mut interieurs = Vec::new();
         let mut couronne = Vec::new();
+        let mut cases_bord = Vec::new();
+        let mut cases_diffusantes = Vec::new();
         for (i, voisins_i) in voisins.iter_mut().enumerate() {
             let (q, r) = hexagone.position(i);
             let mut tous_presents = true;
@@ -417,15 +440,23 @@ impl Flocon {
             } else {
                 couronne.push(i);
             }
+            if est_du_bord_dans(&hexagone, bord, q, r) {
+                cases_bord.push(i);
+            } else {
+                cases_diffusantes.push(i);
+            }
         }
         Flocon {
             hexagone,
             parametres,
+            bord,
             temps: 0,
             masses,
             voisins,
             interieurs,
             couronne,
+            cases_bord,
+            cases_diffusantes,
             classes: vec![0; cases],
             u: vec![Fixe::ZERO; cases],
             tampon: vec![Fixe::ZERO; cases],
@@ -442,15 +473,7 @@ impl Flocon {
     /// Si `rayon` est 0 ou trop grand, si les paramètres ne sont pas valides, si `masses.len()` n'est pas le nombre de
     /// cases de l'hexagone, ou si une masse est négative ou vaut `2^60` en `brut` (ou plus).
     pub fn depuis_masses(rayon: u32, parametres: Parametres, masses: &[Fixe]) -> Flocon {
-        assert!(parametres.sont_valides(), "paramètres invalides");
-        assert!(rayon > 0, "le rayon doit être au moins 1");
-        let hexagone = Hexagone::new(rayon);
-        assert_eq!(masses.len(), hexagone.cases(), "nombre de masses inattendu");
-        for masse in masses {
-            assert!(masse.0 >= 0, "masse négative");
-            assert!(masse.0 < (1_i64 << 60), "masse de 2^60 brut ou plus");
-        }
-        Flocon::construire(hexagone, parametres, masses.to_vec())
+        Flocon::avec_bord_et_masses(rayon, parametres, Bord::Hexagonal, masses)
     }
 
     /// Comme [`Flocon::depuis_masses`] (mêmes masses dans l'ordre canonique, au temps 0, mêmes paniques), mais avec le bord
@@ -462,25 +485,30 @@ impl Flocon {
     ///
     /// Comme [`Flocon::depuis_masses`] : si `rayon` est 0 ou trop grand, si les paramètres ne sont pas valides, si
     /// `masses.len()` n'est pas le nombre de cases de l'hexagone, ou si une masse est négative ou vaut `2^60` en `brut` (ou plus).
-    #[allow(unused_variables)]
     pub fn avec_bord_et_masses(rayon: u32, parametres: Parametres, bord: Bord, masses: &[Fixe]) -> Flocon {
-        todo!()
+        assert!(parametres.sont_valides(), "paramètres invalides");
+        assert!(rayon > 0, "le rayon doit être au moins 1");
+        let hexagone = Hexagone::new(rayon);
+        assert_eq!(masses.len(), hexagone.cases(), "nombre de masses inattendu");
+        for masse in masses {
+            assert!(masse.0 >= 0, "masse négative");
+            assert!(masse.0 < (1_i64 << 60), "masse de 2^60 brut ou plus");
+        }
+        Flocon::construire(hexagone, parametres, bord, masses.to_vec())
     }
 
     /// Le bord du flocon, tel qu'il a été choisi à la construction ([`Bord::Hexagonal`] pour [`Flocon::new`] et
     /// [`Flocon::depuis_masses`]). Il ne change jamais.
-    #[allow(unused_variables)]
     pub fn bord(&self) -> Bord {
-        todo!()
+        self.bord
     }
 
     /// Vrai si la case `(q, r)` est **du bord** du flocon (voir « Le bord » : remise à `β` à chaque pas) : pour
     /// [`Bord::Hexagonal`], si sa distance hexagonale au centre vaut exactement `R` ; pour [`Bord::Circulaire`], si elle est dans
     /// l'hexagone et si `4 · distance2(q, r) >= 3 · R²`. Une case **hors de l'hexagone** n'est pas du bord (faux, sans panique,
     /// pour tous les `i32`) ; le centre n'est jamais du bord.
-    #[allow(unused_variables)]
     pub fn est_du_bord(&self, q: i32, r: i32) -> bool {
-        todo!()
+        est_du_bord_dans(&self.hexagone, self.bord, q, r)
     }
 
     /// Le rayon `R` de l'hexagone.
@@ -555,8 +583,8 @@ impl Flocon {
             }
         }
 
-        // 3. Les cases intérieures : diffusion, puis γ pour les réceptives.
-        for &i in &self.interieurs {
+        // 3. Les cases hors du bord : diffusion, puis γ pour les réceptives.
+        for &i in &self.cases_diffusantes {
             let mut somme: i64 = 0;
             for &voisin in &self.voisins[i] {
                 somme += self.u[voisin as usize].0;
@@ -568,8 +596,8 @@ impl Flocon {
                 if self.classes[i] == 0 { self.masses[i] + diffusion } else { self.masses[i] + gamma + diffusion };
         }
 
-        // 4. La couronne extérieure est maintenue à β.
-        for &i in &self.couronne {
+        // 4. Les cases du bord sont maintenues à β.
+        for &i in &self.cases_bord {
             self.tampon[i] = beta;
         }
 
@@ -609,9 +637,15 @@ impl Flocon {
     /// cases du bord qui sont gelées (par exemple posées par [`Flocon::avec_bord_et_masses`]). Le test de la table de Reiter l'appelle
     /// à chaque pas d'un hexagone de rayon 100 (30 301 cases, jusqu'à 10 000 pas) : un appel doit coûter de l'ordre d'un pas (un seul
     /// parcours des masses, aucune allocation, pas de recherche par case).
-    #[allow(unused_variables)]
     pub fn distance2_cristal(&self) -> u64 {
-        todo!()
+        let mut plus_grand = 0;
+        for (i, masse) in self.masses.iter().enumerate() {
+            if masse.0 >= Fixe::UN.0 {
+                let (q, r) = self.hexagone.position(i);
+                plus_grand = plus_grand.max(distance2(q, r));
+            }
+        }
+        plus_grand
     }
 
     /// La compacité : `Fixe::rapport(gelees, 3 r (r + 1) + 1)` avec `r = rayon_cristal()` (voir « Les mesures »).
@@ -669,7 +703,10 @@ impl Flocon {
     pub fn ecriture_canonique(&self) -> Vec<u8> {
         let mut octets = Vec::with_capacity(45 + 8 * self.hexagone.cases());
         octets.extend_from_slice(b"GIVRE003");
-        octets.push(1);
+        octets.push(match self.bord {
+            Bord::Hexagonal => 1,
+            Bord::Circulaire => 2,
+        });
         octets.extend_from_slice(&self.hexagone.rayon().to_le_bytes());
         octets.extend_from_slice(&self.parametres.alpha.0.to_le_bytes());
         octets.extend_from_slice(&self.parametres.beta.0.to_le_bytes());
