@@ -39,7 +39,9 @@
 //! `givre lancer <scénario> --graine <n> --sortie <dossier>` (voir `src/main.rs`) lit le fichier de scénario, appelle
 //! [`lancer`] et écrit `empreinte.txt` (l'empreinte puis `\n`), `mesures.csv` et `apercu.png` dans le dossier.
 
-use crate::scenario::Scenario;
+use crate::alea::Alea;
+use crate::scenario::{Forme, Scenario};
+use crate::{empreinte, image, rendu};
 
 /// Ce que produit un lancer.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -70,5 +72,38 @@ pub enum ErreurLancer {
 /// de sa première directive. Rien d'autre n'est calculé alors.
 #[allow(unused_variables)]
 pub fn lancer(scenario: &Scenario, graine: u64) -> Result<Sortie, ErreurLancer> {
-    todo!()
+    if let Some(directive) = scenario.directives.first() {
+        return Err(ErreurLancer::DirectiveInconnue(directive.ligne));
+    }
+
+    // L'écriture canonique : l'étiquette, la forme, puis l'état du générateur tout juste amorcé.
+    let mut octets = Vec::with_capacity(33);
+    octets.extend_from_slice(b"GIVRE000");
+    match scenario.forme {
+        Forme::Boite { largeur, hauteur } => {
+            octets.push(0);
+            octets.extend_from_slice(&largeur.to_le_bytes());
+            octets.extend_from_slice(&hauteur.to_le_bytes());
+        }
+        Forme::Hexagone { rayon } => {
+            octets.push(1);
+            octets.extend_from_slice(&rayon.to_le_bytes());
+        }
+    }
+    octets.extend_from_slice(&Alea::new(graine).octets());
+    let empreinte = empreinte::sha256_hex(&octets);
+
+    // Les mesures et l'aperçu.
+    let (cases, largeur, hauteur) = match scenario.forme {
+        Forme::Boite { largeur, hauteur } => (u64::from(largeur) * u64::from(hauteur), largeur, hauteur),
+        Forme::Hexagone { rayon } => {
+            let r = u64::from(rayon);
+            let cote = 2 * rayon + 1;
+            (3 * r * (r + 1) + 1, cote, cote)
+        }
+    };
+    let mesures = format!("temps,cases\n0,{cases}\n");
+    let apercu = image::ecrire_png(largeur, hauteur, &rendu::apercu_graine(largeur, hauteur, graine));
+
+    Ok(Sortie { empreinte, mesures, apercu })
 }

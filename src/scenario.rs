@@ -81,16 +81,66 @@ pub enum ErreurLecture {
 }
 
 /// Lit un texte de scénario (voir la documentation du module pour le format et les erreurs).
-#[allow(unused_variables)]
 pub fn lire_scenario(texte: &str) -> Result<Scenario, ErreurLecture> {
-    todo!()
+    let mut forme = None;
+    let mut directives = Vec::new();
+    for (indice, brute) in texte.split('\n').enumerate() {
+        let ligne = indice + 1;
+        let sans_retour = brute.strip_suffix('\r').unwrap_or(brute);
+        let nue = sans_retour.trim_matches(|c| c == ' ' || c == '\t');
+        if nue.is_empty() || nue.starts_with('#') {
+            continue;
+        }
+        let mut champs = nue.split([' ', '\t']).filter(|champ| !champ.is_empty());
+        let nom = champs.next().expect("une ligne non vide a un premier champ");
+        if !nom_valide(nom) {
+            return Err(ErreurLecture::LigneInvalide(ligne));
+        }
+        let args: Vec<&str> = champs.collect();
+        match nom {
+            "boite" => {
+                if forme.is_some() || args.len() != 2 {
+                    return Err(ErreurLecture::LigneInvalide(ligne));
+                }
+                let largeur = entier_borne(args[0], COTE_MAX).ok_or(ErreurLecture::LigneInvalide(ligne))?;
+                let hauteur = entier_borne(args[1], COTE_MAX).ok_or(ErreurLecture::LigneInvalide(ligne))?;
+                forme = Some(Forme::Boite { largeur, hauteur });
+            }
+            "hexagone" => {
+                if forme.is_some() || args.len() != 1 {
+                    return Err(ErreurLecture::LigneInvalide(ligne));
+                }
+                let rayon = entier_borne(args[0], RAYON_MAX).ok_or(ErreurLecture::LigneInvalide(ligne))?;
+                forme = Some(Forme::Hexagone { rayon });
+            }
+            _ => directives.push(Directive {
+                ligne,
+                nom: nom.to_string(),
+                args: args.iter().map(|arg| arg.to_string()).collect(),
+            }),
+        }
+    }
+    forme.map(|forme| Scenario { forme, directives }).ok_or(ErreurLecture::Manquante("forme"))
+}
+
+/// Un nom de directive : non vide, fait de `a-z`, `0-9` et `_` seulement.
+fn nom_valide(nom: &str) -> bool {
+    !nom.is_empty() && nom.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+}
+
+/// L'argument lu comme un entier en chiffres décimaux ASCII (non vide, sans signe), s'il est d'au plus `max` et au moins 1.
+fn entier_borne(arg: &str, max: u32) -> Option<u32> {
+    if arg.is_empty() || !arg.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let valeur = arg.parse::<u64>().ok()?;
+    if (1..=u64::from(max)).contains(&valeur) { u32::try_from(valeur).ok() } else { None }
 }
 
 impl Scenario {
     /// La première directive (hors forme) de ce nom, dans l'ordre du fichier, ou `None`.
-    #[allow(unused_variables)]
     pub fn directive(&self, nom: &str) -> Option<&Directive> {
-        todo!()
+        self.directives.iter().find(|directive| directive.nom == nom)
     }
 }
 
@@ -101,9 +151,12 @@ impl Directive {
     /// # Erreurs
     ///
     /// `ErreurLecture::LigneInvalide(self.ligne)` si l'argument est absent, n'est pas écrit ainsi, ou dépasse `u64::MAX`.
-    #[allow(unused_variables)]
     pub fn entier(&self, i: usize) -> Result<u64, ErreurLecture> {
-        todo!()
+        let arg = self.args.get(i).ok_or(ErreurLecture::LigneInvalide(self.ligne))?;
+        if arg.is_empty() || !arg.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(ErreurLecture::LigneInvalide(self.ligne));
+        }
+        arg.parse::<u64>().map_err(|_| ErreurLecture::LigneInvalide(self.ligne))
     }
 
     /// L'argument `i` lu comme un flottant, en notation décimale simple : un `-` facultatif, des chiffres (au moins un),
@@ -115,8 +168,42 @@ impl Directive {
     ///
     /// `ErreurLecture::LigneInvalide(self.ligne)` si l'argument est absent, n'a pas cette forme, ou n'est pas fini
     /// (quatre cents chiffres `9`).
-    #[allow(unused_variables)]
     pub fn flottant(&self, i: usize) -> Result<f64, ErreurLecture> {
-        todo!()
+        let arg = self.args.get(i).ok_or(ErreurLecture::LigneInvalide(self.ligne))?;
+        if !forme_flottant(arg) {
+            return Err(ErreurLecture::LigneInvalide(self.ligne));
+        }
+        match arg.parse::<f64>() {
+            Ok(valeur) if valeur.is_finite() => Ok(valeur),
+            _ => Err(ErreurLecture::LigneInvalide(self.ligne)),
+        }
     }
+}
+
+/// La forme `-?chiffres(.chiffres)?` : un `-` facultatif, au moins un chiffre, puis facultativement un `.` suivi d'au
+/// moins un chiffre, et rien d'autre.
+fn forme_flottant(arg: &str) -> bool {
+    let octets = arg.as_bytes();
+    let mut i = 0;
+    if i < octets.len() && octets[i] == b'-' {
+        i += 1;
+    }
+    let debut_entier = i;
+    while i < octets.len() && octets[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == debut_entier {
+        return false;
+    }
+    if i < octets.len() && octets[i] == b'.' {
+        i += 1;
+        let debut_frac = i;
+        while i < octets.len() && octets[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i == debut_frac {
+            return false;
+        }
+    }
+    i == octets.len()
 }
