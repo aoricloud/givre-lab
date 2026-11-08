@@ -90,6 +90,18 @@
   .mesures dd { margin: 3px 0 0; font-variant-numeric: tabular-nums; }
   #empreinte { word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #b8e0ff; }
   #etat { margin: 12px 0 0; min-height: 1.5em; color: var(--doux); }
+  #courbe { image-rendering: auto; }
+  .mesure { margin-top: 18px; padding: 14px 16px; background: var(--panneau); border: 1px solid var(--bord); border-radius: 10px; }
+  .mesure h2 { margin: 0 0 10px; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--doux); }
+  .mesure .cadre { margin: 12px 0; }
+  .mesure p { margin: 8px 0; }
+  #resultat { font-variant-numeric: tabular-nums; }
+  #barre-zinc { position: relative; height: 22px; margin: 10px 0 4px; border-radius: 11px;
+    background: linear-gradient(90deg, #17222e 0%, #17222e 47%, #2a4259 47%, #2a4259 53%, #17222e 53%, #17222e 100%); }
+  #marque-d { position: absolute; top: -4px; width: 4px; height: 30px; margin-left: -2px; border-radius: 2px; background: var(--accent); }
+  #repere-zinc, #compatible, #hors-barre, #taille-zinc { color: var(--doux); }
+  #compatible { color: #8ee6a8; }
+  #hors-barre { color: #ffb27a; }
 </style>
 </head>
 <body>
@@ -129,6 +141,22 @@
     <div><dt>Empreinte SHA-256</dt><dd><code id="empreinte">–</code></dd></div>
     <div><dt>Sites, rayon, compacité</dt><dd id="mesures">–</dd></div>
   </dl>
+
+  <section class="mesure" aria-label="Mesure de la dimension par corrélation">
+    <h2>Dimension par corrélation</h2>
+    <button id="mesurer" type="button">Mesurer D</button>
+    <p id="resultat">Aucune mesure pour l'instant.</p>
+    <div class="cadre">
+      <canvas id="courbe" width="640" height="360" aria-label="Courbe C(r) en échelle log-log et droite ajustée"></canvas>
+    </div>
+    <div id="barre-zinc" aria-label="Barre du repère du zinc">
+      <span id="marque-d" hidden></span>
+    </div>
+    <p id="repere-zinc">zinc, Matsushita et coll. 1984 : 1,66 ± 0,03</p>
+    <p id="compatible" hidden>compatible, ce qui ne prouve pas que le zinc suit la DLA</p>
+    <p id="hors-barre" hidden>hors de la barre du zinc : la dimension mesurée n'y tombe pas</p>
+    <p id="taille-zinc">taille d'amas du zinc non relevée</p>
+  </section>
 
   <p id="etat">Chargement du module…</p>
 </main>

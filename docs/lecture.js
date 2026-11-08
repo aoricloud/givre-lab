@@ -38,3 +38,18 @@ export function lireGraine(texte) {
   const valeur = Number(nu);
   return valeur <= GRAINE_MAX ? valeur : null;
 }
+
+/** La mesure de corrélation gardée par le module : ses rayons, ses C(r) et sa dimension. Ne mesure rien. */
+export function lireCorrelation(m) {
+  const rayons = [];
+  const valeurs = [];
+  for (let i = 0; ; i++) {
+    const rayon = m.givre_correlation_rayon(i) >>> 0;
+    if (rayon === 0) {
+      break;
+    }
+    rayons.push(rayon);
+    valeurs.push(m.givre_correlation_valeur(i));
+  }
+  return { rayons, valeurs, dimension: m.givre_dimension() };
+}
