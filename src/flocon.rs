@@ -637,9 +637,15 @@ impl Flocon {
     /// cases du bord qui sont gelées (par exemple posées par [`Flocon::avec_bord_et_masses`]). Le test de la table de Reiter l'appelle
     /// à chaque pas d'un hexagone de rayon 100 (30 301 cases, jusqu'à 10 000 pas) : un appel doit coûter de l'ordre d'un pas (un seul
     /// parcours des masses, aucune allocation, pas de recherche par case).
-    #[allow(unused_variables)]
     pub fn distance2_cristal(&self) -> u64 {
-        todo!()
+        let mut plus_grand = 0;
+        for (i, masse) in self.masses.iter().enumerate() {
+            if masse.0 >= Fixe::UN.0 {
+                let (q, r) = self.hexagone.position(i);
+                plus_grand = plus_grand.max(distance2(q, r));
+            }
+        }
+        plus_grand
     }
 
     /// La compacité : `Fixe::rapport(gelees, 3 r (r + 1) + 1)` avec `r = rayon_cristal()` (voir « Les mesures »).
@@ -697,7 +703,10 @@ impl Flocon {
     pub fn ecriture_canonique(&self) -> Vec<u8> {
         let mut octets = Vec::with_capacity(45 + 8 * self.hexagone.cases());
         octets.extend_from_slice(b"GIVRE003");
-        octets.push(1);
+        octets.push(match self.bord {
+            Bord::Hexagonal => 1,
+            Bord::Circulaire => 2,
+        });
         octets.extend_from_slice(&self.hexagone.rayon().to_le_bytes());
         octets.extend_from_slice(&self.parametres.alpha.0.to_le_bytes());
         octets.extend_from_slice(&self.parametres.beta.0.to_le_bytes());
