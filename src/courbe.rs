@@ -131,6 +131,9 @@
 //! la ligne 300 (`D = 0,8` ; colonnes 20 à 620), et un trait de graduation de six pixels sous la colonne de chaque `η` de 0 à 8. Les marqueurs de repère
 //! sont dessinés en dernier, donc par-dessus tout le reste.
 
+use crate::claquage::{Claquage, DEMI_COTE_MAX};
+use crate::correlation::{RAYON_MAX, correlation, dimension_correlation, etendue};
+
 /// Le premier rayon de la fenêtre des petits amas : 2 (voir [`fenetre_petit_amas`]).
 pub const FENETRE_DEBUT: u32 = 2;
 
@@ -172,14 +175,27 @@ pub const PNG_PUBLIE: [u8; 3] = [214, 39, 40];
 /// ce dernier rayon dépasse `étendue / 2` ou [`crate::correlation::RAYON_MAX`]. Ne panique jamais (liste vide : vide).
 #[allow(unused_variables)]
 pub fn fenetre_petit_amas(sites: &[(i32, i32)]) -> Vec<u32> {
-    todo!()
+    let e = etendue(sites);
+    let dernier = FENETRE_DERNIER_MIN.max(e / FENETRE_DIVISEUR);
+    if dernier > e / 2 || dernier > RAYON_MAX {
+        return Vec::new();
+    }
+    (FENETRE_DEBUT..=dernier).collect()
 }
 
 /// La dimension de l'amas `sites` : `Some(dimension_correlation(sites, &fenetre_petit_amas(sites)))` bit pour bit, `None` si la fenêtre est vide ou
 /// si une valeur `C(r)` de la fenêtre est nulle. Ne panique jamais.
 #[allow(unused_variables)]
 pub fn dimension_d_un_amas(sites: &[(i32, i32)]) -> Option<f64> {
-    todo!()
+    let rayons = fenetre_petit_amas(sites);
+    let &dernier = rayons.last()?;
+    let courbe = correlation(sites, dernier);
+    for &rayon in &rayons {
+        if courbe[(rayon - 1) as usize] == 0.0 {
+            return None;
+        }
+    }
+    Some(dimension_correlation(sites, &rayons))
 }
 
 /// La moyenne et l'erreur-type d'une liste de valeurs, à la lettre de la documentation du module (« Le point de la courbe ») : la somme de gauche à
@@ -191,7 +207,19 @@ pub fn dimension_d_un_amas(sites: &[(i32, i32)]) -> Option<f64> {
 /// Si `valeurs` a moins de deux éléments (message contenant « au moins deux »).
 #[allow(unused_variables)]
 pub fn moyenne_et_erreur_type(valeurs: &[f64]) -> (f64, f64) {
-    todo!()
+    assert!(valeurs.len() >= 2, "une moyenne et une erreur-type demandent au moins deux valeurs");
+    let n = valeurs.len() as f64;
+    let mut somme = 0.0;
+    for &valeur in valeurs {
+        somme += valeur;
+    }
+    let moyenne = somme / n;
+    let mut carres = 0.0;
+    for &valeur in valeurs {
+        carres += (valeur - moyenne) * (valeur - moyenne);
+    }
+    let variance = carres / (n - 1.0);
+    (moyenne, (variance / n).sqrt())
 }
 
 /// Le demi-côté que [`courbe`] donne à ses amas : `min(255, A + B * taille / 100)` avec `(A, B)` = `(30, 10)`, `(32, 8)`, `(22, 18)`, `(12, 36)` pour
@@ -202,7 +230,14 @@ pub fn moyenne_et_erreur_type(valeurs: &[f64]) -> (f64, f64) {
 /// Si `eta > ETA_COURBE_MAX` (message contenant « η »).
 #[allow(unused_variables)]
 pub fn demi_cote_de_la_courbe(eta: u32, taille: usize) -> u32 {
-    todo!()
+    let (a, b) = match eta {
+        0 => (30_usize, 10_usize),
+        1 => (32, 8),
+        2 => (22, 18),
+        3 => (12, 36),
+        _ => panic!("η = {eta} : au-delà de ETA_COURBE_MAX ({ETA_COURBE_MAX})"),
+    };
+    (a + b * taille / 100).min(DEMI_COTE_MAX as usize) as u32
 }
 
 /// Un point de la courbe `D(η)` : la dimension moyenne de `graines` amas de `taille` sites à l'exposant `eta`, et l'erreur-type de cette moyenne.
@@ -230,7 +265,22 @@ pub struct PointDeLaCourbe {
 /// (« fenêtre »), ou les paniques de [`crate::claquage::Claquage::new`] (`demi_cote > 255`, `eta > 8`).
 #[allow(unused_variables)]
 pub fn point_de_la_courbe(eta: u32, graines: &[u64], taille: usize, demi_cote: u32) -> PointDeLaCourbe {
-    todo!()
+    assert!(graines.len() >= 2, "un point de la courbe demande au moins deux graines");
+    let mut dimensions = Vec::with_capacity(graines.len());
+    for &graine in graines {
+        let mut claquage = Claquage::new(graine, demi_cote, eta);
+        while claquage.sites().len() < taille {
+            assert!(
+                claquage.essayer_ajouter().is_some(),
+                "la graine {graine} touche la frontière avant d'atteindre {taille} sites"
+            );
+        }
+        let dimension = dimension_d_un_amas(claquage.sites())
+            .unwrap_or_else(|| panic!("la graine {graine} : aucune dimension (fenêtre vide)"));
+        dimensions.push(dimension);
+    }
+    let (moyenne, erreur_type) = moyenne_et_erreur_type(&dimensions);
+    PointDeLaCourbe { eta, taille, graines: graines.len(), moyenne, erreur_type }
 }
 
 /// La courbe : un [`PointDeLaCourbe`] par `η` de `etas`, **dans l'ordre donné** (un `η` répété donne un point répété), chacun étant
@@ -241,20 +291,25 @@ pub fn point_de_la_courbe(eta: u32, graines: &[u64], taille: usize, demi_cote: u
 /// Comme [`point_de_la_courbe`] et [`demi_cote_de_la_courbe`] (`eta > ETA_COURBE_MAX`).
 #[allow(unused_variables)]
 pub fn courbe(etas: &[u32], graines: &[u64], taille: usize) -> Vec<PointDeLaCourbe> {
-    todo!()
+    etas.iter().map(|&eta| point_de_la_courbe(eta, graines, taille, demi_cote_de_la_courbe(eta, taille))).collect()
 }
 
 /// Le repère publié affiché pour `eta` : `Some(`[`DLA_RAPPEL`]`)` pour `1`, la valeur de [`HASTINGS_2001_TABLE_II`] pour `2` et `3`, `None` pour
 /// tout autre `eta` (`0` et `4` ou plus compris).
 #[allow(unused_variables)]
 pub fn publie(eta: u32) -> Option<f64> {
-    todo!()
+    match eta {
+        1 => Some(DLA_RAPPEL),
+        2 => Some(HASTINGS_2001_TABLE_II[0].1),
+        3 => Some(HASTINGS_2001_TABLE_II[1].1),
+        _ => None,
+    }
 }
 
 /// L'écart du banc au repère publié : `point.moyenne - publie` (positif quand le banc est au-dessus). Une soustraction en `f64`, rien d'autre.
 #[allow(unused_variables)]
 pub fn ecart(point: &PointDeLaCourbe, publie: f64) -> f64 {
-    todo!()
+    point.moyenne - publie
 }
 
 /// Le CSV de la courbe (voir « Le CSV » dans la documentation du module).
