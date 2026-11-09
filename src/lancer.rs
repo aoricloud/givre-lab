@@ -160,6 +160,38 @@
 //! exactement comme avant l'étape 4. Le modèle (Metropolis, probabilités lues dans [`crate::math::EXP_NEG`]) et l'écriture
 //! canonique sont décrits dans [`crate::cinetique`].
 //!
+//! # Ce que fait l'étape D1 : la directive `claquage`
+//!
+//! **Cette section est le contrat de [`lancer`] à l'étape D1** (reprise de la documentation de [`crate::claquage`], § « La
+//! directive `claquage` et la sortie de `lancer` »). Une directive `claquage <eta> <particules>` (lue par
+//! [`crate::claquage::parametres`]) sur une `boite largeur hauteur` lance un claquage : `lancer` fait croître un
+//! [`crate::claquage::Claquage`] de graine `graine`, de `demi_cote = demi_cote_de_la_boite(largeur, hauteur)` et de
+//! l'exposant `eta`, par des appels de [`crate::claquage::Claquage::essayer_ajouter`] (jamais
+//! [`crate::claquage::Claquage::ajouter`], qui paniquerait), jusqu'à `particules` sites (germe compris), et rend, **à la
+//! place** des sorties du scénario vide de l'étape 0 :
+//!
+//! - **l'empreinte** : [`crate::claquage::Claquage::empreinte`] de l'amas final (deux boîtes de même `demi_cote` ont donc
+//!   la même empreinte) ;
+//! - **les mesures** : le CSV `particules,rayon,rayon_giration`, **exactement celui de la directive `dla`** (voir « Ce que
+//!   fait l'étape 1 ») : la ligne d'en-tête puis une ligne par nombre `k` de sites, `k` parcourant les puissances de 2
+//!   `2, 4, 8, …` qui sont `<= particules`, puis `particules` s'il n'est pas déjà dans la liste ; la ligne `k` est
+//!   `k,<rayon>,<giration>` avec `<rayon>` le [`crate::claquage::Claquage::rayon`] de l'amas quand il avait `k` sites et
+//!   `<giration>` le [`crate::mesures::rayon_de_giration`] de ses `k` premiers sites avec **six décimales** ; chaque
+//!   ligne finit par un seul `\n` ;
+//! - **l'aperçu** : le PNG ([`crate::image::ecrire_png`]) de [`crate::dla::amas_colore`]`(amas.sites(), COTE_APERCU)`.
+//!
+//! **La première directive choisit le lancer** : quand la première directive est `claquage` (et qu'aucune directive du
+//! scénario n'est `dla`, `collage` ou `bruit`, auquel cas c'est le lancer de la DLA qui refuse le `claquage` à sa ligne,
+//! comme toute directive qu'il ne comprend pas), `lancer` suit ces règles. **Les refus**, tous
+//! `ErreurLancer::DirectiveInconnue(ligne)` (ni l'énumération ni `src/main.rs` ne changent), où `ligne` est la
+//! **plus petite** des lignes refusées : une directive dont le nom n'est pas `claquage` (sa ligne : `surface`, `reiter`,
+//! `cinetique` ou une inconnue) ; une directive `claquage` que [`crate::claquage::parametres`] refuse (la ligne qu'elle
+//! rend, **une seconde directive `claquage` comprise**) ; une directive `claquage` sur un `hexagone` (la ligne de la
+//! première) ; une boîte dont le `demi_cote` dépasse [`DEMI_COTE_MAX`] (la ligne de la directive). Puis, si rien n'est
+//! refusé, un amas qui touche la frontière (ou ne peut plus croître) avant d'avoir `particules` sites
+//! (`essayer_ajouter` rend `None`) : la ligne de la directive `claquage`. Rien n'est rendu d'autre dans ces cas. Un
+//! scénario sans directive `claquage` se comporte exactement comme avant cette étape.
+//!
 //! # L'écriture canonique de l'état du scénario vide
 //!
 //! L'empreinte est le SHA-256 (`empreinte::sha256_hex`) de cette suite d'octets, dans cet ordre :
@@ -193,6 +225,7 @@
 
 use crate::alea::Alea;
 use crate::cinetique::{BALAYAGES_MAX, Face, TAILLE_MAX, TAILLE_MIN, simuler};
+use crate::claquage::{Claquage, DEMI_COTE_MAX};
 use crate::dla::{Amas, COTE_APERCU, amas_colore, demi_cote_de_la_boite, particules};
 use crate::dla_variantes::{AmasVariante, anisotropie, variante_du_scenario};
 use crate::mesures::rayon_de_giration;
@@ -250,6 +283,7 @@ pub fn lancer(scenario: &Scenario, graine: u64) -> Result<Sortie, ErreurLancer> 
         "reiter" => crate::flocon::lancer_reiter(scenario).map_err(ErreurLancer::DirectiveInconnue),
         "cinetique" => lancer_cinetique(scenario, graine),
         "surface" => lancer_surface_directive(scenario, graine),
+        "claquage" => lancer_claquage(scenario, graine),
         _ => Err(ErreurLancer::DirectiveInconnue(premiere.ligne)),
     }
 }
@@ -519,6 +553,89 @@ fn lancer_dla_variantes(scenario: &Scenario, graine: u64) -> Result<Sortie, Erre
             let giration = rayon_de_giration(sites);
             let anisotropie = anisotropie(sites);
             mesures.push_str(&format!("{k},{rayon},{giration:.6},{anisotropie:.6}\n"));
+            prochain += 1;
+        }
+    }
+
+    let empreinte = amas.empreinte();
+    let (largeur_image, hauteur_image, rvb) = amas_colore(amas.sites(), COTE_APERCU);
+    let apercu = image::ecrire_png(largeur_image, hauteur_image, &rvb);
+    Ok(Sortie { empreinte, mesures, apercu })
+}
+
+/// Le lancer choisi par une première directive `claquage` (étape D1) : les refus de la documentation du module, puis
+/// l'amas, l'empreinte, les mesures CSV et l'aperçu.
+fn lancer_claquage(scenario: &Scenario, graine: u64) -> Result<Sortie, ErreurLancer> {
+    // La lecture qui peut refuser (seconde directive, arguments, bornes), lue une fois.
+    let lecture = crate::claquage::parametres(scenario);
+
+    // La plus petite ligne refusée : nom inconnu, `claquage` fautive, `claquage` sur un `hexagone`, boîte trop grande.
+    let mut refus: Option<usize> = None;
+    let mut refuser = |ligne: usize| {
+        refus = Some(refus.map_or(ligne, |autre| autre.min(ligne)));
+    };
+    for directive in &scenario.directives {
+        if directive.nom != "claquage" {
+            refuser(directive.ligne);
+        }
+    }
+    if let Err(ErreurLecture::LigneInvalide(ligne)) = lecture {
+        refuser(ligne);
+    }
+    let ligne_claquage =
+        scenario.directives.iter().find(|directive| directive.nom == "claquage").map(|directive| directive.ligne);
+    if matches!(scenario.forme, Forme::Hexagone { .. })
+        && let Some(ligne) = ligne_claquage
+    {
+        refuser(ligne);
+    }
+    if let Forme::Boite { largeur, hauteur } = scenario.forme
+        && demi_cote_de_la_boite(largeur, hauteur) > DEMI_COTE_MAX
+        && let Some(ligne) = ligne_claquage
+    {
+        refuser(ligne);
+    }
+    if let Some(ligne) = refus {
+        return Err(ErreurLancer::DirectiveInconnue(ligne));
+    }
+
+    // Rien n'est refusé : la première directive est un `claquage` valide, la forme est une boîte de `demi_cote` permis.
+    let Ok(Some((eta, nombre))) = lecture else {
+        unreachable!("une directive `claquage` valide subsiste quand rien n'est refusé");
+    };
+    let Some(ligne_claquage) = ligne_claquage else {
+        unreachable!("une directive `claquage` valide subsiste quand rien n'est refusé");
+    };
+    let Forme::Boite { largeur, hauteur } = scenario.forme else {
+        unreachable!("une forme qui n'est pas une boîte aurait été refusée");
+    };
+
+    // Les instants des mesures : les puissances de 2 au plus égales à `nombre`, puis `nombre` s'il n'y figure pas.
+    let mut instants = Vec::new();
+    let mut instant = 2_usize;
+    while instant <= nombre {
+        instants.push(instant);
+        instant *= 2;
+    }
+    if instants.last() != Some(&nombre) {
+        instants.push(nombre);
+    }
+
+    // L'amas, site par site, en relevant les mesures aux instants voulus ; un amas qui ne peut plus croître est le refus à
+    // la ligne de la directive `claquage`.
+    let mut amas = Claquage::new(graine, demi_cote_de_la_boite(largeur, hauteur), eta);
+    let mut mesures = String::from("particules,rayon,rayon_giration\n");
+    let mut prochain = 0;
+    for k in 1..=nombre {
+        while amas.sites().len() < k {
+            if amas.essayer_ajouter().is_none() {
+                return Err(ErreurLancer::DirectiveInconnue(ligne_claquage));
+            }
+        }
+        if prochain < instants.len() && instants[prochain] == k {
+            let rayon = amas.rayon();
+            let giration = rayon_de_giration(&amas.sites()[..k]);
+            mesures.push_str(&format!("{k},{rayon},{giration:.6}\n"));
             prochain += 1;
         }
     }
