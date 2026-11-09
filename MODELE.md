@@ -644,3 +644,168 @@ l'écart-type d'une graine est de l'ordre de 0,13 : ces trois nombres sont de l'
 - **Le coût dans la page** (D3) : jamais mesuré dans le navigateur ; à 100 sites et `d = 40` le temps natif est de 0,25 s par amas, et `η = 3` à 1000 sites coûte 210 s natifs.
 - **Les amas au-delà de 3000 sites**, `η` non entier, la 3D, la transition `η = 4` (hors de D1).
 - **Que `etape-d1` laisse la page et le module web inchangés** n'est pas testé ici (ni Node ni la cible `wasm32` sur ce PC) : `claquage` n'est lu que par `lancer` ; ajouter `etape-d1` à `default` change pourtant les octets du module compilé (règle 12 d'`AGENTS.md`).
+
+## Étape D2 : la courbe D(η) du claquage, à côté des points publiés
+
+La dimension fractale `D` des amas du claquage de l'étape D1 (`src/claquage.rs`), mesurée par la corrélation densité-densité de l'étape Z1 (`src/correlation.rs`) sur une **fenêtre faite pour les petits amas**, moyennée
+sur des graines, avec son erreur-type, pour `η = 0, 1, 2, 3` (`η = 0` : l'amas plein, en repère) à une taille d'amas fixée ; puis mise **à côté** des points publiés (Hastings 2001, le rappel de la DLA), sans qu'aucun test
+les leur compare jamais. Le module est `src/courbe.rs` (fonctionnalité `etape-d2`) : la fenêtre, la dimension d'un amas, la moyenne et l'erreur-type (leur formule et leur ordre d'accumulation), le demi-côté, les repères,
+le CSV et l'image y sont écrits à la lettre ; l'exemple `examples/courbe_d2.rs` écrit `apercus/etape-d2-courbe.png` et `apercus/etape-d2-courbe.csv`. Les valeurs attendues des tests, chacune avec sa source, sont dans
+`references/etape-d2-valeurs.md`. **La règle des nombres d'`AGENTS.md` ne change pas** : `+ - * /`, `sqrt`, `round`, et `math::logarithme` par `correlation` ; les comptages en entiers ; aucun fil d'exécution dans le module
+(les tests en emploient pour aller plus vite, sans changer un bit).
+
+**La limite acceptée (André, 09/11).** À nos tailles (100 à 300 sites ; le coût du champ de Laplace interdit mieux, voir D1), la dimension mesurée est **loin de sa valeur limite** : D2 ne dit que **l'ordre et la baisse** de
+`D(η)`, jamais un accord avec les valeurs de Hastings. Les points publiés sont des repères affichés avec l'écart mesuré.
+
+### La mesure
+
+- **La fenêtre des petits amas** (`fenetre_petit_amas`) : les rayons entiers de **2 à `max(4, e / 6)`**, `e` l'étendue de l'amas (division entière), vide si ce dernier rayon dépasse `e / 2` ou 4096 (`RAYON_MAX`). Elle ne dépend
+  que de l'étendue. La fenêtre de Z1 (4 à `e / 8`, au moins 72 d'étendue) ne mesure rien ici : un amas de 100 sites a une étendue de 11 (`η = 0`) à 49 (`η = 3`), un amas de 300 sites de 22 à 114 : seuls des amas de `η = 3` à 300 sites atteignent 72.
+- **La dimension d'un amas** (`dimension_d_un_amas`) : `2 + pente(ln r, ln C(r))` sur cette fenêtre, par `correlation::dimension_correlation` ; `None` si la fenêtre est vide ou si une `C(r)` est nulle.
+- **Le point** (`point_de_la_courbe`) : pour chaque graine, dans l'ordre donné, un `Claquage` jusqu'à `taille` sites et sa dimension ; la moyenne (somme de gauche à droite, division par `n`), la variance **corrigée** (`n - 1`)
+  et l'**erreur-type** `sqrt(variance / n)` (celle de la moyenne, pas l'écart-type d'une graine). Un amas qui touche la frontière avant `taille`, une dimension indéfinie ou moins de deux graines : panique, dite.
+- **Le demi-côté** (`demi_cote_de_la_courbe`, pris par `courbe`) : `min(255, A + B · taille / 100)` en entiers, `(A, B)` = `(30, 10)`, `(32, 8)`, `(22, 18)`, `(12, 36)` pour `η = 0` à 3 : 40, 40, 40, 48 à 100 sites et 60, 56, 76, 120 à 300.
+  `η > 3` est refusé.
+- **Les repères** : `HASTINGS_2001_TABLE_II` (`η = 2 → 1,433`, `η = 3 → 1,263`) et `DLA_RAPPEL` (`1,71`, pour `η = 1` : **pas une mesure de Hastings**, qui écrit « roughly 1.7 »), `ecart(point, publie) = moyenne - publie`.
+
+### La fenêtre et sa sensibilité (mesurée)
+
+**Choisie sur des formes à solution connue, pas sur le claquage.** Écart `D mesuré - D exact` pour la même formule de fenêtre sur 14 formes (trait de 50, 100 et 300 sites ; carrés de 10, 12, 17 et 25 de côté ; disques de rayon 6, 10 et 15 ;
+Vicsek de niveaux 3 et 4, `ln 5 / ln 3 = 1,465` ; tapis de niveaux 2 et 3, `ln 8 / ln 3 = 1,893`) ; outil jetable `d2_mesures formes` :
+
+| fenêtre | trait 100 | trait 300 | carré 12 | carré 25 | disque 10 | Vicsek 4 | tapis 3 | erreur absolue moyenne (14 formes) |
+|---|---|---|---|---|---|---|---|---|
+| 2 à 4 (fixe) | -0,020 | -0,011 | -0,225 | -0,101 | -0,124 | +0,039 | -0,093 | **0,123** |
+| **2 à `max(4, e/6)` (la règle)** | **-0,049** | **-0,037** | **-0,225** | **-0,101** | **-0,124** | **+0,020** | **-0,093** | **0,128** |
+| 2 à `max(4, e/8)` | -0,041 | -0,032 | -0,225 | -0,101 | -0,124 | -0,003 | -0,093 | 0,126 |
+| 2 à `max(4, e/4)` | -0,061 | -0,049 | -0,225 | -0,134 | -0,153 | +0,002 | -0,133 | 0,138 |
+| 2 à `max(4, e/3)` | -0,076 | -0,061 | -0,225 | -0,159 | -0,174 | -0,030 | -0,142 | 0,154 |
+| 2 à `max(5, e/6)` | -0,049 | -0,037 | -0,273 | -0,121 | -0,153 | +0,020 | -0,127 | 0,155 |
+| 2 à 6 (fixe) | -0,056 | -0,044 | -0,307 | -0,134 | -0,174 | +0,033 | -0,133 | 0,172 |
+| 2 à 8 (fixe) | -0,033 | -0,018 | -0,376 | -0,159 | -0,216 | +0,003 | -0,142 | 0,197 |
+| 3 à `max(6, e/6)` | -0,049 | -0,038 | -0,375 | -0,162 | -0,217 | +0,026 | -0,181 | 0,209 |
+
+Lecture : la dimension d'un **petit objet compact** (carré de 12, disque de rayon 10) est sous-estimée de 0,10 à 0,30 **quelle que soit la fenêtre** (l'effet de bord : un voisinage qui sort de l'objet est vide), d'autant plus que
+la fenêtre monte ; un trait est mesuré à 0,95 au lieu de 1 ; une fractale de Vicsek de 625 sites à 1,485 au lieu de 1,465. La règle est dans le palier des fenêtres qui commencent à 2 et dont le dernier rayon reste petit
+(erreur moyenne de 0,123 à 0,138) ; elle n'est pas la meilleure (2 à 4 fixe fait 0,005 de mieux) mais elle **monte avec l'étendue** (un trait de 300 sites est mesuré jusqu'au rayon 49) et ressemble à la fenêtre de Z1 (`e / 8`)
+un peu élargie parce que les amas sont petits. `k = 6` ou `8` ne se distinguent pas sur les formes (0,128 et 0,126) ; **le tableau du claquage ci-dessous avait déjà été vu quand `k = 6` a été retenu** : la fenêtre est jugée sur les formes, mais son choix final entre 6 et 8 ne s'est pas fait sans avoir vu ce que le claquage donne ; le tableau dit ce que chaque fenêtre aurait donné.
+
+**Sensibilité de `D` du claquage à la fenêtre** (moyenne et, entre parenthèses, l'écart-type d'UNE graine ; 100 sites : 48 graines, demi-côtés 40, 40, 40, 48 ; 300 sites : 24 graines, demi-côtés 60, 56, 76, 120) :
+
+| fenêtre | 100 sites : `η = 0` | `η = 1` | `η = 2` | `η = 3` | 300 sites : `η = 0` | `η = 1` | `η = 2` | `η = 3` |
+|---|---|---|---|---|---|---|---|---|
+| 2 à 4 (fixe) | 1,758 | 1,657 | 1,496 | 1,378 | 1,880 | 1,703 | 1,508 | 1,394 |
+| 2 à 5 (fixe) | 1,702 | 1,622 | 1,468 | 1,342 | 1,855 | 1,687 | 1,481 | 1,360 |
+| 2 à 6 (fixe) | 1,658 | 1,601 | 1,460 | 1,335 | 1,836 | 1,682 | 1,474 | 1,354 |
+| 2 à 8 (fixe) | 1,566 | 1,559 | 1,444 | 1,326 | 1,796 | 1,674 | 1,466 | 1,351 |
+| 2 à `max(4, e/4)` | 1,758 | 1,636 | 1,458 | 1,318 | 1,841 | 1,668 | 1,434 | 1,288 |
+| 2 à `max(4, e/8)` | 1,758 | 1,657 | 1,496 | 1,372 | 1,880 | 1,699 | 1,471 | 1,333 |
+| 2 à `max(4, e/12)` | 1,758 | 1,657 | 1,496 | 1,378 | 1,880 | 1,703 | 1,492 | 1,352 |
+| **2 à `max(4, e/6)` (la règle)** | **1,758** (0,020) | **1,657** (0,060) | **1,490** (0,076) | **1,342** (0,066) | **1,880** (0,011) | **1,684** (0,038) | **1,456** (0,046) | **1,315** (0,049) |
+| 3 à `max(6, e/6)` | 1,573 | 1,561 | 1,438 | 1,309 | 1,798 | 1,671 | 1,442 | 1,299 |
+
+**Ce que la table dit.** (1) **L'ordre `D(0) > D(1) > D(2) > D(3)` tient pour toutes les fenêtres qui mesurent les quatre `η`** : 29 sur 34 à 100 sites (les cinq autres sont vides pour tous les amas d'un `η`, d'où les `NaN` de l'outil) et 31 sur 34 à 300 sites. Mais l'écart `D(0) - D(1)` n'est de 0,10 (100 sites) qu'avec une fenêtre qui reste petite : il tombe à **0,007** pour 2 à 8
+et à 0,012 pour 3 à `max(6, e/6)`, parce que le dernier rayon atteint alors la moitié de l'étendue d'un amas d'Eden de 100 sites (14,8) : l'effet de bord d'un amas plein compact se confond avec la ramification de la DLA. (2) **Le choix de la
+fenêtre déplace `D` de ±0,05** : à 300 sites, `D(2)` va de 1,41 à 1,51 et `D(3)` de 1,27 à 1,39 selon la fenêtre ; **c'est plus que l'écart mesuré à Hastings** (voir plus bas) : on peut faire « tomber » le banc sur 1,433 ou sur 1,263 (2 à `e / 4`
+donne `D(2) = 1,434` à 300 sites) en choisissant la fenêtre. C'est la leçon du zinc, et la raison pour laquelle aucun test ne compare ces valeurs.
+
+**Recoupement du juge, sur 100 graines neuves (7001 à 7050 et 9001 à 9050), 14 fenêtres, un second code écrit d'après la seule doc** (mêmes bits que le prototype).
+À 100 sites, l'ordre strict `D(0) > D(1) > D(2) > D(3)` tient pour les 14 fenêtres, mais `D(0) - D(1)` vaut 0,099 (z = 17,5) pour la règle, 0,077 pour 2 à 5, 0,054 pour 2 à 6, **0,006 (z = 1,1) pour
+2 à 8** et **0,011 (z = 1,6) pour 3 à `max(6, e/6)`** ; à **80 sites**, ces deux fenêtres **inversent** `D(0)` et `D(1)` (`-0,014` et `-0,009`), alors que toutes celles qui commencent à 2 et
+dont le dernier rayon reste au plus `e / 4` gardent l'ordre avec z ≥ 14. L'ordre établi par D2 est donc celui des fenêtres **courtes qui commencent à 2** (le dernier rayon loin de la moitié de
+l'étendue d'un amas d'Eden, 13 à 15 ici) : c'est une propriété du modèle ET de cette famille de fenêtres, pas de toute fenêtre.
+**Le choix entre `e / 6` et `e / 8` n'est pas neutre pour l'écart** : à 100 sites il ne change que les amas d'au moins 30 d'étendue, donc `D(2)` de 0,005 et surtout `D(3)` : `1,359` avec `e / 6`
+contre `1,390` avec `e / 8` (juge, 100 graines neuves) ; l'écart à Hastings pour `η = 3` serait `+0,127` au lieu de `+0,096`. Les formes ne départagent pas (0,128 et 0,126, `e / 8` un peu meilleur) et `k = 6` a été retenu après avoir
+vu le tableau du claquage : **ce choix rapproche le banc du publié pour `η = 3` sans que les formes le justifient**. Aucun test ne compare `D` au publié, mais les bandes et le CSV figé de
+`etape_d2_ordre.rs` figent ce choix (une fenêtre en `e / 8` en sort : le CSV figé la voit). Les 14 fenêtres et leurs valeurs : `essai-d2-juge-outils` des notes de la session.
+
+### Le demi-côté (mesuré)
+
+Rayon moyen des amas (maximum), graines 1 à 48 à 100 sites et 1 à 24 à 300 sites, avec un demi-côté assez grand pour ne jamais toucher la frontière :
+
+| sites | `η = 0` | `η = 1` | `η = 2` | `η = 3` |
+|---|---|---|---|---|
+| 100 | 9,6 (13) | 13,0 (17) | 16,9 (27) | 21,7 (33) |
+| 300 | 15,5 (18) | 22,5 (25) | 36,0 (51) | 51,3 (69) |
+
+(D1 : sur 120 graines à 100 sites, le maximum de `η = 3` est 35.) Pour `η >= 1` la règle donne un demi-côté de 2,1 à 3,1 fois le rayon moyen (`η = 0` : 3,9 à 4,2, sans conséquence, il n'y a pas de champ) ; sur les 170 graines à 100 sites **aucun amas n'a touché la frontière** (ni 24 graines à 300 sites).
+**`D` ne dépend du demi-côté qu'à la marge** (100 sites, 48 graines, fenêtre de la règle ; erreur-type de la moyenne `0,009` à `0,012`) :
+
+| `η` | demi-côté → `D` moyen |
+|---|---|
+| 1 | 25 → 1,670 ; 30 → 1,664 ; 40 → 1,657 ; 60 → 1,658 |
+| 2 | 30 → 1,500 (1 amas sur 48 touche la frontière) ; 35 → 1,483 ; 40 → 1,490 ; 50 → 1,496 ; 70 → 1,483 |
+| 3 | 35 → 1,330 (1 sur 48) ; 40 → 1,333 ; 45 → 1,341 ; **48 → 1,342** ; 60 → 1,351 ; 80 → 1,352 |
+
+Pour `η = 1` et `2` rien au-delà du bruit. Pour `η = 3`, `D` monte de 0,02 entre 40 et 60 puis se stabilise : **le demi-côté de la règle (48) laisse `D(3)` environ 0,010 sous sa valeur à demi-côté 80** (une erreur-type). Le coût de 60 serait de 2
+fois celui de 48 ; la règle ne le prend pas. `η = 0` : aucun champ n'est calculé, le demi-côté ne sert qu'à arrêter l'amas (coût nul, un demi-côté de 40 convient à 100 sites).
+
+### Ce qui est mesuré
+
+Dimension moyenne `D` de la courbe (fenêtre de la règle, demi-côtés de la règle), erreur-type de la moyenne entre parenthèses :
+
+| sites (graines) | `η = 0` | `η = 1` | `η = 2` | `η = 3` |
+|---|---|---|---|---|
+| 100 (170 graines : 1 à 120 et 1001 à 1050) | 1,759 (0,002) | 1,662 (0,004) | 1,495 (0,005) | 1,349 (0,005) |
+| 100 (graines 1 à 24, celles des tests) | 1,758 (0,0036) | 1,657 (0,0117) | 1,498 (0,0155) | 1,358 (0,0124) |
+| 100 (graines 1 à 50, l'aperçu `etape-d2-courbe.png`) | 1,758 (0,0028) | 1,655 (0,0084) | 1,492 (0,0106) | 1,346 (0,0095) |
+| 300 (graines 1 à 24) | 1,880 (0,0022) | 1,684 (0,0077) | 1,456 (0,0095) | 1,315 (0,0100) |
+
+L'**ordre** : à 100 sites, `D(0) - D(1)`, `D(1) - D(2)` et `D(2) - D(3)` valent sur les 170 graines 0,097, 0,167 et 0,146, de 20 à 24 fois l'erreur-type de leur différence ; dans chacun des sept blocs de 24 ou 25 graines, de 6,1 à 11,7 fois (le juge, sur huit blocs de 24 graines neuves : de 4,2 à 10,3 fois, le minimum pour `D(2) - D(3)`) ; à 300 sites (24 graines)
+0,196, 0,228 et 0,140 (de 10 à 24 fois). **Un amas plein de 100 sites mesure 1,76 et non 2**, un de 300 sites 1,88 : l'effet de bord d'un disque (rayon moyen 9,6 et 15,5). C'est le repère `η = 0`, qui n'a pas de point publié ici.
+
+### L'écart aux points publiés, tel qu'il est (et pourquoi ce n'est pas un accord)
+
+`écart = D du banc - repère` (`ecart`) :
+
+| `η` | repère | 100 sites | 300 sites |
+|---|---|---|---|
+| 1 | 1,71 (le rappel de la DLA) | -0,048 (± 0,004) | -0,026 (± 0,008) |
+| 2 | 1,433 (Hastings) | +0,062 (± 0,005) | +0,023 (± 0,010) |
+| 3 | 1,263 (Hastings) | +0,086 (± 0,005) | +0,052 (± 0,010) |
+
+(Le juge, sur 100 graines neuves à 100 sites, mesure `D` = 1,760 ; 1,662 ; 1,506 ; 1,359 (erreurs-types 0,002 ; 0,005 ; 0,007 ; 0,007) et les écarts **-0,048**, **+0,073** et **+0,096** :
+le même signe, et pour `η = 2` et `3` un écart plus grand de 0,01 que celui des 170 graines de l'écrivain, à 1,1 et 1,2 erreur-type combinée près. L'écart est une mesure de NOS graines, pas une constante.)
+
+**Le signe de l'écart n'est pas unique** : le banc est **au-dessus** de Hastings pour `η = 2` et `3` (de +0,06 et +0,09 à 100 sites, de +0,02 et +0,05 à 300 : l'écart baisse avec la taille ; les ± sont l'erreur-type de la moyenne du banc, Hastings n'en donne pas), et **au-dessous** du rappel de la DLA pour `η = 1`
+(la DLA elle-même, mesurée par la corrélation, est à 1,60 à 300 sites et 1,65 à 4000, loin de 1,71 : Z1). Il ne faut donc pas écrire « le banc est au-dessus du publié ». **Ce n'est pas un accord, ni un désaccord** : (1) les amas sont petits
+(100 à 300 sites contre 10 000 à 15 000 particules chez Hastings) et la dimension en dépend ; (2) la méthode est différente (une corrélation sur un réseau de côté entier contre l'inverse de la pente de `ln F_1` en fonction de `ln n`, sur la moyenne de 8 à 14 amas par applications
+conformes) ; (3) **la fenêtre déplace `D` de ±0,05** (table ci-dessus), plus que l'écart ; (4) Hastings ne donne **aucune barre d'erreur** (seulement la fluctuation rms de `F_1`, `0,039` et `0,056`) ; (5) le claquage `η = 1` n'est pas la DLA à ces
+tailles (D1 : `+0,07` de corrélation). Aucun test ne compare `D` à un repère.
+
+### Le coût
+
+Temps natif, un fil, un processus, profil `dev` à `opt-level = 3` (Ryzen 5 5500U, 12 fils ; temps de CPU, la machine étant partagée), **par amas**, avec les demi-côtés de la règle (moyenne de 8 amas à 100 sites, de 1 ou 2 à 300 sites) :
+
+| sites | `η = 0` | `η = 1` | `η = 2` | `η = 3` |
+|---|---|---|---|---|
+| 100 | 0,003 s | 0,36 s | 0,38 s | 0,63 s |
+| 300 | 0,1 s pour 24 amas (mur, 12 fils) | 2,3 s | 5,7 s | 21 s |
+
+Une courbe de 24 graines coûte donc **33 s de CPU à 100 sites** (24 × (0,36 + 0,38 + 0,63)) et **de l'ordre de 12 minutes à 300 sites** (24 × 29 s) ; l'exemple (`η = 0` à 3, 50 graines, 100 sites) a pris 67 s de CPU, un fil. C'est le coût de D1 (le champ de Laplace à chaque
+pas : `d³` par site) : `η = 3` coûte 33 fois plus à 300 sites qu'à 100. **La courbe à 300 sites n'est donc ni un test ni un calcul de page** (D3 bornera la taille) ; elle a été mesurée une fois, pour la table ci-dessus.
+**Les tests** (`cargo test --features etape-d2`, ce PC, profil `dev`) : `etape_d2_exact` 2,3 s (4,3 s de CPU), `etape_d2_ordre` **16,8 s** (36,8 s de CPU : 24 graines × `η = 1` à 3 à 100 sites, un fil par `η`, le plus long est `η = 3` : 24 × 0,63 s), `etape_d2_exemple` 2,0 s (3,0 s de CPU),
+`etape_d2_fautes` 0,1 s : **21 s au mur, 44 s de CPU**. Le plan disait « quelques secondes par fichier » : c'est faux pour `etape_d2_ordre`, que le coût du champ (24 graines à 100 sites) fixe à une quinzaine de secondes. Sur une CI de deux cœurs : de l'ordre de 30 s (non mesuré).
+
+### Références
+
+- M. B. Hastings, *Fractal to Nonfractal Phase Transition in the Dielectric Breakdown Model*, Phys. Rev. Lett. 87, 175502 (2001), arXiv:cond-mat/0103312v2 : **lu en entier** (PDF de l'arXiv v2, texte extrait le 09/11) : tableau II (colonne « full set » :
+  `η = 2 → 1,433`, `η = 3 → 1,263`, sans barre d'erreur), méthode (applications conformes itérées, régression de `ln F_1` contre `ln n` sur la moyenne de 8 à 14 réalisations de 10 000 à 15 000 particules), introduction (« roughly 1.7 (η = 1, DLA) »).
+  La référence de la revue (PRL 87, 175502) est celle que la page de l'arXiv donne (« Journal reference ») ; la version imprimée n'a pas été ouverte.
+- J. Mathiesen, M. H. Jensen, J. Ø. Bakke, *Dimensions, maximal growth sites and optimization in the dielectric breakdown model*, arXiv:0712.1739, section IV (lue par ar5iv) : « the DLA value D=1.71 for η=1 » ; rien pour `η = 2` ou `3`.
+- B. Davidovitch, A. Levermann, I. Procaccia, arXiv:cond-mat/0008053 (`1,713 ± 0,003`, un calcul sur de petits amas : lu à Z1, non relu).
+- Les dimensions de similarité de Vicsek (`ln 5 / ln 3`) et du tapis de Sierpinski (`ln 8 / ln 3`) : celles de l'étape 1.
+
+### Ce que cette étape n'établit pas
+
+- **Aucun accord avec Hastings, ni avec la DLA à 1,71** : l'écart est écrit (+0,06 et +0,09 à 100 sites pour `η = 2` et `3`, -0,05 pour `η = 1`), jamais testé ; la fenêtre le déplace de ±0,05.
+- **La dimension limite** : à 100 ou 300 sites on est loin de la limite (la dimension monte avec la taille pour `η = 0` et `1`, baisse pour `η = 2` et `3`) ; rien n'est dit au-delà de 300 sites.
+- **Que la fenêtre soit la bonne** : elle est dans un palier (0,12 à 0,14 d'erreur moyenne sur les formes), pas la meilleure, et elle sous-estime un petit objet compact de 0,10 à 0,30 ; sur le claquage seul, l'ordre tient pour toutes les fenêtres
+  essayées à 100 sites mais `D(0) - D(1)` s'effondre si le dernier rayon atteint la moitié de l'étendue de l'amas d'Eden, et **s'inverse à 80 sites** pour 2 à 8 et 3 à `max(6, e/6)` (juge) :
+  l'ordre établi est celui des fenêtres courtes qui commencent à 2, pas celui de toute fenêtre.
+- **La sensibilité au demi-côté au-delà de `η = 3` et de 300 sites** (la règle y est extrapolée, plafonnée à 255) ; le demi-côté de `η = 3` à 100 sites laisse `D` 0,01 sous sa valeur à demi-côté 80.
+- **Que la méthode de 1984 soit celle-ci** (D1) ; `η` non entier, `η >= 4` (la transition à `η = 4` est un débat ouvert : non testée), la 3D.
+- **L'exemple lui-même** n'est pas lancé par un test (le jeu gelé ne le livre pas, et un `cargo run` imbriqué serait fragile) : ce que les tests voient, ce sont `csv_de_la_courbe` et `png_de_la_courbe`, qu'il appelle.
+- **L'aspect de l'image** (axes, grille, lisibilité) : seuls la taille, les marqueurs et les barres sont fixés ; la page et le curseur `η` sont D3. Que `etape-d2` laisse la page et le module web inchangés n'est pas testé ici (ni Node ni `wasm32` sur ce PC) ;
+  ajouter `etape-d2` à `default` change pourtant les octets du module compilé (règle 12 d'`AGENTS.md`).
+- **Les temps sur une CI** : mesurés ici seulement (voir « Le coût »).
