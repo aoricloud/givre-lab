@@ -313,13 +313,79 @@ pub fn ecart(point: &PointDeLaCourbe, publie: f64) -> f64 {
 }
 
 /// Le CSV de la courbe (voir « Le CSV » dans la documentation du module).
-#[allow(unused_variables)]
 pub fn csv_de_la_courbe(points: &[PointDeLaCourbe]) -> String {
-    todo!()
+    let mut csv = String::from("eta,taille,graines,D,erreur,publie,ecart\n");
+    for point in points {
+        csv.push_str(&format!(
+            "{},{},{},{:.6},{:.6}",
+            point.eta, point.taille, point.graines, point.moyenne, point.erreur_type
+        ));
+        match publie(point.eta) {
+            Some(repere) => {
+                csv.push_str(&format!(",{repere:.3},{:.6}", ecart(point, repere)));
+            }
+            None => csv.push_str(",,"),
+        }
+        csv.push('\n');
+    }
+    csv
 }
 
 /// L'image de la courbe (voir « L'image » dans la documentation du module).
-#[allow(unused_variables)]
 pub fn png_de_la_courbe(points: &[PointDeLaCourbe]) -> Vec<u8> {
-    todo!()
+    let largeur = PNG_LARGEUR as i64;
+    let hauteur = PNG_HAUTEUR as i64;
+    let mut rvb = Vec::with_capacity(3 * (largeur * hauteur) as usize);
+    for _ in 0..largeur * hauteur {
+        rvb.extend_from_slice(&PNG_FOND);
+    }
+    // Pose un pixel s'il est dans l'image ; un pixel hors cadre est ignoré.
+    let mut poser = |x: i64, y: i64, couleur: [u8; 3]| {
+        if (0..largeur).contains(&x) && (0..hauteur).contains(&y) {
+            let i = 3 * (y as usize * largeur as usize + x as usize);
+            rvb[i..i + 3].copy_from_slice(&couleur);
+        }
+    };
+    // La ligne de la documentation : `2.2 - D`, puis `* 200.0`, puis `round`, puis `as i64`, puis `+ 20` en entier, puis le `clamp` entier.
+    let ligne = |dimension: f64| -> i64 {
+        let arrondi = ((2.2 - dimension) * 200.0).round() as i64;
+        (arrondi + 20).clamp(0, hauteur - 1)
+    };
+    let colonne = |eta: u32| -> i64 { 40 + 70 * i64::from(eta) };
+
+    // Un point : sa barre d'erreur puis son marqueur, dans l'ordre donné.
+    for point in points {
+        let x = colonne(point.eta);
+        let y = ligne(point.moyenne);
+        let haut = ligne(point.moyenne + point.erreur_type);
+        let bas = ligne(point.moyenne - point.erreur_type);
+        for yy in haut.min(bas)..=haut.max(bas) {
+            poser(x, yy, PNG_BANC);
+        }
+        for bout in [haut, bas] {
+            for dx in -2..=2 {
+                poser(x + dx, bout, PNG_BANC);
+            }
+        }
+        for dy in -2..=2 {
+            for dx in -2..=2 {
+                poser(x + dx, y + dy, PNG_BANC);
+            }
+        }
+    }
+
+    // Les repères publiés, dessinés en dernier, par-dessus tout le reste.
+    for point in points {
+        if let Some(repere) = publie(point.eta) {
+            let x = colonne(point.eta) + 12;
+            let y = ligne(repere);
+            for dy in -2..=2 {
+                for dx in -2..=2 {
+                    poser(x + dx, y + dy, PNG_PUBLIE);
+                }
+            }
+        }
+    }
+
+    crate::image::ecrire_png(PNG_LARGEUR, PNG_HAUTEUR, &rvb)
 }
