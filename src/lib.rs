@@ -4,6 +4,7 @@
 
 pub mod alea;
 pub mod cinetique;
+pub mod claquage;
 pub mod correlation;
 pub mod dla;
 pub mod dla_variantes;
