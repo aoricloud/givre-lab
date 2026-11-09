@@ -1,0 +1,3 @@
+# Le claquage diélectrique, eta = 1 : un germe au centre d'une boîte de 61 sur 61 (un domaine circulaire de rayon 30), 150 particules.
+boite 61 61
+claquage 1 150
