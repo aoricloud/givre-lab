@@ -155,5 +155,4 @@ Chacune se vérifie sur l'article avant qu'un test la fige.
 ## Les gestes de l'humain
 
 Faits, une fois : le dépôt, public, sous MIT ; la règle de `main` et l'auto-fusion ; un jeton limité à lui ; la première
-PR (la CI et `auto-fusion.yml`). Reste : ouvrir Pages pour la vitrine (la page est dans `docs/` ; on publie le dossier `/docs` de la branche `main`). Plus aucune fusion ensuite ; son œil revient
-après coup.
+PR (la CI et `auto-fusion.yml`). Pages est ouvert : le dossier `/docs` de la branche `main` est publié (https://aoricloud.github.io/givre-lab/). Plus aucune fusion ensuite ; son œil revient après coup.
