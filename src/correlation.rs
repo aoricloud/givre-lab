@@ -59,9 +59,18 @@ pub const FENETRE_MIN_RAYONS: u32 = 6;
 /// # Panique
 ///
 /// Si `rayon > RAYON_DISQUE_MAX`.
-#[allow(unused_variables)]
 pub fn sites_du_disque(rayon: u32) -> u64 {
-    todo!()
+    assert!(rayon <= RAYON_DISQUE_MAX, "rayon {rayon} au-delà de RAYON_DISQUE_MAX");
+    let rayon = u64::from(rayon);
+    let rayon_carre = rayon * rayon;
+    // Colonne `dx = 0` : les `dy` de `-rayon` à `rayon`.
+    let mut nombre = 2 * crate::math::racine_entiere(rayon_carre) + 1;
+    // Colonnes `dx > 0` : elles vont par paires `±dx`, de même hauteur.
+    for dx in 1..=rayon {
+        let reste = rayon_carre - dx * dx;
+        nombre += 2 * (2 * crate::math::racine_entiere(reste) + 1);
+    }
+    nombre
 }
 
 /// Les nombres de paires de sites par distance au carré : à l'indice `k`, de `0` à `rayon_max²` inclus (le tableau a donc
@@ -78,9 +87,29 @@ pub fn sites_du_disque(rayon: u32) -> u64 {
 /// # Panique
 ///
 /// Si `rayon_max > RAYON_MAX`.
-#[allow(unused_variables)]
 pub fn paires_par_distance2(sites: &[(i32, i32)], rayon_max: u32) -> Vec<u64> {
-    todo!()
+    assert!(rayon_max <= RAYON_MAX, "rayon_max {rayon_max} au-delà de RAYON_MAX");
+    let rayon_max = u64::from(rayon_max);
+    let limite = rayon_max * rayon_max;
+    let mut paires = vec![0_u64; limite as usize + 1];
+    // Une paire de positions distinctes compte deux fois (deux ordres) : on parcourt `i < j` et on ajoute 2.
+    for (i, &(xi, yi)) in sites.iter().enumerate() {
+        for &(xj, yj) in &sites[i + 1..] {
+            let dx = (i64::from(xi) - i64::from(xj)).unsigned_abs();
+            if dx > rayon_max {
+                continue;
+            }
+            let dy = (i64::from(yi) - i64::from(yj)).unsigned_abs();
+            if dy > rayon_max {
+                continue;
+            }
+            let distance2 = dx * dx + dy * dy;
+            if distance2 <= limite {
+                paires[distance2 as usize] += 2;
+            }
+        }
+    }
+    paires
 }
 
 /// La corrélation densité-densité cumulée `C(r)` pour `r = 1, 2, …, rayon_max` : le résultat a `rayon_max` éléments, et l'élément
@@ -102,9 +131,29 @@ pub fn paires_par_distance2(sites: &[(i32, i32)], rayon_max: u32) -> Vec<u64> {
 /// # Panique
 ///
 /// Si `sites` est vide, ou si `rayon_max > RAYON_MAX`. `rayon_max = 0` rend un tableau vide (si `sites` n'est pas vide).
-#[allow(unused_variables)]
 pub fn correlation(sites: &[(i32, i32)], rayon_max: u32) -> Vec<f64> {
-    todo!()
+    assert!(!sites.is_empty(), "aucun site");
+    assert!(rayon_max <= RAYON_MAX, "rayon_max {rayon_max} au-delà de RAYON_MAX");
+    if rayon_max == 0 {
+        return Vec::new();
+    }
+    let paires = paires_par_distance2(sites, rayon_max);
+    let n = sites.len() as u128;
+    let mut valeurs = Vec::with_capacity(rayon_max as usize);
+    let mut cumul = 0_u64;
+    let mut rayon = 1_u32;
+    let mut prochain_carre = 1_usize;
+    for (distance2, &compte) in paires.iter().enumerate() {
+        cumul += compte;
+        if distance2 == prochain_carre {
+            let numerateur = cumul - paires[0];
+            let denominateur = n * u128::from(sites_du_disque(rayon) - 1);
+            valeurs.push((numerateur as f64) / (denominateur as f64));
+            rayon += 1;
+            prochain_carre = (rayon as usize) * (rayon as usize);
+        }
+    }
+    valeurs
 }
 
 /// La dimension fractale donnée par la corrélation : `2 + pente`, où `pente` est la [`crate::mesures::pente`] des points `(ln r, ln C(r))`, un point
@@ -117,18 +166,47 @@ pub fn correlation(sites: &[(i32, i32)], rayon_max: u32) -> Vec<f64> {
 ///
 /// Si `rayons` a moins de deux éléments ou si tous sont égaux (voir [`crate::mesures::pente`]), si un rayon vaut 0 ou dépasse [`RAYON_MAX`], si `sites`
 /// est vide, ou si `C(r)` vaut 0 pour un des rayons (aucune paire à distance `<= r` : son logarithme n'existe pas).
-#[allow(unused_variables)]
 pub fn dimension_correlation(sites: &[(i32, i32)], rayons: &[u32]) -> f64 {
-    todo!()
+    assert!(!sites.is_empty(), "aucun site");
+    assert!(rayons.len() >= 2, "une dimension demande au moins deux rayons");
+    for &rayon in rayons {
+        assert!(rayon != 0, "un rayon nul");
+        assert!(rayon <= RAYON_MAX, "rayon {rayon} au-delà de RAYON_MAX");
+    }
+    let rayon_max = *rayons.iter().max().expect("au moins un rayon");
+    let courbe = correlation(sites, rayon_max);
+    let mut xs = Vec::with_capacity(rayons.len());
+    let mut ys = Vec::with_capacity(rayons.len());
+    for &rayon in rayons {
+        let valeur = courbe[(rayon - 1) as usize];
+        assert!(valeur != 0.0, "C({rayon}) est nul : son logarithme n'existe pas");
+        xs.push(crate::math::logarithme(rayon as f64));
+        ys.push(crate::math::logarithme(valeur));
+    }
+    2.0 + crate::mesures::pente(&xs, &ys)
 }
 
 /// L'**étendue** d'une liste de sites : le plus grand des deux écarts `x_max - x_min` et `y_max - y_min` (le plus long côté de la boîte
 /// qui contient les sites, en nombre de pas, pas en nombre de cases : un trait de 201 sites alignés a pour étendue 200). Une liste vide
 /// ou d'un seul site : 0. Elle ne change pas quand on translate les sites, qu'on les tourne d'un quart de tour, qu'on les retourne en
 /// miroir (axes) ou qu'on change leur ordre. Exacte pour toutes les valeurs de `i32` (l'écart maximal, `2³² - 1`, tient dans un `u32`).
-#[allow(unused_variables)]
 pub fn etendue(sites: &[(i32, i32)]) -> u32 {
-    todo!()
+    let Some(&(x0, y0)) = sites.first() else {
+        return 0;
+    };
+    let (mut x_min, mut x_max) = (i64::from(x0), i64::from(x0));
+    let (mut y_min, mut y_max) = (i64::from(y0), i64::from(y0));
+    for &(x, y) in sites {
+        let (x, y) = (i64::from(x), i64::from(y));
+        x_min = x_min.min(x);
+        x_max = x_max.max(x);
+        y_min = y_min.min(y);
+        y_max = y_max.max(y);
+    }
+    // L'écart maximal, `2³² - 1`, tient dans un `u32`.
+    let largeur = u32::try_from(x_max - x_min).expect("écart en abscisse hors d'un u32");
+    let hauteur = u32::try_from(y_max - y_min).expect("écart en ordonnée hors d'un u32");
+    largeur.max(hauteur)
 }
 
 /// La **fenêtre d'ajustement** : les rayons sur lesquels on mesure la pente, **tous les entiers** de [`FENETRE_DEBUT`] (4) à
@@ -137,9 +215,13 @@ pub fn etendue(sites: &[(i32, i32)]) -> u32 {
 /// [`RAYON_MAX`] (une étendue d'au moins 32 776).
 /// Elle ne dépend **que de l'étendue** de l'amas : ni de l'ordre des sites, ni de leur position, ni de ce que la mesure donne. Pour une
 /// étendue `e`, elle va de 4 à `⌊e / 8⌋`.
-#[allow(unused_variables)]
 pub fn fenetre(sites: &[(i32, i32)]) -> Vec<u32> {
-    todo!()
+    let dernier = etendue(sites) / FENETRE_DIVISEUR;
+    let premier = FENETRE_DEBUT + FENETRE_MIN_RAYONS - 1;
+    if !(premier..=RAYON_MAX).contains(&dernier) {
+        return Vec::new();
+    }
+    (FENETRE_DEBUT..=dernier).collect()
 }
 
 /// Le résultat d'une [`mesure`] : la courbe `C(r)` sur la fenêtre et la dimension qu'elle donne.
@@ -156,7 +238,23 @@ pub struct Mesure {
 /// La mesure complète d'un amas : la [`fenetre`], les `C(r)` sur cette fenêtre et la dimension. `None` si la fenêtre est vide (amas trop
 /// petit) ou si `C(r)` est nul pour un rayon de la fenêtre (aucune paire assez proche : un amas en morceaux très éloignés, par exemple).
 /// Ne panique jamais (c'est celle que la vitrine emploie). Les paires ne sont comptées qu'une fois.
-#[allow(unused_variables)]
 pub fn mesure(sites: &[(i32, i32)]) -> Option<Mesure> {
-    todo!()
+    let rayons = fenetre(sites);
+    if rayons.is_empty() {
+        return None;
+    }
+    let rayon_max = *rayons.last().expect("une fenêtre non vide a un dernier rayon");
+    let courbe = correlation(sites, rayon_max);
+    let valeurs: Vec<f64> = rayons.iter().map(|&rayon| courbe[(rayon - 1) as usize]).collect();
+    if valeurs.contains(&0.0) {
+        return None;
+    }
+    let mut xs = Vec::with_capacity(rayons.len());
+    let mut ys = Vec::with_capacity(rayons.len());
+    for (&rayon, &valeur) in rayons.iter().zip(&valeurs) {
+        xs.push(crate::math::logarithme(rayon as f64));
+        ys.push(crate::math::logarithme(valeur));
+    }
+    let dimension = 2.0 + crate::mesures::pente(&xs, &ys);
+    Some(Mesure { rayons, valeurs, dimension })
 }
