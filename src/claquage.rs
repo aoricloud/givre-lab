@@ -171,6 +171,7 @@
 //! la directive. Un appelant qui doit répondre vite (la page, étape D3) borne lui-même la taille.
 
 use crate::alea::Alea;
+use crate::reseau::VOISINS4;
 use crate::scenario::{ErreurLecture, Scenario};
 
 /// L'exposant `η` le plus grand accepté par [`Claquage::new`] et par la directive : 8.
@@ -193,9 +194,8 @@ pub const SEUIL: f64 = 1.0 / 1_048_576.0;
 /// `demi_cote = 0`, environ 1,909 pour 60 et 1,977 pour 255. (Le facteur optimal d'une relaxation rouge-noir sur un disque
 /// de rayon `R` est proche de `2 - 3,4 / R` ; on prend un peu plus, car un facteur trop bas coûte beaucoup plus cher qu'un
 /// facteur trop haut.)
-#[allow(unused_variables)]
 pub fn surrelaxation(demi_cote: u32) -> f64 {
-    todo!()
+    2.0 - 6.0 / (f64::from(demi_cote) + 6.0)
 }
 
 /// Un amas de claquage diélectrique en croissance (voir la documentation du module pour la dynamique, le potentiel, la
@@ -224,63 +224,109 @@ impl Claquage {
     /// # Panique
     ///
     /// Si `demi_cote > DEMI_COTE_MAX` ou `eta > ETA_MAX`.
-    #[allow(unused_variables)]
     pub fn new(graine: u64, demi_cote: u32, eta: u32) -> Claquage {
-        todo!()
+        assert!(demi_cote <= DEMI_COTE_MAX, "le demi-côté doit être au plus {DEMI_COTE_MAX}");
+        assert!(eta <= ETA_MAX, "l'exposant doit être au plus {ETA_MAX}");
+        let cote = (2 * demi_cote + 3) as usize;
+        let mut claquage = Claquage {
+            alea: Alea::new(graine),
+            demi_cote,
+            eta,
+            omega: surrelaxation(demi_cote),
+            cote,
+            sites: vec![(0, 0)],
+            occupe: vec![false; cote * cote],
+            phi: vec![1.0; cote * cote],
+            plus_grand_carre: 0,
+            touche: false,
+        };
+        let germe = claquage.indice(0, 0);
+        claquage.occupe[germe] = true;
+        claquage.phi[germe] = 0.0;
+        claquage.touche = VOISINS4.iter().any(|&(dx, dy)| !claquage.dans_omega(dx as i32, dy as i32));
+        if eta >= 1 {
+            claquage.relaxer();
+        }
+        claquage
     }
 
     /// Le `demi_cote` du domaine, tel que donné à [`Claquage::new`] : le rayon de la frontière extérieure.
-    #[allow(unused_variables)]
     pub fn demi_cote(&self) -> u32 {
-        todo!()
+        self.demi_cote
     }
 
     /// L'exposant `η`, tel que donné à [`Claquage::new`].
-    #[allow(unused_variables)]
     pub fn eta(&self) -> u32 {
-        todo!()
+        self.eta
     }
 
     /// Les sites de l'amas, dans l'ordre d'arrivée : le germe `(0, 0)` d'abord. Il y en a au moins un.
-    #[allow(unused_variables)]
     pub fn sites(&self) -> &[(i32, i32)] {
-        todo!()
+        &self.sites
     }
 
     /// Vrai si `(x, y)` est un site de l'amas (faux hors du domaine, sans panique, pour toute valeur de `i32`).
-    #[allow(unused_variables)]
     pub fn contient(&self, x: i32, y: i32) -> bool {
-        todo!()
+        self.dans_omega(x, y) && self.occupe[self.indice(x, y)]
     }
 
     /// Le rayon de l'amas : le plus petit entier `r >= 0` tel que tous les sites vérifient `x² + y² <= r²` (voir « Le rayon de
     /// l'amas »).
-    #[allow(unused_variables)]
     pub fn rayon(&self) -> u32 {
-        todo!()
+        let mut r = 0_u64;
+        while r * r < self.plus_grand_carre {
+            r += 1;
+        }
+        r as u32
     }
 
     /// Vrai si l'amas touche la frontière : l'un de ses sites a un voisin hors du domaine (voir « L'arrêt »). Alors
     /// [`Claquage::essayer_ajouter`] rend `None`.
-    #[allow(unused_variables)]
     pub fn touche_la_frontiere(&self) -> bool {
-        todo!()
+        self.touche
     }
 
     /// Le potentiel courant au site `(x, y)`, pour toute valeur de `i32` : `Some(1.0)` hors du domaine, `Some(0.0)` sur
     /// l'amas, sinon `Some(phi)` la valeur relaxée du site libre (voir « Le potentiel »). `None` quand `eta == 0` (aucun champ
     /// n'est calculé), pour tout site. Entre deux appels de [`Claquage::essayer_ajouter`], le champ est celui de la dernière
     /// relaxation : il correspond à l'amas courant.
-    #[allow(unused_variables)]
     pub fn potentiel(&self, x: i32, y: i32) -> Option<f64> {
-        todo!()
+        if self.eta == 0 {
+            return None;
+        }
+        if !self.dans_omega(x, y) {
+            return Some(1.0);
+        }
+        let indice = self.indice(x, y);
+        if self.occupe[indice] { Some(0.0) } else { Some(self.phi[indice]) }
     }
 
     /// Les candidates (voir « Les candidates ») avec leur poids `φ^η`, dans l'ordre canonique (`y` croissant, puis `x`
     /// croissant). Vide si l'amas ne peut pas croître parce qu'aucun site libre ne touche l'amas ; jamais vide sinon.
-    #[allow(unused_variables)]
     pub fn candidates(&self) -> Vec<((i32, i32), f64)> {
-        todo!()
+        let d = self.demi_cote as i32;
+        let mut liste = Vec::new();
+        for y in -d..=d {
+            for x in -d..=d {
+                if !self.dans_omega(x, y) {
+                    continue;
+                }
+                let indice = self.indice(x, y);
+                if self.occupe[indice] {
+                    continue;
+                }
+                let touche = VOISINS4.iter().any(|&(dx, dy)| self.occupe[self.indice(x + dx as i32, y + dy as i32)]);
+                if !touche {
+                    continue;
+                }
+                let mut poids = 1.0;
+                for _ in 0..self.eta {
+                    poids *= self.phi[indice];
+                }
+                liste.push(((x, y), poids));
+            }
+        }
+        liste
     }
 
     /// Ajoute un site (voir « La dynamique ») et le rend, aussi le dernier de [`Claquage::sites`].
@@ -288,16 +334,43 @@ impl Claquage {
     /// # Panique
     ///
     /// Si l'amas ne peut plus croître (voir « L'arrêt » ; message contenant « frontière »). Aucun site n'est alors ajouté.
-    #[allow(unused_variables)]
     pub fn ajouter(&mut self) -> (i32, i32) {
-        todo!()
+        match self.essayer_ajouter() {
+            Some(site) => site,
+            None => panic!("l'amas ne peut plus croître : il touche la frontière"),
+        }
     }
 
     /// Comme [`Claquage::ajouter`], mais rend `None` au lieu de paniquer quand l'amas ne peut plus croître (voir « L'arrêt »),
     /// sans consommer de tirage ni changer l'état.
-    #[allow(unused_variables)]
     pub fn essayer_ajouter(&mut self) -> Option<(i32, i32)> {
-        todo!()
+        if self.touche {
+            return None;
+        }
+        let candidates = self.candidates();
+        if candidates.is_empty() {
+            return None;
+        }
+        let mut total = 0.0;
+        for &(_, poids) in &candidates {
+            total += poids;
+        }
+        if total == 0.0 {
+            return None;
+        }
+        let u = self.alea.suivant_f64() * total;
+        let mut cumul = 0.0;
+        let mut choisi = None;
+        for &((x, y), poids) in &candidates {
+            cumul += poids;
+            if cumul > u {
+                choisi = Some((x, y));
+                break;
+            }
+        }
+        let (x, y) = choisi.expect("u < W devrait toujours trouver une candidate");
+        self.ajouter_site(x, y);
+        Some((x, y))
     }
 
     /// Ajoute des sites jusqu'à ce que l'amas en ait `n` (germe compris) ; ne fait rien s'il en a déjà `n` ou plus.
@@ -307,21 +380,103 @@ impl Claquage {
     /// # Panique
     ///
     /// Si l'amas ne peut plus croître avant d'avoir `n` sites (voir [`Claquage::ajouter`]).
-    #[allow(unused_variables)]
     pub fn croitre_jusqu_a(&mut self, n: usize) {
-        todo!()
+        while self.sites.len() < n {
+            self.ajouter();
+        }
     }
 
     /// L'écriture canonique de l'état, `36 + 8 n` octets (voir « L'écriture canonique et l'empreinte »).
-    #[allow(unused_variables)]
     pub fn ecriture_canonique(&self) -> Vec<u8> {
-        todo!()
+        let mut sortie = Vec::with_capacity(36 + 8 * self.sites.len());
+        sortie.extend_from_slice(b"GIVREDB1");
+        sortie.extend_from_slice(&self.demi_cote.to_le_bytes());
+        sortie.extend_from_slice(&self.eta.to_le_bytes());
+        sortie.extend_from_slice(&(self.sites.len() as u32).to_le_bytes());
+        for &(x, y) in &self.sites {
+            sortie.extend_from_slice(&x.to_le_bytes());
+            sortie.extend_from_slice(&y.to_le_bytes());
+        }
+        sortie.extend_from_slice(&self.alea.octets());
+        sortie
     }
 
     /// L'empreinte de l'état : le SHA-256 (64 chiffres hexadécimaux minuscules) de [`Claquage::ecriture_canonique`].
-    #[allow(unused_variables)]
     pub fn empreinte(&self) -> String {
-        todo!()
+        crate::empreinte::sha256_hex(&self.ecriture_canonique())
+    }
+
+    /// Vrai si `(x, y)` est dans le domaine `x² + y² <= demi_cote²` (comparaison entière, exacte pour tout `i32`).
+    fn dans_omega(&self, x: i32, y: i32) -> bool {
+        let x = i64::from(x);
+        let y = i64::from(y);
+        let demi_cote = i64::from(self.demi_cote);
+        x * x + y * y <= demi_cote * demi_cote
+    }
+
+    /// L'indice de `(x, y)` dans les tableaux, avec une marge d'un site de chaque côté.
+    fn indice(&self, x: i32, y: i32) -> usize {
+        let demi_cote = self.demi_cote as i32;
+        let cote = self.cote as i32;
+        ((y + demi_cote + 1) * cote + (x + demi_cote + 1)) as usize
+    }
+
+    /// Ajoute le site `(x, y)` (voir « Le potentiel » : il est d'abord mis à `0.0`, puis le champ est relaxé).
+    fn ajouter_site(&mut self, x: i32, y: i32) {
+        self.sites.push((x, y));
+        let indice = self.indice(x, y);
+        self.occupe[indice] = true;
+        self.phi[indice] = 0.0;
+        let carre = {
+            let x = i64::from(x);
+            let y = i64::from(y);
+            (x * x + y * y) as u64
+        };
+        if carre > self.plus_grand_carre {
+            self.plus_grand_carre = carre;
+        }
+        if VOISINS4.iter().any(|&(dx, dy)| !self.dans_omega(x + dx as i32, y + dy as i32)) {
+            self.touche = true;
+        }
+        if self.eta >= 1 {
+            self.relaxer();
+        }
+    }
+
+    /// La sur-relaxation rouge-noir de la documentation (voir « Le potentiel »).
+    fn relaxer(&mut self) {
+        let demi_cote = self.demi_cote as i32;
+        for _ in 0..PASSES_MAX {
+            let mut ecart = 0.0_f64;
+            for couleur in 0..2_i32 {
+                for y in -demi_cote..=demi_cote {
+                    for x in -demi_cote..=demi_cote {
+                        if (x + y).rem_euclid(2) != couleur || !self.dans_omega(x, y) {
+                            continue;
+                        }
+                        let indice = self.indice(x, y);
+                        if self.occupe[indice] {
+                            continue;
+                        }
+                        let ancien = self.phi[indice];
+                        let m = (((self.phi[self.indice(x + 1, y)] + self.phi[self.indice(x, y + 1)])
+                            + self.phi[self.indice(x - 1, y)])
+                            + self.phi[self.indice(x, y - 1)])
+                            / 4.0;
+                        let v = (ancien + self.omega * (m - ancien)).clamp(0.0, 1.0);
+                        let changement = (v - ancien).abs();
+                        if changement > ecart {
+                            ecart = changement;
+                        }
+                        self.phi[indice] = v;
+                    }
+                }
+            }
+            if ecart < SEUIL {
+                return;
+            }
+        }
+        panic!("la relaxation ne converge pas après {PASSES_MAX} passes");
     }
 }
 
@@ -338,7 +493,24 @@ impl Claquage {
 ///   **seconde** directive `claquage` (valide ou non : c'est la seconde qui est fautive).
 ///
 /// Les autres directives sont ignorées ici (c'est `lancer` qui refuse celles qu'il ne comprend pas).
-#[allow(unused_variables)]
 pub fn parametres(scenario: &Scenario) -> Result<Option<(u32, usize)>, ErreurLecture> {
-    todo!()
+    let mut trouve = None;
+    for directive in &scenario.directives {
+        if directive.nom != "claquage" {
+            continue;
+        }
+        if trouve.is_some() {
+            return Err(ErreurLecture::LigneInvalide(directive.ligne));
+        }
+        if directive.args.len() != 2 {
+            return Err(ErreurLecture::LigneInvalide(directive.ligne));
+        }
+        let eta = directive.entier(0)?;
+        let particules = directive.entier(1)?;
+        if eta > u64::from(ETA_MAX) || !(1..=PARTICULES_MAX as u64).contains(&particules) {
+            return Err(ErreurLecture::LigneInvalide(directive.ligne));
+        }
+        trouve = Some((eta as u32, particules as usize));
+    }
+    Ok(trouve)
 }
