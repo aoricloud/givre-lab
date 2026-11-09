@@ -1,0 +1,3 @@
+# Le claquage diélectrique, eta = 2 : un éclair plus fin dans une boîte de 81 sur 81 (rayon 40), 120 particules.
+boite 81 81
+claquage 2 120

@@ -1,0 +1,3 @@
+# Un amas d'Eden (eta = 0, toutes les candidates à égalité) : un germe au centre d'une boîte de 61 sur 61, 600 particules.
+boite 61 61
+claquage 0 600
