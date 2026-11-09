@@ -472,3 +472,175 @@ plafond se relève sur une mesure du module.
   DOM est bien relié.
 - **Le temps du module** (non mesuré) ; **un amas au-delà du plafond dans la page** (la DLA de la vitrine s'arrête à 3000 sites : aucun test ne l'atteint).
 - Que la mesure est sûre pour des coordonnées de l'ordre de `2^31` en dehors des cas testés (deux sites aux extrémités de l'`i32`).
+
+## Étape D1 : le claquage diélectrique (le champ de Laplace et la croissance en `φ^η`)
+
+Le modèle de **claquage diélectrique** de L. Niemeyer, L. Pietronero et H. J. Wiesmann (Phys. Rev. Lett. 52, 1033, 1984) : le potentiel `φ` autour d'un amas vérifie l'équation de
+Laplace (`φ = 0` sur l'amas, `φ = 1` sur une frontière extérieure, chaque site libre est la moyenne de ses voisins) ; l'amas croît d'un site voisin tiré avec une chance
+proportionnelle à `φ^η`, `η` entier. `η = 0` : toutes les candidates à égalité, un amas plein (modèle d'Eden) ; `η = 1` : la chance de coller est le potentiel (dans le continu, la
+probabilité qu'un marcheur arrive là en premier ; sur la grille, ce n'est pas la DLA de l'étape 1 : voir plus bas) ; plus `η` monte, plus l'amas est fin. Le module est `src/claquage.rs` (fonctionnalité `etape-d1`) ; la dynamique, la consommation du
+hasard appel par appel, l'écriture canonique et la directive `claquage <eta> <particules>` y sont écrites, et une implémentation fidèle donne EXACTEMENT les mêmes sites, les mêmes
+potentiels (bit pour bit) et le même générateur. Les valeurs attendues des tests, chacune avec sa source, sont dans `references/etape-d1-valeurs.md`. **La règle des nombres
+d'`AGENTS.md` ne change pas** : le potentiel est un `f64` calculé avec `+ - * /`, `abs`, `max` et `clamp` ; `φ^η` par multiplications répétées (jamais `powi`) ; les comptages et
+les coordonnées en entiers ; aucune `HashMap`.
+
+**La méthode de 1984 (grille, bord, calcul du potentiel) n'a pas été lue** (le résumé de l'éditeur est lu et n'en dit rien ; le texte intégral est derrière un accès payant). Les choix
+ci-dessous sont donc **à nous**, et aucune valeur publiée n'en dépend à cette étape : la courbe `D(η)` contre Hastings (2001) est l'étape D2, qui ne se lit pas ici.
+
+### Les choix à nous
+
+| Choix | Valeur | Pourquoi |
+|---|---|---|
+| frontière | le cercle `x² + y² > d²` (`d` = `demi_cote`), `φ = 1` ; l'amas qui la touche s'arrête | une électrode extérieure ronde, sans effet de coin ; le germe seul est à égale distance de tous ses bords |
+| voisinage | quatre cases (jamais les diagonales) | comme la DLA de l'étape 1 |
+| calcul du champ | sur-relaxation **rouge-noir**, `ω = 2 - 6 / (d + 6)`, bornée à `[0, 1]` (`clamp`), arrêtée à un écart de passe `< 2^-20`, départ = le champ du pas précédent (`1` au départ) | voir « Pourquoi une sur-relaxation rouge-noir » |
+| garde | une relaxation qui n'a pas convergé après `PASSES_MAX = 100 000` passes panique (mesuré : 354 passes à froid à `d = 60`, 1316 à `d = 255`) | un code qui ne converge pas (un voisin diagonal) échoue au lieu de tourner sans fin ; aucun bit ne change |
+| `η = 0` | aucun champ n'est calculé (`potentiel` rend `None`) | les poids sont tous 1 : le résultat n'en dépend pas ; coût nul |
+| candidates | les sites libres touchant l'amas par un côté, dans l'ordre `y` croissant puis `x` croissant | l'ordre fixe le hasard |
+| tirage | un seul `suivant_f64` par site ajouté, `u = t W`, première somme cumulée `> u` | une règle sans cas du dernier site (`u < W` toujours) |
+
+**Quand l'amas s'arrête** : dès qu'un de ses sites a un voisin hors du domaine (la décharge a rejoint l'autre électrode) ; ce site est ajouté, le pas suivant rend `None`. Un `None` ne
+consomme aucun tirage.
+
+### Pourquoi une sur-relaxation rouge-noir (la suggestion du brief, Jacobi, est fausse)
+
+Le brief suggérait une relaxation de Jacobi. **Mesurée, elle est trop chère** : un balayage de Gauss-Seidel (le schéma voisin, deux fois plus rapide que Jacobi) demande **4358 passes
+par site ajouté** à `d = 60` (300 sites, graine 1, seuil `2^-30` : 1,3 million de passes, 61 s) parce que le mode lent du domaine, qu'un site de plus excite à chaque pas, se
+relaxe en `d²` passes ; Jacobi n'a pas été mesuré jusqu'au bout (arrêté après une minute, durée que Gauss-Seidel met à finir un amas). La sur-relaxation rouge-noir (`ω` proche de 2) le fait en `d`
+passes : 272 passes par site au même seuil (avec `ω = 2 - 6 / d` à l'époque), soit **16 fois moins**, et un balayage sans dépendance entre les sites d'une même couleur (l'ordre à l'intérieur d'une couleur ne change aucun
+bit : une main peut la découper à sa guise). Elle reste un schéma que le test naïf écrit en dix lignes et qui donne les mêmes bits. Les itérés peuvent sortir de `[0, 1]` quand
+`ω > 1` : le `clamp` y remédie sans changer la limite (le champ rendu vérifie `0 <= φ <= 1`, ce qu'un test lit).
+
+`ω = 2 - 6 / (d + 6)` : un facteur trop bas coûte beaucoup plus qu'un facteur trop haut. Passes par site ajouté (graine 1, 300 sites, seuil `2^-20`, `ω = 2 - a / d`) :
+
+| `a` | 2,5 | 3,5 | 5 | 7 | 9 | 12 | 16 |
+|---|---|---|---|---|---|---|---|
+| `d = 60` | 187 | 135 | **104** | 124 | 155 | 199 | |
+| `d = 100` | | | **164** | | 194 (`a = 8`) | 258 | 315 |
+
+La formule retenue vaut `a ≈ 5,5` à `d = 60` et `a ≈ 5,7` à `d = 100`, un peu au-dessus de l'optimum (`ω` optimal `≈ 2 - 3,4 / R` sur un disque de rayon `R`, et plus bas encore quand l'amas
+réduit la couronne). Elle ne dépend de rien d'autre que de `d` et vaut 1 pour `d = 0`.
+
+### Le coût (mesuré)
+
+Temps natif, un fil, un processus, profil `dev` à `opt-level = 3` (Ryzen 5 5500U), une graine (la 1), `η = 1` sauf mention, `d` à peu près 2,5 fois le rayon final :
+
+| `η` | sites | `d` | rayon final | temps total | par site ajouté |
+|---|---|---|---|---|---|
+| 1 | 200 | 50 | 19 | 0,47 s | 2,3 ms |
+| 1 | 500 | 85 | 30 | 4,6 s | 9,1 ms |
+| 1 | 1000 | 110 | 45 | 17 s | 17 ms |
+| 1 | 2000 | 150 | 74 | 87 s | 44 ms |
+| 1 | 3000 | 185 | 83 | 211 s | 70 ms |
+| 0 | 1000 | 60 | 22 | 0,03 s | 0,03 ms |
+| 2 | 1000 | 200 | 74 | 98 s | 98 ms |
+| 3 | 1000 | 255 | 108 | 210 s | 210 ms |
+
+Le coût suit `d³ × sites` (chaque pas relaxe les `π d²` sites en un nombre de passes d'ordre `d`, une centaine de passes à `d = 45`) : **il domine tout**, et il est **de deux à trois ordres de grandeur
+au-dessus d'une marche de DLA** (la DLA de 300 sites : 0,005 s, de 1000 sites : 0,05 s). Il fixe les tailles des tests : de 100 à 300 sites pour `η` = 1, 2, 3 (`d = 40` à 45 : 0,25 à 0,4 s par amas) et 2000 sites à `η = 0`.
+**À ces tailles la dimension est bien en dessous de sa valeur limite** (la DLA mesurée par la corrélation y est à 1,60 à 300 sites, contre 1,65 à 4000) : les tests de forme ne prouvent que l'ordre
+et la compacité, pas une dimension. Un amas fin (`η = 3`) de 1000 sites atteint déjà le rayon 108 (il tient dans `d = 255` ; au-delà de quelques milliers de sites, extrapolation non mesurée, il n'y tiendrait plus) ; la
+courbe `D(η)` (D2) coûtera des minutes par amas dans la page et dans les tests.
+**Les passes par site** à `η = 1`, 300 sites, `d = 45` : 80 (seuil `2^-20`) ; à `2^-14`, `2^-17`, `2^-24` et `2^-30` : 39, 59, 111 et 161.
+
+### La sensibilité aux choix à nous (mesurée, `η = 1`)
+
+**Le rayon de la frontière** (300 sites ; la DLA de même taille a un rayon moyen de 27,6 ; corrélation sur les rayons 2 à 8 ; 60 graines sauf mention) :
+
+| `d` | 41 | 45 (120 graines) | 55 | 60 | 82 | 110 |
+|---|---|---|---|---|---|---|
+| `d` / rayon DLA | 1,5 | 1,6 | 2,0 | 2,2 | 3,0 | 4,0 |
+| corrélation | 1,679 | 1,677 | 1,680 | 1,674 | 1,669 | 1,671 |
+| masse-rayon | 1,630 | 1,614 | 1,658 | 1,646 | 1,641 | 1,618 |
+| `1/β` | 1,820 | 1,800 | 1,833 | 1,812 | 1,807 | 1,804 |
+| rayon moyen de l'amas | 23,9 | 23,5 | 23,4 | 23,6 | 23,2 | 23,6 |
+| temps par amas (8 fils en même temps) | 0,6 s | 0,8 s | 1,4 s | 1,9 s | 4,6 s | 16 s |
+
+Les trois estimateurs ne bougent pas avec `d` au-delà du bruit (l'écart-type de la moyenne de 60 graines est `0,005` pour la corrélation, `0,02` pour la masse-rayon et `0,02` pour `1/β`) :
+de 1,5 à 4 fois le rayon DLA, la corrélation reste entre 1,669 et 1,680. On prend **`d = 45`** pour les tests (0,4 s par amas). Pour `η` plus grand, l'amas est plus étendu : `d` doit suivre (le
+rayon passe de 13 à 23 de `η = 1` à `η = 3` à 100 sites).
+
+**Le seuil d'arrêt** (24 graines, 300 sites, `d = 45` ; outil `d1_schema.rs`, qui refait le schéma de la doc et dont l'amas de la graine 1 est celui du module) :
+
+| seuil | `2^-14` | `2^-17` | **`2^-20`** | `2^-24` | `2^-30` |
+|---|---|---|---|---|---|
+| amas identiques à ceux de `2^-20` | 19 / 24 | 23 / 24 | 24 / 24 | 24 / 24 | 24 / 24 |
+| corrélation moyenne | 1,6753 | 1,6748 | 1,6756 | 1,6756 | 1,6756 |
+| passes par site | 39 | 59 | 80 | 111 | 161 |
+
+Les amas sont **identiques à ceux de `2^-20` au-dessous de `2^-20`** et ne changent qu'à partir de `2^-17` : le choix `2^-20` est conservateur et n'est pas ce qui décide d'un amas. **Le facteur `ω`**
+ne change que le chemin vers la limite (le même amas pour `a` de 2,5 à 12 sur la graine 1, les passes de 104 à 199).
+
+### Ce qui est mesuré (et que les tests figent, étiquetés « régression »)
+
+**`η = 0` : un amas plein.** 2000 sites, `d = 50`, 120 graines : la dimension de masse-rayon (rayons 6 à rayon/2) vaut `2,0084` (σ `0,0031`), à `-0,0020` (σ `0,0023`) de celle du disque plein de mêmes rayons ;
+le disque de rayon 10 est rempli à `0,9999` (au moins `0,9968`), celui de rayon 16 à `0,998` (au moins `0,986`). La corrélation sur les rayons 2 à 4 vaut `1,958` (une borne basse : le disque fini la
+fait baisser) ; `1/β` sur `N/8` à `N` vaut `2,14` (les premiers sites ne sont pas encore un disque). Seule la masse-rayon et le remplissage sont testés.
+
+**`η = 1` contre la DLA de l'étape 1.** Le claquage est **plus compact que la DLA** à ces tailles, de façon **stable** : mêmes estimateurs, mêmes fenêtres pour les deux modèles :
+
+| sites (graines claquage / DLA) | corrélation, claquage | DLA | écart | `1/β`, claquage | DLA | rayon, claquage | DLA |
+|---|---|---|---|---|---|---|---|
+| 300 (120 / 120), `d = 45`, rayons 2 à 8 | 1,677 | 1,603 | **+0,074** | 1,800 | 1,687 | 23,5 | 27,6 |
+| 600 (24 / 60), `d = 90`, rayons 3 à 12 | 1,665 | 1,630 | **+0,035** | 1,785 | 1,697 | 34,4 | 40,6 |
+| 1000 (12 / 40), `d = 130`, rayons 4 à 12 | 1,680 | 1,631 | **+0,049** | 1,778 | 1,691 | 42,8 | 56,3 |
+
+Le claquage `η = 1` n'est **pas la DLA** sur ces tailles : l'écart de corrélation est de `+0,04` à `+0,07` (de 4 à 20 fois l'écart-type de la différence des moyennes), celui du rayon de `-4` à `-13` sites (le rayon du claquage
+croît moins vite : de 23,5 à 42,8 pour 300 à 1000 sites contre 27,6 à 56,3). **Ce n'est pas un effet de la frontière** (voir la table de `d` ci-dessus : aucun effet au-delà du bruit jusqu'à 4 fois le rayon).
+**La cause est mesurée (le juge, 09/11)** : le marcheur de l'étape 1 colle dès qu'un de ses voisins est dans l'amas, donc son ensemble absorbant est l'amas `C` **et ses sites
+périmètre** `P` (les candidates), et sa chance d'arriver en `p` est la mesure harmonique de `p` dans `C ∪ P` ; le claquage met `φ = 0` sur `C` seul et lit `φ` au site candidat. Dans le
+continu les deux coïncident, pas sur la grille : `P` absorbant écrante davantage les fonds de fjords. Le juge a écrit deux variantes (outil `juge_mesures.rs`, hors du module, même
+frontière `d`, même relaxation, graines 5001 et suivantes) :
+
+| modèle (300 sites, `d = 45` ; 600 sites, `d = 90` ; corrélation rayons 2 à 8) | corrélation 300 | rayon 300 | corrélation 600 | rayon 600 |
+|---|---|---|---|---|
+| DLA de l'étape 1 (100 / 50 graines) | 1,6085 (σ 0,039) | 27,4 | 1,6194 (σ 0,032) | 40,3 |
+| claquage `η = 1` de la doc (100 / 50) | 1,6797 (σ 0,044) | 23,5 | 1,6954 (σ 0,030) | 33,7 |
+| `C ∪ P` absorbant, poids = flux `Σ φ(voisins)` (60 / 50) | **1,6129** (σ 0,040) | **27,6** | **1,6179** (σ 0,030) | **40,3** |
+| `C` absorbant, poids = `φ(p) ×` nombre de voisins dans l'amas (60) | 1,6863 (σ 0,032) | 22,2 | | |
+
+Avec `C ∪ P` absorbant la croissance **redonne la DLA** (écart `+0,004 ± 0,006` à 300 sites, `-0,002 ± 0,006` à 600, rayons égaux) ; compter les liens vers l'amas ne change rien. À 1000 sites
+(`d = 110`, 50 graines) : claquage `1,6993`, DLA `1,6169` (`+0,082`), rayons 45,8 et 54,0. **Le modèle de la doc n'est pas changé** (`φ` au site candidat est le choix de la publication) :
+le claquage `η = 1` sur la grille est un modèle voisin de la DLA, plus compact, et l'écart ne diminue pas de 300 à 1000 sites. Le plan parlait de « statistiques de la DLA retrouvées dans une tolérance » :
+**la tolérance mesurée est de 0,07 sur la corrélation**, pas de quelques centièmes. (L'équivalence `η = 1 ↔ DLA` est celle du plan et du continu ; elle n'a pas été relue dans l'article de 1984, dont le texte intégral n'est pas lu.)
+
+**Plus `η` monte, plus l'amas est fin** (100 sites, `d = 40`, 120 graines, corrélation sur les rayons 2 à 6) :
+
+| `η` | corrélation | `1/β` | rayon moyen |
+|---|---|---|---|
+| 1 | 1,606 (σ 0,056) | 1,767 | 13,1 |
+| 2 | 1,455 (σ 0,068) | 1,503 | 17,1 |
+| 3 | 1,337 (σ 0,062) | 1,314 | 23,0 |
+
+Un seul amas de 1000 sites par `η` (graine 1) : `η = 2` : `1/β = 1,40` et rayon 74 ; `η = 3` : `1/β = 1,21` et rayon 108 ; un seul amas de 1000 sites à `η = 1` : `1/β = 1,63` (une graine :
+l'écart-type d'une graine est de l'ordre de 0,13 : ces trois nombres sont de l'ordre des valeurs de Hastings, ils ne les confirment pas).
+
+### Les valeurs publiées, dites telles quelles
+
+- **Hastings (Phys. Rev. Lett. 87, 175502, 2001), tableau II** (lu, par ar5iv) : `η = 2` : `D = 1,433` ; `η = 3` : `D = 1,263` (ajusté sur le jeu entier ; sur la dernière moitié, le dernier quart et le dernier huitième : `1,4256`, `1,435`,
+  `1,4522` et `1,264`, `1,262`, `1,243`). Méthode : **applications conformes itérées, pas un réseau**, sans barres d'erreur dans le tableau. **Le prototype ne les atteint pas et ne les teste pas** : à 100 sites la corrélation
+  sur les rayons 2 à 6 donne `1,455` et `1,337` (et `1/β` `1,50` et `1,31`), à 1000 sites une graine donne `1/β = 1,40` et `1,21` ; ces estimateurs, ces tailles et ce réseau ne sont pas ceux de la publication. L'accord avec la
+  courbe publiée est l'objet de D2.
+- **La DLA à 1,71** (Mathiesen, Jensen, Bakke, arXiv:0712.1739, section IV, lu ; Davidovitch et coll. 2000 : 1,713 ± 0,003, un résultat de calcul sur de petits amas) : repère non testé ; le banc donne `1,60` (corrélation,
+  300 sites) à `1,65` (4000 sites, étape Z1).
+- **Eden** : « de 2 (`η = 0`, le modèle d'Eden) à environ 1,7 (`η = 1`, DLA) à 1 » (Hastings 2001, introduction, lu). La compacité de l'amas d'Eden et la rugosité de sa frontière : **à vérifier dans l'article d'Eden (1961, non lu)**.
+
+### Références
+
+- L. Niemeyer, L. Pietronero, H. J. Wiesmann, *Fractal dimension of dielectric breakdown*, Phys. Rev. Lett. 52, 1033 (1984), https://doi.org/10.1103/PhysRevLett.52.1033 (résumé lu ; texte intégral non lu).
+- M. B. Hastings, *Fractal to nonfractal phase transition in the dielectric breakdown model*, Phys. Rev. Lett. 87, 175502 (2001), arXiv:cond-mat/0103312 (lu : introduction et tableau II).
+- J. Mathiesen, M. H. Jensen, J. Ø. Bakke, *Dimensions, maximal growth sites and optimization in the dielectric breakdown model*, arXiv:0712.1739 (section IV et figure 4 lues ; la revue et l'année ne sont pas lues).
+- M. Eden, *A two-dimensional growth process*, Proc. Fourth Berkeley Symp. Math. Stat. Prob. 4, 223 (1961) (non lu).
+
+### Ce que cette étape n'établit pas
+
+- **Que le claquage `η = 1` redonne la DLA** : à 300, 600 et 1000 sites il est plus compact de `0,04` à `0,08` en corrélation ; la cause (l'ensemble absorbant `C` contre `C ∪ P`) est mesurée
+  par une variante hors du module, que les tests ne contiennent pas ; que l'écart tende vers 0 aux grandes tailles n'est pas établi (il ne baisse pas jusqu'à 1000 sites).
+- **Aucune dimension publiée** : ni `D(η = 2) = 1,433`, ni `D(η = 3) = 1,263`, ni la DLA à 1,71 ne sont atteintes ou testées ; à 100 sites la dimension mesurée est bien en dessous de sa valeur limite. C'est l'étape D2.
+- **Que la méthode de 1984 soit celle-ci** (grille, bord, calcul du potentiel : non lus), ni que le résultat ne dépende pas de la frontière pour `η >= 2` (la sensibilité à `d` n'est mesurée qu'à `η = 1`).
+- **La valeur du champ au-delà de la tolérance de la doc** : le champ est à `2 SEUIL (d + 1)²` de la solution exacte (mesuré : cinquante à cent fois moins) ; un autre schéma de relaxation donnerait des champs différents de l'ordre du seuil, donc, parfois,
+  un autre amas : c'est pourquoi la doc fixe le schéma bit pour bit.
+- **Un `W = 0`** (tous les poids nuls : le seul `None` qu'aucune graine n'atteint) et un arrêt faute de candidates : fixés par la doc, non atteints par un test.
+- **Le coût dans la page** (D3) : jamais mesuré dans le navigateur ; à 100 sites et `d = 40` le temps natif est de 0,25 s par amas, et `η = 3` à 1000 sites coûte 210 s natifs.
+- **Les amas au-delà de 3000 sites**, `η` non entier, la 3D, la transition `η = 4` (hors de D1).
+- **Que `etape-d1` laisse la page et le module web inchangés** n'est pas testé ici (ni Node ni la cible `wasm32` sur ce PC) : `claquage` n'est lu que par `lancer` ; ajouter `etape-d1` à `default` change pourtant les octets du module compilé (règle 12 d'`AGENTS.md`).
