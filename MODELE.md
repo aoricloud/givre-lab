@@ -717,7 +717,8 @@ l'étendue d'un amas d'Eden, 13 à 15 ici) : c'est une propriété du modèle ET
 **Le choix entre `e / 6` et `e / 8` n'est pas neutre pour l'écart** : à 100 sites il ne change que les amas d'au moins 30 d'étendue, donc `D(2)` de 0,005 et surtout `D(3)` : `1,359` avec `e / 6`
 contre `1,390` avec `e / 8` (juge, 100 graines neuves) ; l'écart à Hastings pour `η = 3` serait `+0,127` au lieu de `+0,096`. Les formes ne départagent pas (0,128 et 0,126, `e / 8` un peu meilleur) et `k = 6` a été retenu après avoir
 vu le tableau du claquage : **ce choix rapproche le banc du publié pour `η = 3` sans que les formes le justifient**. Aucun test ne compare `D` au publié, mais les bandes et le CSV figé de
-`etape_d2_ordre.rs` figent ce choix (une fenêtre en `e / 8` en sort : le CSV figé la voit). Les 14 fenêtres et leurs valeurs : `essai-d2-juge-outils` des notes de la session.
+`etape_d2_ordre.rs` figent ce choix (une fenêtre en `e / 8` en sort : le CSV figé la voit). Les 14 fenêtres et leurs valeurs : `essai-d2-juge-outils`
+des notes de la session.
 
 ### Le demi-côté (mesuré)
 
