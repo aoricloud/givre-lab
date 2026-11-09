@@ -122,8 +122,8 @@ la doc (« Les refus »). Tolérance : aucune (le message contient le mot).
   **la revue et l'année ne sont pas lues**. Hastings, lui, écrit « roughly 1.7 » : **`1,71` n'est pas une mesure de Hastings**.
 - Tolérance : aucune (bits). Critère : égalité. **Un repère transposé échoue** (`(2.0, 1.263)`).
 
-**V-D2-12 : l'arithmétique de l'écart** (`ecart_et_reperes_affiches`). `ecart(point, publie)` est `point.moyenne - publie` à `to_bits` près pour `(1,5 ; 1,433)`, `(1,2 ; 1,263)`, `(1,433 ; 1,433)`, `(1,7 ; 1,71)` ; positif quand le banc est au-dessus,
-négatif dessous, nul à égalité. Source : l'arithmétique (une soustraction). Tolérance : aucune. **Ce test ne compare jamais une mesure à un repère.**
+**V-D2-12 : l'arithmétique de l'écart** (`ecart_et_reperes_affiches`). `ecart(point, publie)` est `point.moyenne - publie` à `to_bits` près pour `(1,5 ; 1,433)`, `(1,2 ; 1,263)`, `(1,433 ; 1,433)`, `(1,7 ; 1,71)` ; positif quand le banc est
+au-dessus, négatif dessous, nul à égalité. Source : l'arithmétique (une soustraction). Tolérance : aucune. **Ce test ne compare jamais une mesure à un repère.**
 
 ## Le CSV et l'image (`etape_d2_exemple.rs`)
 
@@ -169,5 +169,5 @@ comparaison.
   hors de D2, à ne pas tester.
 - **La DLA à 1,71** (Mathiesen et coll.) et à `1,713 ± 0,003` (Davidovitch, Levermann, Procaccia, arXiv:cond-mat/0008053, un calcul sur de petits amas : lu à Z1, non relu ici) : repères, jamais comparés.
 - **`D = 2` pour `η = 0`** (introduction de Hastings, lue) : `η = 0` n'a pas de repère dans la sortie (`publie` vide) ; à 100 sites un amas plein mesure `1,76` (effet de bord), à 300 sites `1,88`.
-- **Phys. Rev. Lett. 87, 175502 (2001)** : la référence de la revue est celle que la page de l'arXiv (arxiv.org/abs/cond-mat/0103312, « Journal reference », lue le 09/11 ; v1 du 14 mars 2001, v2 du 1er juin 2001) donne ; elle n'est pas imprimée dans le PDF de l'arXiv v2, et **le numéro de la revue lui-même n'a pas été ouvert** : les valeurs lues sont celles de l'arXiv v2, pas de la version imprimée.
+- **Phys. Rev. Lett. 87, 175502 (2001)** : la référence de la revue est celle que la page de l'arXiv (arxiv.org/abs/cond-mat/0103312, « Journal reference », lue le 09/11 ; v1 du 14 mars 2001, v2 du 1er juin 2001) donne ; elle n'est pas imprimée dans le PDF de l'arXiv v2, et **le numéro de la revue elle-même n'a pas été ouvert** : les valeurs lues sont celles de l'arXiv v2, pas de la version imprimée.
 - **Niemeyer, Pietronero, Wiesmann (PRL 52, 1033, 1984)** : résumé seul (D1), texte intégral non lu ; **Eden (1961)** : non lu.
