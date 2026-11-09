@@ -46,3 +46,10 @@ embellir une image ne change aucune d'entre elles.
 Un aperçu est pour l'œil, jamais une preuve : les valeurs attendues et les empreintes sont dans `references/`, et
 embellir une image ne change aucune d'entre elles.
 
+
+## Aperçus de l'étape D1
+
+- `etape-d1-planche.png` : le claquage diélectrique à `η = 0`, `1` et `2` côte à côte (graine 1, 400 sites, domaine de demi-côté 75, même échelle pour les trois panneaux, chaque site coloré par son ordre d'arrivée) : un disque plein (le modèle d'Eden), un buisson, un éclair plus fin et plus étendu (rayons 16, 27 et 42). Produite par `cargo run --example apercus_etape_d1`.
+
+Un aperçu est pour l'œil, jamais une preuve : les valeurs attendues et les empreintes sont dans `references/`, et
+embellir une image ne change aucune d'entre elles.
