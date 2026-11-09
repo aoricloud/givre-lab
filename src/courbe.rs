@@ -173,7 +173,6 @@ pub const PNG_PUBLIE: [u8; 3] = [214, 39, 40];
 /// La fenêtre d'ajustement des petits amas : les rayons de la corrélation, par la formule de la documentation du module (« La fenêtre des petits
 /// amas ») qui ne dépend que de l'étendue de `sites` : de [`FENETRE_DEBUT`] à `max(`[`FENETRE_DERNIER_MIN`]`, étendue / `[`FENETRE_DIVISEUR`]`)`, vide si
 /// ce dernier rayon dépasse `étendue / 2` ou [`crate::correlation::RAYON_MAX`]. Ne panique jamais (liste vide : vide).
-#[allow(unused_variables)]
 pub fn fenetre_petit_amas(sites: &[(i32, i32)]) -> Vec<u32> {
     let e = etendue(sites);
     let dernier = FENETRE_DERNIER_MIN.max(e / FENETRE_DIVISEUR);
@@ -185,7 +184,6 @@ pub fn fenetre_petit_amas(sites: &[(i32, i32)]) -> Vec<u32> {
 
 /// La dimension de l'amas `sites` : `Some(dimension_correlation(sites, &fenetre_petit_amas(sites)))` bit pour bit, `None` si la fenêtre est vide ou
 /// si une valeur `C(r)` de la fenêtre est nulle. Ne panique jamais.
-#[allow(unused_variables)]
 pub fn dimension_d_un_amas(sites: &[(i32, i32)]) -> Option<f64> {
     let rayons = fenetre_petit_amas(sites);
     let &dernier = rayons.last()?;
@@ -205,7 +203,6 @@ pub fn dimension_d_un_amas(sites: &[(i32, i32)]) -> Option<f64> {
 /// # Panique
 ///
 /// Si `valeurs` a moins de deux éléments (message contenant « au moins deux »).
-#[allow(unused_variables)]
 pub fn moyenne_et_erreur_type(valeurs: &[f64]) -> (f64, f64) {
     assert!(valeurs.len() >= 2, "une moyenne et une erreur-type demandent au moins deux valeurs");
     let n = valeurs.len() as f64;
@@ -228,7 +225,6 @@ pub fn moyenne_et_erreur_type(valeurs: &[f64]) -> (f64, f64) {
 /// # Panique
 ///
 /// Si `eta > ETA_COURBE_MAX` (message contenant « η »).
-#[allow(unused_variables)]
 pub fn demi_cote_de_la_courbe(eta: u32, taille: usize) -> u32 {
     let (a, b) = match eta {
         0 => (30_usize, 10_usize),
@@ -263,7 +259,6 @@ pub struct PointDeLaCourbe {
 ///
 /// Moins de deux graines (« au moins deux graines »), un amas qui touche la frontière avant `taille` sites (« frontière »), une dimension indéfinie
 /// (« fenêtre »), ou les paniques de [`crate::claquage::Claquage::new`] (`demi_cote > 255`, `eta > 8`).
-#[allow(unused_variables)]
 pub fn point_de_la_courbe(eta: u32, graines: &[u64], taille: usize, demi_cote: u32) -> PointDeLaCourbe {
     assert!(graines.len() >= 2, "un point de la courbe demande au moins deux graines");
     let mut dimensions = Vec::with_capacity(graines.len());
@@ -289,14 +284,12 @@ pub fn point_de_la_courbe(eta: u32, graines: &[u64], taille: usize, demi_cote: u
 /// # Panique
 ///
 /// Comme [`point_de_la_courbe`] et [`demi_cote_de_la_courbe`] (`eta > ETA_COURBE_MAX`).
-#[allow(unused_variables)]
 pub fn courbe(etas: &[u32], graines: &[u64], taille: usize) -> Vec<PointDeLaCourbe> {
     etas.iter().map(|&eta| point_de_la_courbe(eta, graines, taille, demi_cote_de_la_courbe(eta, taille))).collect()
 }
 
 /// Le repère publié affiché pour `eta` : `Some(`[`DLA_RAPPEL`]`)` pour `1`, la valeur de [`HASTINGS_2001_TABLE_II`] pour `2` et `3`, `None` pour
 /// tout autre `eta` (`0` et `4` ou plus compris).
-#[allow(unused_variables)]
 pub fn publie(eta: u32) -> Option<f64> {
     match eta {
         1 => Some(DLA_RAPPEL),
@@ -307,7 +300,6 @@ pub fn publie(eta: u32) -> Option<f64> {
 }
 
 /// L'écart du banc au repère publié : `point.moyenne - publie` (positif quand le banc est au-dessus). Une soustraction en `f64`, rien d'autre.
-#[allow(unused_variables)]
 pub fn ecart(point: &PointDeLaCourbe, publie: f64) -> f64 {
     point.moyenne - publie
 }
@@ -352,6 +344,28 @@ pub fn png_de_la_courbe(points: &[PointDeLaCourbe]) -> Vec<u8> {
         (arrondi + 20).clamp(0, hauteur - 1)
     };
     let colonne = |eta: u32| -> i64 { 40 + 70 * i64::from(eta) };
+
+    // Pour l'œil (libre : voir la documentation) : une grille grise tous les 0,25 de `D` de 1,0 à 2,0, un axe vertical, un axe horizontal à `D = 0,8` et un trait
+    // de graduation sous chaque colonne de `η`, le tout sous les points.
+    const GRILLE: [u8; 3] = [225, 225, 225];
+    const AXE: [u8; 3] = [90, 90, 90];
+    for pas in 0..=4 {
+        let y = ligne(1.0 + 0.25 * f64::from(pas));
+        for x in 20..=620 {
+            poser(x, y, GRILLE);
+        }
+    }
+    for y in 20..=300 {
+        poser(20, y, AXE);
+    }
+    for x in 20..=620 {
+        poser(x, 300, AXE);
+    }
+    for eta in 0..=8 {
+        for y in 301..=306 {
+            poser(colonne(eta), y, AXE);
+        }
+    }
 
     // Un point : sa barre d'erreur puis son marqueur, dans l'ordre donné.
     for point in points {
