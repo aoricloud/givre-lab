@@ -117,10 +117,28 @@ pub enum ErreurRendu {
 
 /// La couleur du dégradé pour `valeur` et `plein` (voir « Le dégradé ») : `t = min(valeur, plein) * 1024 / plein`, puis l'interpolation entière entre
 /// les cinq [`ARRETS`]. Une `valeur` négative donne celle de 0 (blanc) ; un `plein` inférieur à 1 est lu comme 1 (jamais de panique).
-#[allow(unused_variables)]
 pub fn couleur_du_degrade(valeur: i64, plein: i64) -> [u8; 3] {
-    todo!()
+    let plein = plein.max(1);
+    let valeur = valeur.clamp(0, plein);
+    let t = i128::from(valeur) * 1024 / i128::from(plein);
+    if t >= 1024 {
+        return ARRETS[4];
+    }
+    let s = (t / 256) as usize;
+    let f = t % 256;
+    let mut couleur = [0_u8; 3];
+    for (c, sortie) in couleur.iter_mut().enumerate() {
+        let a = i128::from(ARRETS[s][c]);
+        let b = i128::from(ARRETS[s + 1][c]);
+        *sortie = ((a * (256 - f) + b * f + 128) >> 8) as u8;
+    }
+    couleur
 }
+
+/// Le numérateur de l'inverse rationnel de `√3` (voir « La géométrie »).
+const A: i64 = 1_239_850_262;
+/// Le dénominateur de l'inverse rationnel de `√3`.
+const B: i64 = 2_147_483_647;
 
 /// Rend l'image RVB (`3 * cote * cote` octets, ligne par ligne de haut en bas) du champ `valeurs` (une valeur `>= 0` par case de l'hexagone de rayon `rayon`,
 /// **dans l'ordre canonique** de [`crate::reseau::Hexagone`]) avec ces réglages (voir la documentation du module : la géométrie, les échantillons, la case d'un point, le
@@ -129,7 +147,80 @@ pub fn couleur_du_degrade(valeur: i64, plein: i64) -> [u8; 3] {
 /// # Erreurs
 ///
 /// Jamais de panique : voir « Les bornes et les refus ».
-#[allow(unused_variables)]
 pub fn rendre(rayon: u32, valeurs: &[i64], reglages: &ReglagesImage) -> Result<Vec<u8>, ErreurRendu> {
-    todo!()
+    use crate::neige::RAYON_MAX;
+    use crate::reseau::Hexagone;
+
+    if rayon == 0 || rayon > RAYON_MAX {
+        return Err(ErreurRendu::RayonHorsBorne);
+    }
+    if reglages.cote < 2 || reglages.cote > 8192 || !reglages.cote.is_multiple_of(2) {
+        return Err(ErreurRendu::ReglagesInvalides("cote"));
+    }
+    if reglages.rayon_vue < 1 || reglages.rayon_vue > RAYON_MAX {
+        return Err(ErreurRendu::ReglagesInvalides("rayon_vue"));
+    }
+    if reglages.sur < 1 || reglages.sur > 16 {
+        return Err(ErreurRendu::ReglagesInvalides("sur"));
+    }
+    if reglages.plein < 1 {
+        return Err(ErreurRendu::ReglagesInvalides("plein"));
+    }
+    let hexagone = Hexagone::new(rayon);
+    if valeurs.len() != hexagone.cases() {
+        return Err(ErreurRendu::NombreDeValeurs);
+    }
+    if let Some(i) = valeurs.iter().position(|&v| v < 0) {
+        return Err(ErreurRendu::ValeurNegative(i));
+    }
+
+    let couleurs: Vec<[u8; 3]> = valeurs.iter().map(|&v| couleur_du_degrade(v, reglages.plein)).collect();
+    let cote = reglages.cote as usize;
+    let sur = reglages.sur as usize;
+    let n = i64::from(reglages.cote) * i64::from(reglages.sur);
+    let large = 2 * i64::from(reglages.rayon_vue) + 1;
+    let m = 2 * n * B;
+    let rayon_i = i64::from(rayon);
+    let carre = (sur * sur) as u64;
+    let arrondi = |z: i64| (2 * z + m).div_euclid(2 * m);
+
+    let mut image = vec![255_u8; 3 * cote * cote];
+    for py in 0..cote {
+        for px in 0..cote {
+            let mut somme = [0_u64; 3];
+            for j in 0..sur {
+                let b = (py * sur + j) as i64;
+                let ny = (2 * b + 1 - n) * large;
+                for i in 0..sur {
+                    let a = (px * sur + i) as i64;
+                    let nx = (2 * a + 1 - n) * large;
+                    let qn = -ny * B + nx * A;
+                    let rn = -2 * nx * A;
+                    let sn = ny * B + nx * A;
+                    let mut rq = arrondi(qn);
+                    let mut rr = arrondi(rn);
+                    let rs = arrondi(sn);
+                    let dq = (rq * m - qn).abs();
+                    let dr = (rr * m - rn).abs();
+                    let ds = (rs * m - sn).abs();
+                    if dq > dr && dq > ds {
+                        rq = -rr - rs;
+                    } else if dr > ds {
+                        rr = -rq - rs;
+                    }
+                    let rs_final = -rq - rr;
+                    let dedans = rq.abs().max(rr.abs()).max(rs_final.abs()) <= rayon_i;
+                    let couleur = if dedans { couleurs[hexagone.index(rq as i32, rr as i32)] } else { [255, 255, 255] };
+                    for (c, total) in somme.iter_mut().enumerate() {
+                        *total += u64::from(couleur[c]);
+                    }
+                }
+            }
+            let d = 3 * (py * cote + px);
+            for (c, total) in somme.iter().enumerate() {
+                image[d + c] = ((total + carre / 2) / carre) as u8;
+            }
+        }
+    }
+    Ok(image)
 }
