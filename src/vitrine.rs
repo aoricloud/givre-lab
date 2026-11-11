@@ -1,12 +1,13 @@
-//! La vitrine (étape 5) : la DLA, les flocons de Reiter et (étape D3) le claquage diélectrique pilotés par des nombres seulement, pour une page web.
+//! La vitrine (étape 5) : la DLA, les flocons de Reiter et (étape D3) le claquage diélectrique pilotés par des nombres seulement, pour une page web ; depuis l'étape V7 elle donne
+//! aussi, pour les modèles sur la grille hexagonale, une image nette (chaque case dessinée comme un hexagone lisse).
 //!
 //! Ce module est compilé deux fois : en natif (les tests appellent ses fonctions comme n'importe quelle fonction Rust) et en
 //! WebAssembly (`wasm32-unknown-unknown`, module sans importation). Chaque fonction `givre_*` est exportée sous son nom
 //! (`#[unsafe(no_mangle)] pub extern "C" fn`) et ne prend et ne rend que des nombres : un `u32` devient un `i32` côté
 //! WebAssembly (JavaScript le lit signé : `>>> 0` le relit non signé), un `f64` reste un `f64`. Il n'y a ni pointeur ni
-//! mémoire à manipuler côté JavaScript. **Vingt-trois fonctions, ni plus ni moins** (les onze de l'étape 5, les quatre de l'étape Z1, voir
-//! « La mesure de la corrélation », et les huit de l'étape D3, voir « La courbe D(η) à la demande »), toutes de ce fichier ; aucune autre n'est
-//! exportée (le module exporte aussi `memory`, que la cible ajoute, et rien d'autre).
+//! mémoire à manipuler côté JavaScript. **Vingt-sept fonctions, ni plus ni moins** (les onze de l'étape 5, les quatre de l'étape Z1, voir
+//! « La mesure de la corrélation », les huit de l'étape D3, voir « La courbe D(η) à la demande », et les quatre de l'étape V7, voir « L'image nette »), toutes de ce
+//! fichier ; aucune autre n'est exportée (le module exporte aussi `memory`, que la cible ajoute, et rien d'autre).
 //!
 //! **Aucune de ces fonctions ne panique, jamais** : une panique dans une `extern "C" fn` fait avorter le processus (le
 //! binaire de test tout entier, ou, en WebAssembly, une instruction `unreachable` que la page ne peut pas rattraper). Pas de
@@ -76,10 +77,10 @@
 //!
 //! # Avant tout démarrage
 //!
-//! Tant que [`givre_demarrer`] n'a pas réussi une fois, les fonctions qui rendent un entier rendent 0 (sauf [`givre_pixel`] :
-//! `u32::MAX`), [`givre_compacite`] rend `NaN` et [`givre_avancer`] ne fait rien (rend 0). Ce contrat n'est éprouvé que par
+//! Tant que [`givre_demarrer`] n'a pas réussi une fois, les fonctions qui rendent un entier rendent 0 (sauf [`givre_pixel`] et [`givre_nette_pixel`] :
+//! `u32::MAX`, et [`givre_nette_preparer`] : le code 2), [`givre_compacite`] rend `NaN` et [`givre_avancer`] ne fait rien (rend 0). Ce contrat n'est éprouvé que par
 //! Node (`tests/etape_5/etat-wasm.mjs`, sur un module neuf) : en natif l'état global est déjà posé par les autres tests du
-//! processus.
+//! processus. Pour l'image nette il l'est aussi en natif : `tests/etape_v7_neuf.rs` est un fichier d'**un seul test**, donc un processus neuf (le code 2, le tampon vide).
 //!
 //! # L'image
 //!
@@ -96,6 +97,65 @@
 //! en `0x00RRGGBB`** : `(R << 16) | (V << 8) | B`, les trois octets de l'aperçu à cette position. `u32::MAX`
 //! (`0xFFFFFFFF`, jamais une couleur : son octet de poids fort n'est pas nul) dit « hors de l'image » : `x >= largeur`, ou
 //! `y >= hauteur`, ou rien de démarré.
+//!
+//! # L'image nette (étape V7)
+//!
+//! Quatre fonctions de plus donnent, pour les modèles **sur la grille hexagonale** (aujourd'hui les flocons de Reiter, modèles 1, 2 et 3), une seconde image du modèle en cours : non plus « un pixel
+//! par case » (voir « L'image ») mais **chaque case dessinée comme un hexagone** à sa vraie géométrie, avec une couleur continue tirée d'un champ du modèle, par [`crate::rendu_hex::rendre`] (étape G1 :
+//! hexagones lisses, dégradé de bleus clair puis foncé, fond blanc, suréchantillonnage en entiers ; aucun pixel n'y est un agrandissement au plus proche voisin). Un modèle sur une grille carrée (la DLA
+//! et le claquage, modèles 0 et 4 à 7) garde ses cases-carrés : pour lui l'image nette n'existe pas (code 1). **Rien de ce qui existe ne change** : [`givre_largeur`], [`givre_hauteur`] et [`givre_pixel`]
+//! rendent toujours l'image d'un pixel par case de « L'image » (octet pour octet), l'état, le temps et l'empreinte ne bougent pas, et préparer une image nette ne touche à aucun d'eux. Un modèle de plus
+//! sur la même grille hexagonale (la neige, étape G3) s'y ajoutera par son champ et son `plein`, sans nouvelle exportation.
+//!
+//! - [`givre_nette_preparer`]`(cote, sur)` **prépare** l'image nette du modèle en cours, à `cote × cote` pixels et `sur × sur` échantillons par pixel, la garde dans un **tampon** et rend un code (la
+//!   table plus bas ; 0 : l'image est prête). C'est la seule des quatre qui calcule : elle coûte `(cote × sur)²` échantillons (voir « Les bornes »).
+//! - [`givre_nette_largeur`] et [`givre_nette_hauteur`] rendent les dimensions du tampon (`cote` et `cote` : l'image est carrée) ; [`givre_nette_pixel`]`(x, y)` rend la couleur du pixel `(x, y)`
+//!   **empaquetée en `0x00RRGGBB`, exactement comme [`givre_pixel`]** (`x` vers la droite, `y` vers le bas, `(0, 0)` en haut à gauche, les octets R, V, B de l'image), ou `u32::MAX` si `x >= largeur`,
+//!   si `y >= hauteur` ou sans tampon. **Une lecture ne recalcule rien.** Sans tampon, la largeur et la hauteur valent 0.
+//! - **Le tampon appartient à l'état qu'il montre** : [`givre_demarrer`] qui réussit l'efface, [`givre_avancer`] l'efface dès qu'il joue **au moins une unité** (un appel qui ne joue rien le laisse :
+//!   scénario fini, `n = 0`), et une préparation qui échoue l'efface (avant de rendre son code). Une préparation qui réussit remplace le tampon précédent. Un `givre_demarrer` refusé (modèle
+//!   inexistant) ne change rien, tampon compris. Jamais l'image d'un autre état.
+//!
+//! **Le champ dessiné** (les flocons de Reiter). C'est une valeur entière `>= 0` par case de l'hexagone, **dans l'ordre canonique de [`crate::reseau::Hexagone`]** (celui de `Flocon::masses`), tirée de la
+//! masse d'eau de la case. `brut` désigne le champ `.0` d'un `Fixe` (un `i64`) et `UN = 2^32` :
+//!
+//! ```text
+//! E      = γ.brut × durée        le brut de γ du flocon fois la durée du modèle (givre_duree()), en i64 saturé, au moins 1 et au plus 2^58
+//! valeur = 0                     si la masse est inférieure à 1 (brut < UN) : le fond, la vapeur, les cases de bord
+//! valeur = 3 × (brut − UN) + E   si la masse est au moins 1 (la case est gelée)
+//! plein  = 4 × E
+//! ```
+//!
+//! Ces trois nombres se calculent **sans jamais déborder** : en arithmétique saturée (`saturating_mul`, `saturating_add`) ou dans un type plus large ramené à `i64::MAX`. Avec les trois modèles de la table rien ne sature
+//! (un `brut` reste sous `2^37`), mais un `*` nu paniquerait s'il débordait (les vérifications de débordement sont actives), et aucune de ces fonctions ne panique.
+//!
+//! `E` est ce que le germe gagne en tout pendant le scénario : une case gelée gagne exactement `γ` à chaque pas et rien d'autre, donc sa masse **suit son âge**, à ce qu'elle avait en trop en gelant près (une case
+//! qui gèle peut dépasser 1 : dans la dendrite, quelques cases gelées tard atteignent 1,84 quand le germe finit à 1,8, et saturent comme lui au bleu foncé). Le dégradé montre le cristal qui s'épaissit. Avec `t = min(valeur,
+//! plein) × 1024 / plein` (le dégradé de `rendu_hex`), une case **tout juste gelée** (`brut = UN`) vaut `E` : `t = 256`, le premier bleu `(198, 219, 239)` (un bord de cristal se voit sur le fond blanc) ;
+//! une case qui a gagné `E` depuis qu'elle a gelé (le germe à la fin du scénario) vaut `4 E` : `t = 1024`, le bleu foncé `(8, 48, 107)` ; en général `t = 256 + 768 × (brut − UN) / E` (division
+//! entière), plafonné à 1024. La masse d'une case non gelée ne compte pour rien : le fond reste blanc même pour `β = 0,45`. Pour la table des modèles, `E` vaut `214 748 365 × 400 = 85 899 346 000`
+//! (modèle 1, plaque), `429 496 730 × 120 = 51 539 607 600` (modèle 2, étoile) et `4 294 967 × 800 = 3 435 973 600` (modèle 3, dendrite).
+//!
+//! **L'appel de la bibliothèque.** `rendre(R, &valeurs, &ReglagesImage { cote, rayon_vue: R, sur, plein })` avec `R = Flocon::rayon()` (30, 40 ou 60), `valeurs` le champ ci-dessus et `plein = 4 E` :
+//! la vue est le carré de `2 R + 1` cases centré sur la case `(0, 0)`, qui contient tout l'hexagone du flocon et une marge ; l'image est les octets R, V, B rendus par `rendre`, ligne par ligne de haut
+//! en bas (`3 × cote × cote`), que [`givre_nette_pixel`] relit.
+//!
+//! **Les bornes** (mesurées : `MODELE.md`, étape V7) : `cote` est **pair**, de 2 à [`NETTE_COTE_MAX`] (2048) ; `sur` va de 1 à [`NETTE_SUR_MAX`] (4) ; et `cote × sur` (le côté de la grille d'échantillons) ne
+//! dépasse pas [`NETTE_GRILLE_MAX`] (4096), soit au plus 16 777 216 échantillons par préparation (de 0,24 à 0,30 s en natif sur le poste de l'écrivain au calme, jusqu'à 0,7 s quand il est chargé ; une image
+//! d'animation de la page, 384 pixels à 2 × 2, en coûte 589 824 : 10 à 11 ms au calme, 27 ms chargé). Une image d'au plus 2048 × 2048 pixels pèse au plus 12 Mio. **Le module sous Node** (mesuré par le pilote sur
+//! la VM de preuve, Linux, Node 20) : 26 ms pour préparer `(384, 2)` (28 ms avec la lecture pixel par pixel), 375 ms pour `(1024, 3)` (388 ms avec la lecture), 770 ms pour `(2048, 2)`, la borne.
+//!
+//! **Les codes** de [`givre_nette_preparer`] (les vérifications se font **dans cet ordre** : le premier refus rend son code) :
+//!
+//! | code | sens |
+//! |---|---|
+//! | 0 | l'image est prête (le tampon la garde) |
+//! | 2 | rien n'est démarré (aucun tampon à effacer) |
+//! | 1 | le modèle en cours n'est pas sur la grille hexagonale (0, 4, 5, 6 ou 7) |
+//! | 3 | `cote` hors borne : impair, inférieur à 2 ou supérieur à [`NETTE_COTE_MAX`] |
+//! | 4 | `sur` hors borne : 0 ou supérieur à [`NETTE_SUR_MAX`] |
+//! | 5 | trop d'échantillons : `cote × sur` supérieur à [`NETTE_GRILLE_MAX`] |
+//! | 6 | `rendre` a refusé (n'arrive jamais avec les bornes ci-dessus : le champ est valide, le rayon aussi) |
 //!
 //! # Les mesures
 //!
@@ -198,12 +258,14 @@
 //!
 //! [`givre_pixel`] rend `u32::MAX` hors de l'image ; [`givre_empreinte_mot`] rend 0 pour `i >= 8` ; [`givre_demarrer`] rend 0
 //! pour un modèle qui n'existe pas (et ne change rien : tout modèle au-delà de 7) ; [`givre_avancer`] ne joue rien au-delà de la durée ; les
-//! fonctions de la courbe sont dites plus haut (`NaN` hors de `η` de 0 à 3, code 5 sans travail).
+//! fonctions de la courbe sont dites plus haut (`NaN` hors de `η` de 0 à 3, code 5 sans travail) ; [`givre_nette_pixel`] rend `u32::MAX` hors du tampon, et
+//! [`givre_nette_preparer`] rend un code (jamais une panique) pour un `cote` ou un `sur` absurde, `u32::MAX` compris.
 //!
 //! # La page
 //!
 //! `docs/index.html`, `docs/app.js` et `docs/lecture.js` font tourner ce module dans un navigateur ; leurs règles sont écrites
-//! en tête de `tests/etape_5_page.rs`. `lecture.js` (l'empreinte, l'image et la graine que la page lit, sans DOM) est éprouvé
+//! en tête de `tests/etape_5_page.rs` et, pour l'image nette (le canvas des modèles sur la grille hexagonale, qui n'a **pas** `image-rendering: pixelated`, et celui des modèles carrés, qui
+//! l'a), de `tests/etape_v7_page.rs`. `lecture.js` (l'empreinte, l'image, l'image nette et la graine que la page lit, sans DOM) est éprouvé
 //! sous Node contre le code natif ; le reste de la page ne l'est que par sa forme : voir « Ce que cela n'établit pas » dans
 //! `MODELE.md`.
 //!
@@ -215,6 +277,10 @@
 //! chaque `givre_pixel` refait l'image entière, et les tests, qui lisent des centaines de milliers de pixels, ne finissent plus
 //! en dix minutes (mesuré sur le prototype sans cache : plus de 600 s, contre 4 s avec). Une image gardée d'avant un `avancer`
 //! est la faute typique : les tests lisent l'image après chaque morceau.
+//!
+//! Pour l'image nette : le tampon est une image de plus (un champ `Option` de l'état, ou un second `static`), remise à « rien » aux trois endroits que « L'image nette » dit (un `givre_demarrer` qui réussit, un
+//! `givre_avancer` qui joue, le début d'une préparation une fois l'état trouvé) et **nulle part ailleurs** (ni `givre_mesurer` ni une lecture ne l'effacent) ; une préparation recalcule toujours (jamais « le tampon a
+//! déjà ce côté, je le rends ») ; `cote × sur` se compare à la borne après les vérifications de `cote` et de `sur` (ou en `u64`) : `u32::MAX × u32::MAX` déborde un `u32`.
 
 use std::sync::{Mutex, MutexGuard};
 
@@ -265,6 +331,15 @@ pub const COURBE_GRAINES_MIN: u32 = 2;
 
 /// Le plus grand nombre de graines d'un travail de la courbe : 8.
 pub const COURBE_GRAINES_MAX: u32 = 8;
+
+/// Le plus grand `cote` d'une image nette : 2048 pixels (voir « L'image nette »).
+pub const NETTE_COTE_MAX: u32 = 2048;
+
+/// Le plus grand `sur` d'une image nette : 4 (soit 16 échantillons par pixel).
+pub const NETTE_SUR_MAX: u32 = 4;
+
+/// Le plus grand côté de la grille d'échantillons d'une image nette, `cote × sur` : 4096 (soit 16 777 216 échantillons).
+pub const NETTE_GRILLE_MAX: u32 = 4096;
 
 /// Le seul état de la vitrine ; `None` avant tout démarrage réussi.
 static ETAT: Mutex<Option<Etat>> = Mutex::new(None);
@@ -747,4 +822,34 @@ pub extern "C" fn givre_courbe_erreur_type(eta: u32) -> f64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_courbe_repere(eta: u32) -> f64 {
     crate::courbe::publie(eta).unwrap_or(f64::NAN)
+}
+
+/// Prépare l'image nette du modèle en cours à `cote × cote` pixels et `sur × sur` échantillons par pixel, la garde dans le tampon et rend un code : 0 (l'image est
+/// prête), 2 (rien n'est démarré), 1 (le modèle n'est pas sur la grille hexagonale), 3 (`cote` impair, inférieur à 2 ou supérieur à [`NETTE_COTE_MAX`]), 4 (`sur`
+/// nul ou supérieur à [`NETTE_SUR_MAX`]), 5 (`cote × sur` supérieur à [`NETTE_GRILLE_MAX`]) ou 6 (`rendre` a refusé : jamais avec ces bornes), vérifiés dans cet ordre
+/// (voir « L'image nette »). Une préparation qui échoue efface le tampon ; l'état, le temps, l'empreinte et l'image d'un pixel par case ne changent jamais. Ne panique jamais.
+#[allow(unused_variables)]
+#[unsafe(no_mangle)]
+pub extern "C" fn givre_nette_preparer(cote: u32, sur: u32) -> u32 {
+    todo!()
+}
+
+/// La largeur, en pixels, de l'image nette gardée (`cote` de la dernière préparation réussie) ; 0 sans tampon (voir « L'image nette »).
+#[unsafe(no_mangle)]
+pub extern "C" fn givre_nette_largeur() -> u32 {
+    todo!()
+}
+
+/// La hauteur, en pixels, de l'image nette gardée (`cote` de la dernière préparation réussie) ; 0 sans tampon (voir « L'image nette »).
+#[unsafe(no_mangle)]
+pub extern "C" fn givre_nette_hauteur() -> u32 {
+    todo!()
+}
+
+/// La couleur du pixel `(x, y)` de l'image nette gardée, empaquetée en `0x00RRGGBB` comme [`givre_pixel`] (voir « L'image nette »). Rend `u32::MAX` si
+/// `x >= givre_nette_largeur()`, si `y >= givre_nette_hauteur()` et sans tampon. Ne recalcule rien.
+#[allow(unused_variables)]
+#[unsafe(no_mangle)]
+pub extern "C" fn givre_nette_pixel(x: u32, y: u32) -> u32 {
+    todo!()
 }

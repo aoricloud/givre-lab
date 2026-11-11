@@ -39,7 +39,8 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 use etape_5_commun::{
-    D3_ACTIVE, FONCTIONS, FONCTIONS_D3, FONCTIONS_Z1, TABLE, Z1_ACTIVE, chemin_module, lire_page, node_est_la, racine,
+    D3_ACTIVE, FONCTIONS, FONCTIONS_D3, FONCTIONS_V7, FONCTIONS_Z1, TABLE, V7_ACTIVE, Z1_ACTIVE, chemin_module,
+    lire_page, node_est_la, racine,
 };
 use givre_lab::correlation::mesure;
 use givre_lab::dla::Amas;
@@ -451,21 +452,31 @@ fn la_page_emploie_les_quinze_exportations_et_lire_correlation() {
     // (les quinze, ou les onze sans `etape-z1`) ou les vingt-trois.
     let etendu_d3: BTreeSet<String> =
         etendu.iter().cloned().chain(FONCTIONS_D3.iter().map(|(nom, _, _)| nom.to_string())).collect();
+    // Étape V7 : la page emploie en plus les quatre fonctions de l'image nette. Avec `etape-v7` les vingt-sept seulement ; sans elle, ce que les fonctionnalités d'avant disent ou les vingt-sept.
+    let etendu_v7: BTreeSet<String> =
+        etendu_d3.iter().cloned().chain(FONCTIONS_V7.iter().map(|(nom, _, _)| nom.to_string())).collect();
     let employes = noms_employes(&code);
-    if D3_ACTIVE {
-        assert_eq!(employes, etendu_d3, "la page n'emploie pas exactement les vingt-trois exportations");
+    if V7_ACTIVE {
+        assert_eq!(employes, etendu_v7, "la page n'emploie pas exactement les vingt-sept exportations");
+    } else if D3_ACTIVE {
+        assert!(
+            employes == etendu_d3 || employes == etendu_v7,
+            "la page n'emploie ni les vingt-trois ni les vingt-sept exportations : {employes:?}"
+        );
     } else if Z1_ACTIVE {
         assert!(
-            employes == etendu || employes == etendu_d3,
-            "la page n'emploie ni les quinze ni les vingt-trois exportations : {employes:?}"
+            employes == etendu || employes == etendu_d3 || employes == etendu_v7,
+            "la page n'emploie ni les quinze ni les vingt-trois ni les vingt-sept exportations : {employes:?}"
         );
     } else {
         assert!(
-            employes == base || employes == etendu || employes == etendu_d3,
-            "la page n'emploie ni les onze ni les quinze ni les vingt-trois exportations : {employes:?}"
+            employes == base || employes == etendu || employes == etendu_d3 || employes == etendu_v7,
+            "la page n'emploie ni les onze ni les quinze ni les vingt-trois ni les vingt-sept exportations : {employes:?}"
         );
     }
-    for (nom, parametres, _) in FONCTIONS.iter().chain(FONCTIONS_Z1.iter()).chain(FONCTIONS_D3.iter()) {
+    for (nom, parametres, _) in
+        FONCTIONS.iter().chain(FONCTIONS_Z1.iter()).chain(FONCTIONS_D3.iter()).chain(FONCTIONS_V7.iter())
+    {
         for arite in arites_des_appels(&code, nom) {
             assert_eq!(
                 arite,
@@ -480,6 +491,9 @@ fn la_page_emploie_les_quinze_exportations_et_lire_correlation() {
     }
     for (nom, _, _) in FONCTIONS_D3 {
         assert!(!arites_des_appels(&code, nom).is_empty() || !D3_ACTIVE, "la page n'appelle jamais {nom}(…)");
+    }
+    for (nom, _, _) in FONCTIONS_V7 {
+        assert!(!arites_des_appels(&code, nom).is_empty() || !V7_ACTIVE, "la page n'appelle jamais {nom}(…)");
     }
 }
 

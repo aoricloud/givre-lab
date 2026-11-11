@@ -199,6 +199,18 @@ pub const FONCTIONS_D3: [(&str, &[u8], &[u8]); 8] = [
 /// Vrai quand la fonctionnalité `etape-d3` est active : le module et la page doivent alors avoir les vingt-trois fonctions.
 pub const D3_ACTIVE: bool = cfg!(feature = "etape-d3");
 
+/// Les quatre fonctions de l'image nette de l'étape V7 (voir `src/vitrine.rs`, « L'image nette »), avec leur signature. Le module et la page d'avant V7 ne les ont pas : tant que la fonctionnalité `etape-v7` n'est pas active, les tests acceptent le module et
+/// la page tels qu'ils sont (onze, quinze ou vingt-trois fonctions) ou étendus de ces quatre (vingt-sept) ; avec `etape-v7`, ils n'acceptent que les vingt-sept.
+pub const FONCTIONS_V7: [(&str, &[u8], &[u8]); 4] = [
+    ("givre_nette_preparer", &[I32, I32], &[I32]),
+    ("givre_nette_largeur", &[], &[I32]),
+    ("givre_nette_hauteur", &[], &[I32]),
+    ("givre_nette_pixel", &[I32, I32], &[I32]),
+];
+
+/// Vrai quand la fonctionnalité `etape-v7` est active : le module et la page doivent alors avoir les vingt-sept fonctions.
+pub const V7_ACTIVE: bool = cfg!(feature = "etape-v7");
+
 /// Un lecteur d'octets avec une position.
 struct Lecteur<'a> {
     octets: &'a [u8],
