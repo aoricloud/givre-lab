@@ -1,4 +1,4 @@
-// Ce que la page lit du module (l'empreinte, l'image, la graine, la mesure de corrélation, le travail de la courbe D(η)) et les textes qu'elle en tire. Aucun DOM ici : Node l'éprouve contre le code natif.
+// Ce que la page lit du module (l'empreinte, l'image, l'image nette, la graine, la mesure de corrélation, le travail de la courbe D(η)) et les textes qu'elle en tire. Aucun DOM ici : Node l'éprouve contre le code natif.
 
 const GRAINE_MAX = 4294967295;
 
@@ -11,14 +11,12 @@ export function lireEmpreinte(m) {
   return texte;
 }
 
-/** L'image courante, prête pour `new ImageData(rgba, largeur, hauteur)`. */
-export function lireImage(m) {
-  const largeur = m.givre_largeur() >>> 0;
-  const hauteur = m.givre_hauteur() >>> 0;
+/** Les octets R, V, B, 255 de `largeur × hauteur` pixels, ligne par ligne de haut en bas ; `pixel(x, y)` rend la couleur `0x00RRGGBB` du module. */
+function rgbaDepuis(largeur, hauteur, pixel) {
   const rgba = new Uint8ClampedArray(4 * largeur * hauteur);
   for (let y = 0; y < hauteur; y++) {
     for (let x = 0; x < largeur; x++) {
-      const couleur = m.givre_pixel(x, y) >>> 0;
+      const couleur = pixel(x, y) >>> 0;
       const k = 4 * (y * largeur + x);
       rgba[k] = (couleur >>> 16) & 255;
       rgba[k + 1] = (couleur >>> 8) & 255;
@@ -26,7 +24,38 @@ export function lireImage(m) {
       rgba[k + 3] = 255;
     }
   }
-  return { largeur, hauteur, rgba };
+  return rgba;
+}
+
+/** L'image courante, prête pour `new ImageData(rgba, largeur, hauteur)`. */
+export function lireImage(m) {
+  const largeur = m.givre_largeur() >>> 0;
+  const hauteur = m.givre_hauteur() >>> 0;
+  return { largeur, hauteur, rgba: rgbaDepuis(largeur, hauteur, (x, y) => m.givre_pixel(x, y)) };
+}
+
+/**
+ * L'image nette du modèle en cours (chaque case un hexagone lisse), prête pour `new ImageData(rgba, largeur, hauteur)` : **demande au module de la préparer**
+ * (`givre_nette_preparer(cote, sur)` : `cote` pixels de côté, `sur × sur` échantillons par pixel), puis la lit. Rend { code, largeur, hauteur, rgba } : `code` est celui du
+ * module (0 : l'image est prête ; 1 : le modèle est sur une grille carrée, il n'a pas d'image nette ; les autres sont des refus de la préparation). Avec un code non nul,
+ * `largeur` et `hauteur` valent 0 et `rgba` est vide : rien n'est lu.
+ */
+export function lireImageNette(m, cote, sur) {
+  const code = m.givre_nette_preparer(cote, sur) >>> 0;
+  if (code !== 0) {
+    return { code, largeur: 0, hauteur: 0, rgba: new Uint8ClampedArray(0) };
+  }
+  const largeur = m.givre_nette_largeur() >>> 0;
+  const hauteur = m.givre_nette_hauteur() >>> 0;
+  return { code, largeur, hauteur, rgba: rgbaDepuis(largeur, hauteur, (x, y) => m.givre_nette_pixel(x, y)) };
+}
+
+/**
+ * Quel canvas la page cache, d'après le code de `lireImageNette` : l'image nette (code 0) remplace l'image d'un pixel par case ; avec tout autre code (le modèle est sur une grille
+ * carrée, ou la préparation a été refusée) la page garde l'image d'un pixel par case. Rend { carree, nette } : vrai quand le canvas est caché.
+ */
+export function imagesCachees(code) {
+  return { carree: code === 0, nette: code !== 0 };
 }
 
 /** La graine écrite dans un champ : des chiffres décimaux seulement (espaces autour permis), au plus 4294967295 ; sinon null. */
