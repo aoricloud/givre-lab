@@ -289,6 +289,8 @@ use crate::courbe::ErreurCourbe;
 use crate::dla::{Amas, COTE_APERCU, amas_colore};
 use crate::empreinte::sha256;
 use crate::flocon::{Flocon, Parametres};
+use crate::math::Fixe;
+use crate::rendu_hex::{ReglagesImage, rendre};
 
 /// Une image d'aperçu gardée en mémoire : ses dimensions et ses octets R, V, B, ligne par ligne de haut en bas.
 struct Image {
@@ -304,13 +306,14 @@ enum Modele {
     Claquage(Claquage),
 }
 
-/// L'état global : le modèle, la durée de son scénario, l'image de l'état courant (refaite quand l'état change) et la mesure
-/// gardée de l'amas du moment (effacée dès que l'amas change).
+/// L'état global : le modèle, la durée de son scénario, l'image de l'état courant (refaite quand l'état change), la mesure
+/// gardée de l'amas du moment (effacée dès que l'amas change) et le tampon de l'image nette (effacé dès que l'état change : voir « L'image nette »).
 struct Etat {
     modele: Modele,
     duree: u32,
     image: Image,
     mesure: Option<crate::correlation::Mesure>,
+    nette: Option<Image>,
 }
 
 /// Le plus grand amas que [`givre_mesurer`] mesure : 10 000 sites (voir « La mesure de la corrélation »).
@@ -444,7 +447,7 @@ pub extern "C" fn givre_demarrer(modele: u32, graine: u32) -> u32 {
     let Some((modele, duree)) = construit else { return 0 };
     let image = image_de(&modele);
     let mut garde = verrouiller();
-    *garde = Some(Etat { modele, duree, image, mesure: None });
+    *garde = Some(Etat { modele, duree, image, mesure: None, nette: None });
     1
 }
 
@@ -494,6 +497,7 @@ pub extern "C" fn givre_avancer(n: u32) -> u32 {
     };
     if jouees > 0 {
         etat.mesure = None;
+        etat.nette = None;
         etat.image = image_de(&etat.modele);
     }
     jouees
@@ -824,32 +828,80 @@ pub extern "C" fn givre_courbe_repere(eta: u32) -> f64 {
     crate::courbe::publie(eta).unwrap_or(f64::NAN)
 }
 
+/// Le champ dessiné d'un flocon et son `plein` (voir « Le champ dessiné ») : une valeur entière par case, dans l'ordre
+/// canonique de `Flocon::masses`, et `4 E`. Aucun `f64`, aucun débordement (arithmétique saturée).
+fn champ_du_flocon(flocon: &Flocon, duree: u32) -> (Vec<i64>, i64) {
+    let e = flocon.parametres().gamma.0.saturating_mul(i64::from(duree)).clamp(1, 1 << 58);
+    let valeurs = flocon
+        .masses()
+        .iter()
+        .map(|masse| if masse.0 < Fixe::UN.0 { 0 } else { (masse.0 - Fixe::UN.0).saturating_mul(3).saturating_add(e) })
+        .collect();
+    (valeurs, e.saturating_mul(4))
+}
+
 /// Prépare l'image nette du modèle en cours à `cote × cote` pixels et `sur × sur` échantillons par pixel, la garde dans le tampon et rend un code : 0 (l'image est
 /// prête), 2 (rien n'est démarré), 1 (le modèle n'est pas sur la grille hexagonale), 3 (`cote` impair, inférieur à 2 ou supérieur à [`NETTE_COTE_MAX`]), 4 (`sur`
 /// nul ou supérieur à [`NETTE_SUR_MAX`]), 5 (`cote × sur` supérieur à [`NETTE_GRILLE_MAX`]) ou 6 (`rendre` a refusé : jamais avec ces bornes), vérifiés dans cet ordre
 /// (voir « L'image nette »). Une préparation qui échoue efface le tampon ; l'état, le temps, l'empreinte et l'image d'un pixel par case ne changent jamais. Ne panique jamais.
-#[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_nette_preparer(cote: u32, sur: u32) -> u32 {
-    todo!()
+    let mut garde = verrouiller();
+    let Some(etat) = garde.as_mut() else { return 2 };
+    etat.nette = None;
+    let Modele::Flocon(flocon) = &etat.modele else { return 1 };
+    if !(2..=NETTE_COTE_MAX).contains(&cote) || !cote.is_multiple_of(2) {
+        return 3;
+    }
+    if !(1..=NETTE_SUR_MAX).contains(&sur) {
+        return 4;
+    }
+    if cote * sur > NETTE_GRILLE_MAX {
+        return 5;
+    }
+    let (valeurs, plein) = champ_du_flocon(flocon, etat.duree);
+    let rayon = flocon.rayon();
+    match rendre(rayon, &valeurs, &ReglagesImage { cote, rayon_vue: rayon, sur, plein }) {
+        Ok(rvb) => {
+            etat.nette = Some(Image { largeur: cote, hauteur: cote, rvb });
+            0
+        }
+        Err(_) => 6,
+    }
 }
 
 /// La largeur, en pixels, de l'image nette gardée (`cote` de la dernière préparation réussie) ; 0 sans tampon (voir « L'image nette »).
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_nette_largeur() -> u32 {
-    todo!()
+    let garde = verrouiller();
+    garde.as_ref().and_then(|etat| etat.nette.as_ref()).map_or(0, |image| image.largeur)
 }
 
 /// La hauteur, en pixels, de l'image nette gardée (`cote` de la dernière préparation réussie) ; 0 sans tampon (voir « L'image nette »).
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_nette_hauteur() -> u32 {
-    todo!()
+    let garde = verrouiller();
+    garde.as_ref().and_then(|etat| etat.nette.as_ref()).map_or(0, |image| image.hauteur)
 }
 
 /// La couleur du pixel `(x, y)` de l'image nette gardée, empaquetée en `0x00RRGGBB` comme [`givre_pixel`] (voir « L'image nette »). Rend `u32::MAX` si
 /// `x >= givre_nette_largeur()`, si `y >= givre_nette_hauteur()` et sans tampon. Ne recalcule rien.
-#[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_nette_pixel(x: u32, y: u32) -> u32 {
-    todo!()
+    let garde = verrouiller();
+    let Some(etat) = garde.as_ref() else { return u32::MAX };
+    let Some(image) = etat.nette.as_ref() else { return u32::MAX };
+    if x >= image.largeur || y >= image.hauteur {
+        return u32::MAX;
+    }
+    let indice = (y as usize)
+        .checked_mul(image.largeur as usize)
+        .and_then(|ligne| ligne.checked_add(x as usize))
+        .and_then(|pixel| pixel.checked_mul(3));
+    let Some(indice) = indice else { return u32::MAX };
+    let Some(fin) = indice.checked_add(3) else { return u32::MAX };
+    match image.rvb.get(indice..fin) {
+        Some([r, v, b]) => (u32::from(*r) << 16) | (u32::from(*v) << 8) | u32::from(*b),
+        _ => u32::MAX,
+    }
 }
