@@ -137,8 +137,10 @@
 //! - **Le mur est à nous** (G1) : un cristal qui l'atteint n'est pas celui de l'article ; les balayages gardent les cristaux à distance du mur (voir `MODELE.md`).
 //! - **Ni le bruit `σ`, ni la 3D, ni la forme selon la température** (le diagramme de Nakaya : question ouverte, les auteurs le disent).
 
+use crate::flocon::lire_decimal;
 use crate::math::Fixe;
-use crate::neige::{Neige, Parametres};
+use crate::neige::{ErreurNeige, Neige, Parametres};
+use crate::reseau::{DIRECTIONS_HEX, distance_hex};
 
 /// Le plus grand rayon de domaine qu'un balayage accepte (la taille de l'article en rayon : 400 cases ; un tel domaine a 481 201 cases).
 pub const RAYON_MAX_BALAYAGE: u32 = 400;
@@ -186,15 +188,29 @@ pub enum Reglage {
 
 impl Reglage {
     /// Le nom du réglage, celui que [`Parametres::verifier`] donne : `"rho"`, `"beta"`, `"alpha"`, `"theta"`, `"kappa"`, `"mu"` ou `"gamma"`.
-    #[allow(unused_variables)]
     pub fn nom(self) -> &'static str {
-        todo!()
+        match self {
+            Reglage::Rho => "rho",
+            Reglage::Beta => "beta",
+            Reglage::Alpha => "alpha",
+            Reglage::Theta => "theta",
+            Reglage::Kappa => "kappa",
+            Reglage::Mu => "mu",
+            Reglage::Gamma => "gamma",
+        }
     }
 
     /// Les réglages de `parametres`, **sauf** celui-ci, qui prend `valeur` (les six autres sont ceux de `parametres`, à l'identique). Ne vérifie rien.
-    #[allow(unused_variables)]
     pub fn fixer(self, parametres: Parametres, valeur: Fixe) -> Parametres {
-        todo!()
+        match self {
+            Reglage::Rho => Parametres { rho: valeur, ..parametres },
+            Reglage::Beta => Parametres { beta: valeur, ..parametres },
+            Reglage::Alpha => Parametres { alpha: valeur, ..parametres },
+            Reglage::Theta => Parametres { theta: valeur, ..parametres },
+            Reglage::Kappa => Parametres { kappa: valeur, ..parametres },
+            Reglage::Mu => Parametres { mu: valeur, ..parametres },
+            Reglage::Gamma => Parametres { gamma: valeur, ..parametres },
+        }
     }
 }
 
@@ -232,9 +248,14 @@ pub enum Forme {
 
 impl Forme {
     /// Le nom écrit dans le CSV : `"aucune"`, `"plaque"`, `"secteurs"`, `"dendrite"` ou `"fougere"` (minuscules, sans accent).
-    #[allow(unused_variables)]
     pub fn nom(self) -> &'static str {
-        todo!()
+        match self {
+            Forme::Aucune => "aucune",
+            Forme::Plaque => "plaque",
+            Forme::Secteurs => "secteurs",
+            Forme::Dendrite => "dendrite",
+            Forme::Fougere => "fougere",
+        }
     }
 }
 
@@ -289,19 +310,75 @@ pub struct JeuDeBalayage {
 }
 
 /// Les six mesures de la neige `neige` (voir « Les mesures » : les définitions au bit près). Ne regarde que les `a` (les cases rattachées) ; jamais de panique.
-#[allow(unused_variables)]
 pub fn mesurer(neige: &Neige) -> Mesures {
-    todo!()
+    let domaine = neige.rayon() as i32;
+    let mut rattachees: u64 = 0;
+    let mut rayon: u32 = 0;
+    let mut pointes: u64 = 0;
+    let mut aiguilles: u64 = 0;
+    let mut anneau: u64 = 0;
+    // Parcours de l'hexagone dans l'ordre canonique de `Hexagone` (`r` croissant, puis `q` croissant).
+    for r in -domaine..=domaine {
+        let q_min = (-domaine).max(-domaine - r);
+        let q_max = domaine.min(domaine - r);
+        for q in q_min..=q_max {
+            if !neige.case(q, r).is_some_and(|case| case.a) {
+                continue;
+            }
+            rattachees += 1;
+            let distance = distance_hex((0, 0), (q, r));
+            if distance > rayon {
+                rayon = distance;
+                anneau = 1;
+            } else if distance == rayon {
+                anneau += 1;
+            }
+            let mut libres: u32 = 0;
+            for &(dq, dr) in DIRECTIONS_HEX.iter() {
+                let libre = match neige.case(q + dq, r + dr) {
+                    Some(voisine) => !voisine.a,
+                    None => true,
+                };
+                if libre {
+                    libres += 1;
+                }
+            }
+            if libres >= 3 {
+                pointes += 1;
+            }
+            if libres >= 4 {
+                aiguilles += 1;
+            }
+        }
+    }
+    let disque = 3 * u64::from(rayon) * (u64::from(rayon) + 1) + 1;
+    let anneau_exterieur = (6 * u64::from(rayon)).max(1);
+    Mesures {
+        rattachees: rattachees as u32,
+        rayon,
+        compacite: (1000 * rattachees / disque) as u32,
+        pointes: pointes as u32,
+        aiguilles: aiguilles as u32,
+        hexagonalite: (1000 * anneau / anneau_exterieur) as u32,
+    }
 }
 
 /// L'étiquette de ces mesures (voir « L'étiquette » : la table de règles, la première qui s'applique).
-#[allow(unused_variables)]
 pub fn classer(mesures: &Mesures) -> Forme {
-    todo!()
+    if mesures.rayon < RAYON_MIN_FORME {
+        Forme::Aucune
+    } else if mesures.compacite >= SEUIL_PLAQUE {
+        Forme::Plaque
+    } else if mesures.compacite >= SEUIL_SECTEURS {
+        Forme::Secteurs
+    } else if mesures.aiguilles >= SEUIL_FOUGERE {
+        Forme::Fougere
+    } else {
+        Forme::Dendrite
+    }
 }
 
 /// Un balayage : un cristal par valeur de `reglage`, dans l'ordre de `valeurs` (voir « Un balayage » : les calculs et l'ordre des refus). Jamais de panique.
-#[allow(unused_variables)]
 pub fn balayage(
     rayon: u32,
     pas: u64,
@@ -309,29 +386,130 @@ pub fn balayage(
     reglage: Reglage,
     valeurs: &[Fixe],
 ) -> Result<Vec<Resultat>, ErreurBalayage> {
-    todo!()
+    if rayon == 0 || rayon > RAYON_MAX_BALAYAGE {
+        return Err(ErreurBalayage::RayonHorsBorne);
+    }
+    if pas == 0 || pas > PAS_MAX_BALAYAGE {
+        return Err(ErreurBalayage::PasHorsBorne);
+    }
+    if valeurs.is_empty() {
+        return Err(ErreurBalayage::ListeVide);
+    }
+    if valeurs.len() > VALEURS_MAX {
+        return Err(ErreurBalayage::ListeTropLongue);
+    }
+    // Tous les jeux de réglages sont formés et vérifiés AVANT le premier pas : rien n'est calculé si l'un est fautif.
+    let mut jeux: Vec<(Fixe, Parametres)> = Vec::with_capacity(valeurs.len());
+    for (indice, &valeur) in valeurs.iter().enumerate() {
+        let reglages = reglage.fixer(base, valeur);
+        if let Err(ErreurNeige::ParametreHorsPlage(nom)) = reglages.verifier() {
+            return Err(ErreurBalayage::ReglageHorsPlage { nom, indice });
+        }
+        jeux.push((valeur, reglages));
+    }
+    let mut resultats = Vec::with_capacity(jeux.len());
+    for (valeur, reglages) in jeux {
+        // Inatteignable : `rayon` est entre 1 et 400 (au plus `RAYON_MAX`) et les réglages viennent de passer `verifier`.
+        let mut neige = match Neige::essayer_new(rayon, reglages) {
+            Ok(neige) => neige,
+            Err(_) => return Err(ErreurBalayage::RayonHorsBorne),
+        };
+        neige.avancer(pas);
+        let mesures = mesurer(&neige);
+        let forme = classer(&mesures);
+        let empreinte = neige.empreinte();
+        resultats.push(Resultat { valeur, mesures, forme, empreinte });
+    }
+    Ok(resultats)
 }
 
 /// Le jeu de la figure 9 : `ρ` (voir « Les trois jeux de balayage »).
-#[allow(unused_variables)]
 pub fn jeu_rho() -> JeuDeBalayage {
-    todo!()
+    let lire = |texte: &str| match lire_decimal(texte) {
+        Some(valeur) => valeur,
+        // Inatteignable : les textes ci-dessous sont les décimaux fixes de la doc.
+        None => Fixe::ZERO,
+    };
+    // Inatteignable, de même : ces sept décimaux sont valides et dans leurs plages.
+    let base = match Parametres::lire("0.40", "1.3", "0.08", "0.025", "0.003", "0.07", "0.00005") {
+        Some(parametres) => parametres,
+        None => Parametres {
+            rho: Fixe::ZERO,
+            beta: Fixe::UN,
+            alpha: Fixe::ZERO,
+            theta: Fixe::ZERO,
+            kappa: Fixe::ZERO,
+            mu: Fixe::ZERO,
+            gamma: Fixe::ZERO,
+        },
+    };
+    let valeurs: Vec<Fixe> = ["0.40", "0.41", "0.42", "0.44", "0.46", "0.50"].into_iter().map(lire).collect();
+    JeuDeBalayage { nom: "rho", reglage: Reglage::Rho, base, valeurs, rayon: 100, pas: 2000 }
 }
 
 /// Le jeu de la figure 10 : `β` (voir « Les trois jeux de balayage »).
-#[allow(unused_variables)]
 pub fn jeu_beta() -> JeuDeBalayage {
-    todo!()
+    let lire = |texte: &str| match lire_decimal(texte) {
+        Some(valeur) => valeur,
+        // Inatteignable : les textes ci-dessous sont les décimaux fixes de la doc.
+        None => Fixe::ZERO,
+    };
+    // Inatteignable, de même : ces sept décimaux sont valides et dans leurs plages.
+    let base = match Parametres::lire("0.8", "1.9", "0.004", "0.001", "0.05", "0.015", "0.0001") {
+        Some(parametres) => parametres,
+        None => Parametres {
+            rho: Fixe::ZERO,
+            beta: Fixe::UN,
+            alpha: Fixe::ZERO,
+            theta: Fixe::ZERO,
+            kappa: Fixe::ZERO,
+            mu: Fixe::ZERO,
+            gamma: Fixe::ZERO,
+        },
+    };
+    let valeurs: Vec<Fixe> = ["1.9", "2.2", "2.4", "2.6", "2.7", "2.8"].into_iter().map(lire).collect();
+    JeuDeBalayage { nom: "beta", reglage: Reglage::Beta, base, valeurs, rayon: 100, pas: 1300 }
 }
 
 /// Le jeu de la figure 12 : `μ` (voir « Les trois jeux de balayage »).
-#[allow(unused_variables)]
 pub fn jeu_mu() -> JeuDeBalayage {
-    todo!()
+    let lire = |texte: &str| match lire_decimal(texte) {
+        Some(valeur) => valeur,
+        // Inatteignable : les textes ci-dessous sont les décimaux fixes de la doc.
+        None => Fixe::ZERO,
+    };
+    // Inatteignable, de même : ces sept décimaux sont valides et dans leurs plages.
+    let base = match Parametres::lire("0.5", "1.4", "0.1", "0.005", "0.001", "0.04", "0.001") {
+        Some(parametres) => parametres,
+        None => Parametres {
+            rho: Fixe::ZERO,
+            beta: Fixe::UN,
+            alpha: Fixe::ZERO,
+            theta: Fixe::ZERO,
+            kappa: Fixe::ZERO,
+            mu: Fixe::ZERO,
+            gamma: Fixe::ZERO,
+        },
+    };
+    let valeurs: Vec<Fixe> = ["0.04", "0.05", "0.06", "0.07", "0.08", "0.09"].into_iter().map(lire).collect();
+    JeuDeBalayage { nom: "mu", reglage: Reglage::Mu, base, valeurs, rayon: 100, pas: 2000 }
 }
 
 /// Une ligne du CSV pour un cristal (voir « Le CSV ») : `nom` est le nom du balayage, `rayon` le rayon de domaine, `pas` le nombre de pas ; la ligne finit par `\n`.
-#[allow(unused_variables)]
 pub fn ligne_csv(nom: &str, rayon: u32, pas: u64, resultat: &Resultat) -> String {
-    todo!()
+    let brut = i128::from(resultat.valeur.0);
+    let ppm = (2_000_000_i128 * brut + (1_i128 << 32)) / (1_i128 << 33);
+    let partie = ppm / 1_000_000;
+    let fraction = ppm % 1_000_000;
+    let rattachees = resultat.mesures.rattachees;
+    let rayon_cristal = resultat.mesures.rayon;
+    let compacite = resultat.mesures.compacite;
+    let pointes = resultat.mesures.pointes;
+    let aiguilles = resultat.mesures.aiguilles;
+    let hexagonalite = resultat.mesures.hexagonalite;
+    let forme = resultat.forme.nom();
+    let empreinte = &resultat.empreinte;
+    format!(
+        "{nom},{partie}.{fraction:06},{rayon},{pas},{rattachees},{rayon_cristal},{compacite},{pointes},{aiguilles},{hexagonalite},{forme},{empreinte}\n"
+    )
 }
