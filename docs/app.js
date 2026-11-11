@@ -1,6 +1,18 @@
-// La vitrine de Givre Lab (étape 5) : le module givre.wasm piloté par des nombres, dessiné sur un canvas.
+// La vitrine de Givre Lab (étape 5) : le module givre.wasm piloté par des nombres, dessiné sur un canvas. Z1 y ajoute la mesure de D
+// par la corrélation ; D3 le claquage diélectrique (le curseur η) et la courbe D(η) calculée un amas à la fois.
 
-import { lireCorrelation, lireEmpreinte, lireImage, lireGraine } from "./lecture.js";
+import {
+  formater,
+  lireCorrelation,
+  lireCourbe,
+  lireEmpreinte,
+  lireGraine,
+  lireImage,
+  blocsCaches,
+  numeroDuModele,
+  texteAvancement,
+  texteRepereEta,
+} from "./lecture.js";
 
 // Huit appels de givre_empreinte_mot recalculent huit fois tout l'état : on lit l'empreinte au plus toutes les 500 ms.
 const INTERVALLE_EMPREINTE_MS = 500;
@@ -10,8 +22,20 @@ const ZINC_DIMENSION = 1.66;
 const ZINC_DEMI_LARGEUR = 0.03;
 const ZINC_PLAGE = 0.25;
 
+// Le claquage : une unité de temps y coûte la relaxation du champ ; la page n'en joue qu'une par appel et rend la main quand BUDGET_IMAGE_MS sont écoulées.
+const BUDGET_IMAGE_MS = 30;
+
+// La courbe D(η) : un amas par appel de givre_courbe_pas, avec une pause entre deux appels pour que la page se redessine. La taille et le
+// nombre de graines sont ceux que le module accepte (jusqu'à 100 sites et de 2 à 8 graines).
+const COURBE_TAILLE = 100;
+const COURBE_GRAINES = 6;
+const PAUSE_COURBE_MS = 20;
+
 const canvas = document.getElementById("vitrine");
 const choixModele = document.getElementById("modele");
+const commandeEta = document.getElementById("commande-eta");
+const curseurEta = document.getElementById("eta");
+const valeurEta = document.getElementById("valeur-eta");
 const champGraine = document.getElementById("graine");
 const boutonRelancer = document.getElementById("relancer");
 const curseurVitesse = document.getElementById("vitesse");
@@ -23,15 +47,38 @@ const affichageEtat = document.getElementById("etat");
 const boutonMesurer = document.getElementById("mesurer");
 const canvasCourbe = document.getElementById("courbe");
 const affichageResultat = document.getElementById("resultat");
+const blocZinc = document.getElementById("bloc-zinc");
 const marqueD = document.getElementById("marque-d");
 const affichageCompatible = document.getElementById("compatible");
 const affichageHorsBarre = document.getElementById("hors-barre");
+const blocRepereEta = document.getElementById("bloc-repere-eta");
+const affichageRepereEta = document.getElementById("repere-eta");
+const affichageEcartEta = document.getElementById("ecart-eta");
+const affichagePasUnAccord = document.getElementById("pas-un-accord");
+const boutonCalculerCourbe = document.getElementById("calculer-courbe");
+const affichageAvancement = document.getElementById("avancement-courbe");
+const canvasCourbeEta = document.getElementById("courbe-eta");
 const contexte = canvas.getContext("2d");
 const contexteCourbe = canvasCourbe.getContext("2d");
+const contexteCourbeEta = canvasCourbeEta.getContext("2d");
 
 let m = null;
 let enCours = false;
 let derniereEmpreinte = -Infinity;
+let minuterieCourbe = null;
+// Le modèle en cours est celui du dernier démarrage réussi, pas celui des commandes : une graine invalide laisse l'ancien modèle tourner.
+let claquageEnCours = false;
+let etaDuModele = 0;
+
+/** Vrai si le modèle choisi est le claquage (le curseur η donne alors le modèle 4 + η). */
+function claquageChoisi() {
+  return choixModele.value === "claquage";
+}
+
+/** L'exposant η du curseur, un entier de 0 à 3. */
+function etaChoisi() {
+  return Number(curseurEta.value);
+}
 
 /** Dessine l'image de l'état courant, aux dimensions qu'elle a maintenant. */
 function dessiner() {
@@ -66,6 +113,10 @@ function afficherVitesse() {
   valeurVitesse.textContent = curseurVitesse.value;
 }
 
+function afficherEta() {
+  valeurEta.textContent = curseurEta.value;
+}
+
 /** Dessine C(r) en échelle log-log et la droite ajustée, de pente D - 2 (la même en log10 qu'en ln). */
 function dessinerCourbe({ rayons, valeurs, dimension }) {
   const largeur = canvasCourbe.width;
@@ -81,7 +132,7 @@ function dessinerCourbe({ rayons, valeurs, dimension }) {
     ctx.font = "15px system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("Aucune courbe : mesurez la DLA.", largeur / 2, hauteur / 2);
+    ctx.fillText("Aucune courbe : mesurez la DLA ou le claquage.", largeur / 2, hauteur / 2);
     return;
   }
   const xs = rayons.map((rayon) => Math.log10(rayon));
@@ -173,16 +224,38 @@ function dessinerCourbe({ rayons, valeurs, dimension }) {
   ctx.fillText("r", largeur - marge.droite, hauteur - 16);
 }
 
-/** Efface l'affichage de la mesure : les deux phrases du repère, la marque et la courbe. */
+/** Efface l'affichage de la mesure : les phrases du repère (zinc et η), la marque et la courbe. */
 function effacerMesure() {
   affichageCompatible.hidden = true;
   affichageHorsBarre.hidden = true;
   marqueD.hidden = true;
+  affichageRepereEta.textContent = "";
+  affichageEcartEta.textContent = "";
+  affichageEcartEta.hidden = true;
+  affichagePasUnAccord.hidden = true;
   affichageResultat.textContent = "Aucune mesure pour l'instant.";
   dessinerCourbe({ rayons: [], valeurs: [], dimension: NaN });
 }
 
-/** Mesure la corrélation de l'amas du moment, puis écrit D, la courbe et le repère du zinc. */
+/** Montre ou cache les blocs du repère selon le modèle : le zinc pour la DLA et les flocons, le repère de η pour le claquage. */
+function montrerLesReperes() {
+  const caches = blocsCaches(choixModele.value);
+  blocZinc.hidden = caches.zinc;
+  blocRepereEta.hidden = caches.repereEta;
+  commandeEta.hidden = caches.commandeEta;
+}
+
+/** Écrit le repère publié de l'η du curseur, lu dans le module, l'écart du banc et la phrase « ce n'est pas un accord ». */
+function ecrireLeRepereEta(dimension) {
+  const eta = etaDuModele;
+  const textes = texteRepereEta(eta, m.givre_courbe_repere(eta), dimension);
+  affichageRepereEta.textContent = textes.repere;
+  affichageEcartEta.textContent = textes.ecart ?? "";
+  affichageEcartEta.hidden = textes.ecart === null;
+  affichagePasUnAccord.hidden = textes.ecart === null;
+}
+
+/** Mesure la corrélation de l'amas du moment, puis écrit D, la courbe et le repère (celui du zinc pour la DLA, celui de η pour le claquage). */
 function mesurer() {
   if (m === null) {
     return;
@@ -192,15 +265,21 @@ function mesurer() {
   const courbe = lireCorrelation(m);
   dessinerCourbe(courbe);
   if (points === 0 || courbe.rayons.length === 0) {
-    affichageResultat.textContent =
-      "Pas de mesure : le modèle DLA seulement, et un amas d'au moins quelques dizaines de sites.";
+    affichageResultat.textContent = "Pas de mesure : la DLA ou le claquage seulement, et un amas assez grand.";
     affichageCompatible.hidden = true;
     affichageHorsBarre.hidden = true;
     marqueD.hidden = true;
+    affichageRepereEta.textContent = "";
+    affichageEcartEta.hidden = true;
+    affichagePasUnAccord.hidden = true;
     return;
   }
   const dimension = courbe.dimension;
-  affichageResultat.textContent = `mesuré par le banc : D = ${dimension.toFixed(3).replace(".", ",")} à ${sites} sites`;
+  affichageResultat.textContent = `mesuré par le banc : D = ${formater(dimension)} à ${sites} sites`;
+  if (claquageEnCours) {
+    ecrireLeRepereEta(dimension);
+    return;
+  }
   const dansLaBarre = Math.abs(dimension - ZINC_DIMENSION) <= ZINC_DEMI_LARGEUR;
   affichageCompatible.hidden = !dansLaBarre;
   affichageHorsBarre.hidden = dansLaBarre;
@@ -209,12 +288,36 @@ function mesurer() {
   marqueD.hidden = false;
 }
 
+/**
+ * Joue les unités d'une image et rend le nombre jouées (0 : le scénario est fini). Le claquage ne joue qu'une unité par appel de
+ * givre_avancer et s'arrête dès que BUDGET_IMAGE_MS sont écoulées : une unité y coûte la relaxation du champ.
+ */
+function avancer() {
+  const vitesse = Number(curseurVitesse.value);
+  if (!claquageEnCours) {
+    return m.givre_avancer(vitesse) >>> 0;
+  }
+  const debut = performance.now();
+  let joue = 0;
+  while (joue < vitesse) {
+    const unite = m.givre_avancer(1) >>> 0;
+    if (unite === 0) {
+      break;
+    }
+    joue += unite;
+    if (performance.now() - debut >= BUDGET_IMAGE_MS) {
+      break;
+    }
+  }
+  return joue;
+}
+
 /** Une image de l'animation : joue les unités du curseur, dessine, puis se rappelle. */
 function image(maintenant) {
   if (!enCours) {
     return;
   }
-  const joue = m.givre_avancer(Number(curseurVitesse.value)) >>> 0;
+  const joue = avancer();
   dessiner();
   afficherTemps();
   if (joue === 0 || maintenant - derniereEmpreinte >= INTERVALLE_EMPREINTE_MS) {
@@ -230,12 +333,20 @@ function image(maintenant) {
   requestAnimationFrame(image);
 }
 
-/** (Re)démarre le modèle choisi avec la graine lue dans le champ. */
+/** Le texte d'état d'un démarrage : le modèle, l'η et la graine quand ils comptent. */
+function texteDEtat(modele, graine) {
+  if (claquageEnCours) {
+    return `Claquage diélectrique, η = ${etaDuModele}, graine ${graine}.`;
+  }
+  return modele === 0 ? `DLA, graine ${graine}.` : "Flocon de Reiter (la graine ne sert qu'à la DLA).";
+}
+
+/** (Re)démarre le modèle choisi avec la graine lue dans le champ (et l'η du curseur pour le claquage). */
 function relancer() {
   if (m === null) {
     return;
   }
-  const modele = Number(choixModele.value);
+  const modele = numeroDuModele(choixModele.value, etaChoisi());
   const graine = lireGraine(champGraine.value);
   if (graine === null) {
     affichageEtat.textContent = "Graine invalide : un entier de 0 à 4294967295.";
@@ -245,18 +356,123 @@ function relancer() {
     affichageEtat.textContent = "Modèle inconnu.";
     return;
   }
+  claquageEnCours = claquageChoisi();
+  etaDuModele = etaChoisi();
+  montrerLesReperes();
   dessiner();
   afficherTemps();
   afficherEmpreinte();
   afficherMesures();
   effacerMesure();
   derniereEmpreinte = performance.now();
-  affichageEtat.textContent =
-    modele === 0 ? `DLA, graine ${graine}.` : "Flocon de Reiter (la graine ne sert qu'à la DLA).";
+  affichageEtat.textContent = texteDEtat(modele, graine);
   if (!enCours) {
     enCours = true;
     requestAnimationFrame(image);
   }
+}
+
+/** Dessine les quatre points de la courbe D(η) : la moyenne du banc et sa barre d'erreur, le repère publié à côté, une grille et des axes. */
+function dessinerCourbeEta(courbe) {
+  const largeur = canvasCourbeEta.width;
+  const hauteur = canvasCourbeEta.height;
+  const ctx = contexteCourbeEta;
+  const marge = { gauche: 58, droite: 24, haut: 20, bas: 44 };
+  const dMin = 0.8;
+  const dMax = 2.2;
+  const px = (eta) => marge.gauche + ((eta + 0.5) / 4) * (largeur - marge.gauche - marge.droite);
+  const py = (d) => marge.haut + ((dMax - d) / (dMax - dMin)) * (hauteur - marge.haut - marge.bas);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, largeur, hauteur);
+  ctx.fillStyle = "#0b1118";
+  ctx.fillRect(0, 0, largeur, hauteur);
+
+  ctx.font = "12px ui-monospace, monospace";
+  ctx.lineWidth = 1;
+  for (let d = 1; d <= 2.0001; d += 0.25) {
+    ctx.strokeStyle = "#1e2a38";
+    ctx.beginPath();
+    ctx.moveTo(marge.gauche, py(d));
+    ctx.lineTo(largeur - marge.droite, py(d));
+    ctx.stroke();
+    ctx.fillStyle = "#8da2b8";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    ctx.fillText(d.toFixed(2).replace(".", ","), marge.gauche - 6, py(d));
+  }
+  for (let eta = 0; eta < 4; eta++) {
+    ctx.fillStyle = "#8da2b8";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillText(`η = ${eta}`, px(eta), hauteur - marge.bas + 8);
+  }
+  ctx.strokeStyle = "#4a5b6c";
+  ctx.beginPath();
+  ctx.moveTo(marge.gauche, marge.haut);
+  ctx.lineTo(marge.gauche, hauteur - marge.bas);
+  ctx.lineTo(largeur - marge.droite, hauteur - marge.bas);
+  ctx.stroke();
+  ctx.fillStyle = "#8da2b8";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillText("D", 8, marge.haut);
+
+  for (const point of courbe.points) {
+    const x = px(point.eta);
+    if (Number.isFinite(point.moyenne)) {
+      ctx.strokeStyle = "#6cc4ff";
+      ctx.fillStyle = "#6cc4ff";
+      ctx.lineWidth = 2;
+      const haut = py(point.moyenne + point.erreurType);
+      const bas = py(point.moyenne - point.erreurType);
+      ctx.beginPath();
+      ctx.moveTo(x, haut);
+      ctx.lineTo(x, bas);
+      ctx.moveTo(x - 5, haut);
+      ctx.lineTo(x + 5, haut);
+      ctx.moveTo(x - 5, bas);
+      ctx.lineTo(x + 5, bas);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x, py(point.moyenne), 4, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.lineWidth = 1;
+    }
+    if (Number.isFinite(point.repere)) {
+      ctx.fillStyle = "#ff6b6b";
+      ctx.fillRect(x + 12 - 4, py(point.repere) - 4, 8, 8);
+    }
+  }
+}
+
+/** Un pas du calcul de la courbe : un amas, puis une pause (setTimeout) avant le suivant pour que la page se redessine. */
+function pasDeLaCourbe() {
+  m.givre_courbe_pas();
+  const courbe = lireCourbe(m);
+  dessinerCourbeEta(courbe);
+  affichageAvancement.textContent = texteAvancement(courbe);
+  if (courbe.code === 0 && courbe.suivant !== null) {
+    minuterieCourbe = setTimeout(pasDeLaCourbe, PAUSE_COURBE_MS);
+  } else {
+    boutonCalculerCourbe.disabled = false;
+  }
+}
+
+/** Démarre le calcul de la courbe D(η) : un nouveau travail du module, puis le premier pas après une pause. */
+function calculerLaCourbe() {
+  if (m === null) {
+    return;
+  }
+  clearTimeout(minuterieCourbe);
+  m.givre_courbe_demarrer(COURBE_TAILLE, COURBE_GRAINES);
+  const courbe = lireCourbe(m);
+  dessinerCourbeEta(courbe);
+  affichageAvancement.textContent = texteAvancement(courbe);
+  if (courbe.code !== 0) {
+    return;
+  }
+  boutonCalculerCourbe.disabled = true;
+  minuterieCourbe = setTimeout(pasDeLaCourbe, PAUSE_COURBE_MS);
 }
 
 async function charger() {
@@ -273,7 +489,10 @@ async function charger() {
   }
   boutonRelancer.addEventListener("click", relancer);
   boutonMesurer.addEventListener("click", mesurer);
+  boutonCalculerCourbe.addEventListener("click", calculerLaCourbe);
   choixModele.addEventListener("change", relancer);
+  curseurEta.addEventListener("input", afficherEta);
+  curseurEta.addEventListener("change", relancer);
   champGraine.addEventListener("keydown", (evenement) => {
     if (evenement.key === "Enter") {
       relancer();
@@ -281,6 +500,8 @@ async function charger() {
   });
   curseurVitesse.addEventListener("input", afficherVitesse);
   afficherVitesse();
+  afficherEta();
+  dessinerCourbeEta(lireCourbe(m));
   relancer();
 }
 
