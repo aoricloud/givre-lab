@@ -1,4 +1,4 @@
-// Ce que la page lit du module : l'empreinte, l'image et la graine. Aucun DOM ici : Node l'éprouve contre le code natif.
+// Ce que la page lit du module (l'empreinte, l'image, la graine, la mesure de corrélation, le travail de la courbe D(η)) et les textes qu'elle en tire. Aucun DOM ici : Node l'éprouve contre le code natif.
 
 const GRAINE_MAX = 4294967295;
 
@@ -52,4 +52,92 @@ export function lireCorrelation(m) {
     valeurs.push(m.givre_correlation_valeur(i));
   }
   return { rayons, valeurs, dimension: m.givre_dimension() };
+}
+
+/**
+ * Le travail de la courbe D(η) gardé par le module : le dernier code, les amas faits, le total, les graines par point (total / 4), les quatre
+ * points (η de 0 à 3 : moyenne et erreur-type, NaN tant que les amas de cet η ne sont pas tous faits ; repère publié, NaN s'il n'y en a pas) et le
+ * prochain amas à faire ({ eta, graine } avec la graine de 1 à `graines`, ou null quand tout est fait ou qu'il n'y a pas de travail). Ne calcule rien.
+ */
+export function lireCourbe(m) {
+  const code = m.givre_courbe_code() >>> 0;
+  const fait = m.givre_courbe_fait() >>> 0;
+  const total = m.givre_courbe_total() >>> 0;
+  const graines = total / 4;
+  const points = [];
+  for (let eta = 0; eta < 4; eta++) {
+    points.push({
+      eta,
+      moyenne: m.givre_courbe_moyenne(eta),
+      erreurType: m.givre_courbe_erreur_type(eta),
+      repere: m.givre_courbe_repere(eta),
+    });
+  }
+  const suivant = fait < total ? { eta: Math.floor(fait / graines), graine: (fait % graines) + 1 } : null;
+  return { code, fait, total, graines, points, suivant };
+}
+
+// D'où vient le repère de chaque η : un nom, jamais une valeur (la valeur vient du module, givre_courbe_repere).
+const SOURCES_REPERES = { 1: "rappel de la DLA", 2: "Hastings 2001", 3: "Hastings 2001" };
+
+// Ce que veut dire chaque code d'erreur du calcul de la courbe (la table de la doc de src/vitrine.rs).
+const MESSAGES_CODES = {
+  1: "taille hors borne",
+  2: "nombre de graines hors borne",
+  3: "un amas a touché la frontière avant sa taille",
+  4: "un amas n'a pas de dimension (fenêtre vide)",
+  5: "aucun calcul démarré",
+  6: "erreur de la bibliothèque",
+};
+
+// Le premier modèle du claquage dans le module : le modèle 4 + η.
+const MODELE_CLAQUAGE = 4;
+
+/** Écrit un nombre avec trois décimales et une virgule : 1,234. */
+export function formater(valeur) {
+  return valeur.toFixed(3).replace(".", ",");
+}
+
+/** Le numéro de modèle du module pour le choix de la liste (« 0 » à « 3 », ou « claquage ») et l'η du curseur : 0 à 3 tels quels, 4 + η pour le claquage. */
+export function numeroDuModele(choix, eta) {
+  return choix === "claquage" ? MODELE_CLAQUAGE + eta : Number(choix);
+}
+
+/**
+ * Ce que la page cache pour le choix du modèle de la liste : les phrases du zinc ne sont que pour la DLA et les flocons ; le curseur η et le repère de η ne
+ * sont que pour le claquage. Rend { zinc, repereEta, commandeEta } : vrai quand le bloc est caché.
+ */
+export function blocsCaches(choix) {
+  const claquage = choix === "claquage";
+  return { zinc: claquage, repereEta: !claquage, commandeEta: !claquage };
+}
+
+/** Le texte d'avancement du calcul de la courbe : l'amas qu'on va faire, ou la fin, ou l'erreur qui l'a arrêté. `courbe` est ce que rend `lireCourbe`. */
+export function texteAvancement(courbe) {
+  if (courbe.code !== 0) {
+    return `Calcul arrêté : ${MESSAGES_CODES[courbe.code] ?? "erreur"} (code ${courbe.code}).`;
+  }
+  if (courbe.total === 0) {
+    return "Aucun calcul pour l'instant.";
+  }
+  if (courbe.suivant !== null) {
+    return `η = ${courbe.suivant.eta}, graine ${courbe.suivant.graine} sur ${courbe.graines}`;
+  }
+  return `Calcul terminé : ${courbe.fait} amas.`;
+}
+
+/**
+ * Les phrases du repère publié de l'η du curseur : `repere` est ce que rend `givre_courbe_repere(eta)` (NaN s'il n'y en a pas) et `dimension` la
+ * dimension mesurée du banc. Rend { repere, ecart } : le texte du repère avec sa source et le texte de l'écart du banc (signé), ou `ecart` à null
+ * quand il n'y a pas de repère.
+ */
+export function texteRepereEta(eta, repere, dimension) {
+  if (Number.isNaN(repere)) {
+    return { repere: `pas de repère publié pour η = ${eta}`, ecart: null };
+  }
+  const ecart = dimension - repere;
+  return {
+    repere: `repère publié (${SOURCES_REPERES[eta]}) : ${formater(repere)}`,
+    ecart: `écart du banc au repère : ${ecart < 0 ? "−" : "+"}${formater(Math.abs(ecart))}`,
+  };
 }
