@@ -62,8 +62,8 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use etape_5_commun::{
-    D3_ACTIVE, FONCTIONS, FONCTIONS_D3, FONCTIONS_Z1, Z1_ACTIVE, chemin_module, lancer_le_script, lire_page, natif,
-    node_est_la, racine,
+    D3_ACTIVE, FONCTIONS, FONCTIONS_D3, FONCTIONS_V7, FONCTIONS_Z1, V7_ACTIVE, Z1_ACTIVE, chemin_module,
+    lancer_le_script, lire_page, natif, node_est_la, racine,
 };
 use givre_lab::empreinte::sha256_hex;
 
@@ -373,8 +373,13 @@ fn app_js_emploie_exactement_les_exportations_du_module() {
     // Étape D3 : avec `etape-d3` la page emploie les vingt-trois fonctions ; sans elle, les onze, les quinze ou les vingt-trois.
     let vingt_trois: BTreeSet<String> =
         quinze.iter().cloned().chain(FONCTIONS_D3.iter().map(|(nom, _, _)| nom.to_string())).collect();
+    // Étape V7 : avec `etape-v7` la page emploie les vingt-sept fonctions ; sans elle, ce que les fonctionnalités d'avant disent ou les vingt-sept.
+    let vingt_sept: BTreeSet<String> =
+        vingt_trois.iter().cloned().chain(FONCTIONS_V7.iter().map(|(nom, _, _)| nom.to_string())).collect();
     let employes = noms_employes(&code);
-    let exportees = if D3_ACTIVE || employes == vingt_trois {
+    let exportees = if V7_ACTIVE || employes == vingt_sept {
+        vingt_sept
+    } else if D3_ACTIVE || employes == vingt_trois {
         vingt_trois
     } else if Z1_ACTIVE || employes == quinze {
         quinze
@@ -391,6 +396,7 @@ fn app_js_emploie_exactement_les_exportations_du_module() {
         .iter()
         .chain(FONCTIONS_Z1.iter())
         .chain(FONCTIONS_D3.iter())
+        .chain(FONCTIONS_V7.iter())
         .filter(|(nom, _, _)| exportees.contains(*nom))
     {
         let arites = arites_des_appels(&code, nom);
