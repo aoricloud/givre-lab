@@ -87,6 +87,31 @@
 //! Au-delà de 300 sites elle est extrapolée, et plafonnée. **`η > ETA_COURBE_MAX` (3) est refusé** (panique, message contenant « η ») : au-delà, le rayon des amas n'est pas
 //! mesuré, et la transition `η = 4` est un débat ouvert (`MODELE.md`).
 //!
+//! # Les entrées qui rendent une erreur (étape D3)
+//!
+//! Les fonctions ci-dessus **paniquent** sur un cas absurde (c'est leur contrat, éprouvé par les tests de D2, et il ne change pas). Une page web ne peut
+//! pas se le permettre : une panique dans le module WebAssembly abandonne le module entier. D3 **ajoute** donc des entrées jumelles qui rendent un
+//! [`Result`] : [`essayer_demi_cote_de_la_courbe`], [`essayer_dimension_d_une_graine`] et [`essayer_point_de_la_courbe`], plus [`mesure_petit_amas`]
+//! (la courbe `C(r)` de la fenêtre des petits amas et sa dimension, pour la page). **Un cas absurde est une erreur de [`ErreurCourbe`], jamais une
+//! panique, jamais un débordement silencieux.** Quand rien n'échoue, [`essayer_point_de_la_courbe`] rend le **même point**, à `to_bits` près, que
+//! [`point_de_la_courbe`], et [`essayer_dimension_d_une_graine`] la dimension de [`dimension_d_un_amas`] sur l'amas que fait croître
+//! [`point_de_la_courbe`] pour cette graine ; [`essayer_demi_cote_de_la_courbe`] rend la valeur de [`demi_cote_de_la_courbe`].
+//!
+//! **L'ordre des vérifications** (la première qui échoue donne l'erreur) : d'abord les **paramètres**, sans faire croître le moindre amas, dans cet ordre,
+//! `graines` (moins de deux : [`ErreurCourbe::GrainesInsuffisantes`], pour [`essayer_point_de_la_courbe`] seulement), `eta`
+//! ([`ErreurCourbe::EtaTropGrand`]), `demi_cote` ([`ErreurCourbe::DemiCoteHorsBorne`]), `taille` ([`ErreurCourbe::TailleHorsBorne`]) ; puis, pour chaque
+//! graine **dans l'ordre donné**, la croissance de l'amas (une graine dont l'amas touche la frontière avant d'avoir `taille` sites donne
+//! [`ErreurCourbe::FrontiereTouchee`] : c'est l'erreur de la **première** graine fautive, les suivantes ne sont pas essayées) et la dimension (une
+//! dimension indéfinie donne [`ErreurCourbe::FenetreVide`]). Les bornes sont celles de la bibliothèque : `eta <= ETA_MAX` (8,
+//! [`crate::claquage::ETA_MAX`]) pour [`essayer_dimension_d_une_graine`] et [`essayer_point_de_la_courbe`] (comme [`point_de_la_courbe`], qui accepte
+//! `η` jusqu'à 8), `eta <= ETA_COURBE_MAX` (3) pour [`essayer_demi_cote_de_la_courbe`] seulement (la règle du demi-côté n'existe que pour
+//! `η = 0` à `3`) ; `demi_cote <= DEMI_COTE_MAX` (255) ; `taille <= PARTICULES_MAX` ([`crate::claquage::PARTICULES_MAX`], 100 000). Une `taille` de 0
+//! ou 1, ou trop petite pour que la fenêtre soit non vide (une étendue de moins de 8), n'est **pas** une erreur de paramètre : c'est
+//! [`ErreurCourbe::FenetreVide`], comme la panique « fenêtre » de D2. **Aucune borne de temps** : une `taille` et un `demi_cote` permis peuvent encore
+//! coûter des heures à `η >= 1` ; borner le temps est l'affaire de l'appelant (la vitrine, étape D3).
+//!
+//! **Le texte** de chaque erreur (`Display`) est fixé : voir [`ErreurCourbe`].
+//!
 //! # Les repères publiés
 //!
 //! - [`HASTINGS_2001_TABLE_II`] : M. B. Hastings, *Fractal to Nonfractal Phase Transition in the Dielectric Breakdown Model*, Phys. Rev. Lett. 87,
@@ -131,8 +156,10 @@
 //! la ligne 300 (`D = 0,8` ; colonnes 20 à 620), et un trait de graduation de six pixels sous la colonne de chaque `η` de 0 à 8. Les marqueurs de repère
 //! sont dessinés en dernier, donc par-dessus tout le reste.
 
+use std::fmt;
+
 use crate::claquage::{Claquage, DEMI_COTE_MAX};
-use crate::correlation::{RAYON_MAX, correlation, dimension_correlation, etendue};
+use crate::correlation::{Mesure, RAYON_MAX, correlation, dimension_correlation, etendue};
 
 /// Le premier rayon de la fenêtre des petits amas : 2 (voir [`fenetre_petit_amas`]).
 pub const FENETRE_DEBUT: u32 = 2;
@@ -286,6 +313,93 @@ pub fn point_de_la_courbe(eta: u32, graines: &[u64], taille: usize, demi_cote: u
 /// Comme [`point_de_la_courbe`] et [`demi_cote_de_la_courbe`] (`eta > ETA_COURBE_MAX`).
 pub fn courbe(etas: &[u32], graines: &[u64], taille: usize) -> Vec<PointDeLaCourbe> {
     etas.iter().map(|&eta| point_de_la_courbe(eta, graines, taille, demi_cote_de_la_courbe(eta, taille))).collect()
+}
+
+/// Pourquoi une entrée `essayer_*` ne donne ni dimension ni point (voir « Les entrées qui rendent une erreur » dans la documentation du module).
+///
+/// Le texte de [`fmt::Display`] est **exactement** (les valeurs entre accolades sont celles du champ ; 255 et 100000 sont
+/// [`crate::claquage::DEMI_COTE_MAX`] et [`crate::claquage::PARTICULES_MAX`]) :
+///
+/// | variante | texte |
+/// |---|---|
+/// | [`ErreurCourbe::GrainesInsuffisantes`]`{ donnees }` | `au moins deux graines sont nécessaires, {donnees} données` |
+/// | [`ErreurCourbe::EtaTropGrand`]`{ eta, maximum }` | `η = {eta} : au-delà du maximum {maximum}` |
+/// | [`ErreurCourbe::DemiCoteHorsBorne`]`{ demi_cote }` | `demi-côté {demi_cote} : au-delà du maximum 255` |
+/// | [`ErreurCourbe::TailleHorsBorne`]`{ taille }` | `taille {taille} : au-delà du maximum 100000` |
+/// | [`ErreurCourbe::FrontiereTouchee`]`{ graine }` | `la graine {graine} : l'amas touche la frontière avant d'atteindre sa taille` |
+/// | [`ErreurCourbe::FenetreVide`]`{ graine }` | `la graine {graine} : aucune dimension (fenêtre vide ou C(r) nul)` |
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ErreurCourbe {
+    /// Moins de deux graines données à [`essayer_point_de_la_courbe`] (`donnees` est leur nombre : une erreur-type n'existe pas pour une seule).
+    GrainesInsuffisantes { donnees: usize },
+    /// Un `eta` au-delà du maximum de l'entrée (`maximum` vaut 8 pour [`essayer_dimension_d_une_graine`] et [`essayer_point_de_la_courbe`], 3 pour
+    /// [`essayer_demi_cote_de_la_courbe`]).
+    EtaTropGrand { eta: u32, maximum: u32 },
+    /// Un `demi_cote` au-delà de [`crate::claquage::DEMI_COTE_MAX`].
+    DemiCoteHorsBorne { demi_cote: u32 },
+    /// Une `taille` au-delà de [`crate::claquage::PARTICULES_MAX`].
+    TailleHorsBorne { taille: usize },
+    /// L'amas de cette graine a touché la frontière avant d'avoir `taille` sites.
+    FrontiereTouchee { graine: u64 },
+    /// L'amas de cette graine n'a pas de dimension : la fenêtre des petits amas est vide, ou une valeur `C(r)` de la fenêtre est nulle.
+    FenetreVide { graine: u64 },
+}
+
+impl fmt::Display for ErreurCourbe {
+    #[allow(unused_variables)]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        todo!()
+    }
+}
+
+impl std::error::Error for ErreurCourbe {}
+
+/// Comme [`demi_cote_de_la_courbe`], mais une erreur au lieu d'une panique ou d'un débordement : `Ok(`[`demi_cote_de_la_courbe`]`(eta, taille))` si
+/// `eta <= ETA_COURBE_MAX` et `taille <= PARTICULES_MAX` ; `Err(`[`ErreurCourbe::EtaTropGrand`]`{ eta, maximum: 3 })` si `eta > 3` (vérifié d'abord) ;
+/// `Err(`[`ErreurCourbe::TailleHorsBorne`]`{ taille })` si `taille > 100000` (le produit `B * taille` de la règle ne déborde alors jamais, même sur 32 bits).
+#[allow(unused_variables)]
+pub fn essayer_demi_cote_de_la_courbe(eta: u32, taille: usize) -> Result<u32, ErreurCourbe> {
+    todo!()
+}
+
+/// La dimension d'**un** amas : celui que fait croître [`point_de_la_courbe`] pour cette `graine` (un [`Claquage`] `Claquage::new(graine, demi_cote, eta)`
+/// jusqu'à `taille` sites par des appels de `essayer_ajouter`), puis [`dimension_d_un_amas`] de ses sites, bit pour bit. C'est le pas du calcul d'une
+/// courbe par la page : un amas par appel. Les paramètres sont vérifiés d'abord (`eta`, `demi_cote`, `taille`, voir « Les entrées qui rendent une
+/// erreur »), puis : un amas qui touche la frontière avant d'avoir `taille` sites donne `Err(`[`ErreurCourbe::FrontiereTouchee`]`{ graine })` ; une
+/// dimension `None` donne `Err(`[`ErreurCourbe::FenetreVide`]`{ graine })`. Ne panique jamais.
+#[allow(unused_variables)]
+pub fn essayer_dimension_d_une_graine(
+    eta: u32,
+    graine: u64,
+    taille: usize,
+    demi_cote: u32,
+) -> Result<f64, ErreurCourbe> {
+    todo!()
+}
+
+/// Comme [`point_de_la_courbe`], mais une erreur au lieu d'une panique : le même [`PointDeLaCourbe`], à `to_bits` près, quand rien n'échoue. Moins de
+/// deux graines : `Err(`[`ErreurCourbe::GrainesInsuffisantes`]`{ donnees: graines.len() })` (vérifié **avant** toute chose) ; puis les paramètres
+/// (`eta`, `demi_cote`, `taille`) ; puis, pour chaque graine dans l'ordre donné (une graine répétée compte autant de fois qu'elle est donnée), l'erreur de
+/// [`essayer_dimension_d_une_graine`] (la première qui échoue arrête tout) ; puis [`moyenne_et_erreur_type`] des dimensions dans l'ordre des graines
+/// (appelée avec deux valeurs au moins : elle ne panique jamais ici). Ne panique jamais.
+#[allow(unused_variables)]
+pub fn essayer_point_de_la_courbe(
+    eta: u32,
+    graines: &[u64],
+    taille: usize,
+    demi_cote: u32,
+) -> Result<PointDeLaCourbe, ErreurCourbe> {
+    todo!()
+}
+
+/// La mesure d'un amas par la fenêtre des petits amas : une [`Mesure`] dont les `rayons` sont [`fenetre_petit_amas`]`(sites)`, les `valeurs` les `C(r)` de
+/// [`crate::correlation::correlation`]`(sites, dernier rayon)` à ces rayons (l'élément d'indice `r - 1`, **bit pour bit**) et la `dimension`
+/// **exactement** [`dimension_d_un_amas`]`(sites)` (`2.0 + pente` des points `(logarithme(r), logarithme(C(r)))`, la formule de
+/// [`crate::correlation::dimension_correlation`]). `None` dans les cas où [`dimension_d_un_amas`] rend `None` (fenêtre vide ou une valeur `C(r)` nulle,
+/// liste vide comprise). C'est ce que la vitrine garde pour les modèles de claquage. Ne panique jamais.
+#[allow(unused_variables)]
+pub fn mesure_petit_amas(sites: &[(i32, i32)]) -> Option<Mesure> {
+    todo!()
 }
 
 /// Le repère publié affiché pour `eta` : `Some(`[`DLA_RAPPEL`]`)` pour `1`, la valeur de [`HASTINGS_2001_TABLE_II`] pour `2` et `3`, `None` pour
