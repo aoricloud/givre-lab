@@ -62,8 +62,8 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use etape_5_commun::{
-    D3_ACTIVE, FONCTIONS, FONCTIONS_D3, FONCTIONS_V7, FONCTIONS_Z1, V7_ACTIVE, Z1_ACTIVE, chemin_module,
-    lancer_le_script, lire_page, natif, node_est_la, racine,
+    D3_ACTIVE, FONCTIONS, FONCTIONS_D3, FONCTIONS_G3, FONCTIONS_V7, FONCTIONS_Z1, G3_ACTIVE, V7_ACTIVE, Z1_ACTIVE,
+    chemin_module, lancer_le_script, lire_page, natif, node_est_la, racine,
 };
 use givre_lab::empreinte::sha256_hex;
 
@@ -305,11 +305,19 @@ fn la_page_a_ses_commandes_et_ses_affichages() {
     let valeurs: Vec<&str> = options.iter().map(|(valeur, _)| valeur.as_str()).collect();
     // Étape D3 : une cinquième option, le claquage diélectrique (`value` « claquage » : le curseur η donne le numéro du modèle). Avec `etape-d3`, les
     // cinq seulement ; sans elle, les quatre d'avant ou les cinq.
-    if D3_ACTIVE {
-        assert_eq!(valeurs, ["0", "1", "2", "3", "claquage"], "les <option> du choix du modèle");
+    // Étape G3 : une sixième option, la neige (`value` « neige » : le menu des jeux nommés et les curseurs donnent son démarrage). Avec `etape-g3`, les six seulement ; sans elle, ce que `etape-d3` dit ou les six.
+    if G3_ACTIVE {
+        assert_eq!(valeurs, ["0", "1", "2", "3", "claquage", "neige"], "les <option> du choix du modèle");
+    } else if D3_ACTIVE {
+        assert!(
+            valeurs == ["0", "1", "2", "3", "claquage"] || valeurs == ["0", "1", "2", "3", "claquage", "neige"],
+            "les <option> du choix du modèle : {valeurs:?}"
+        );
     } else {
         assert!(
-            valeurs == ["0", "1", "2", "3"] || valeurs == ["0", "1", "2", "3", "claquage"],
+            valeurs == ["0", "1", "2", "3"]
+                || valeurs == ["0", "1", "2", "3", "claquage"]
+                || valeurs == ["0", "1", "2", "3", "claquage", "neige"],
             "les <option> du choix du modèle : {valeurs:?}"
         );
     }
@@ -376,8 +384,13 @@ fn app_js_emploie_exactement_les_exportations_du_module() {
     // Étape V7 : avec `etape-v7` la page emploie les vingt-sept fonctions ; sans elle, ce que les fonctionnalités d'avant disent ou les vingt-sept.
     let vingt_sept: BTreeSet<String> =
         vingt_trois.iter().cloned().chain(FONCTIONS_V7.iter().map(|(nom, _, _)| nom.to_string())).collect();
+    // Étape G3 : avec `etape-g3` la page emploie les trente-deux fonctions ; sans elle, ce que les fonctionnalités d'avant disent ou les trente-deux.
+    let trente_deux: BTreeSet<String> =
+        vingt_sept.iter().cloned().chain(FONCTIONS_G3.iter().map(|(nom, _, _)| nom.to_string())).collect();
     let employes = noms_employes(&code);
-    let exportees = if V7_ACTIVE || employes == vingt_sept {
+    let exportees = if G3_ACTIVE || employes == trente_deux {
+        trente_deux
+    } else if V7_ACTIVE || employes == vingt_sept {
         vingt_sept
     } else if D3_ACTIVE || employes == vingt_trois {
         vingt_trois
@@ -397,6 +410,7 @@ fn app_js_emploie_exactement_les_exportations_du_module() {
         .chain(FONCTIONS_Z1.iter())
         .chain(FONCTIONS_D3.iter())
         .chain(FONCTIONS_V7.iter())
+        .chain(FONCTIONS_G3.iter())
         .filter(|(nom, _, _)| exportees.contains(*nom))
     {
         let arites = arites_des_appels(&code, nom);

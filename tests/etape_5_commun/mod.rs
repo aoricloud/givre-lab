@@ -211,6 +211,19 @@ pub const FONCTIONS_V7: [(&str, &[u8], &[u8]); 4] = [
 /// Vrai quand la fonctionnalité `etape-v7` est active : le module et la page doivent alors avoir les vingt-sept fonctions.
 pub const V7_ACTIVE: bool = cfg!(feature = "etape-v7");
 
+/// Les cinq fonctions de la neige de l'étape G3 (voir `src/vitrine.rs`, « La neige »), avec leur signature. Le module et la page d'avant G3 ne les ont pas : tant que la fonctionnalité `etape-g3` n'est pas active, les tests acceptent le module et
+/// la page tels qu'ils sont (onze, quinze, vingt-trois ou vingt-sept fonctions) ou étendus de ces cinq (trente-deux) ; avec `etape-g3`, ils n'acceptent que les trente-deux.
+pub const FONCTIONS_G3: [(&str, &[u8], &[u8]); 5] = [
+    ("givre_neige_demarrer", &[I32, I32, I32, I32, I32], &[I32]),
+    ("givre_neige_jeux", &[], &[I32]),
+    ("givre_neige_jeu", &[I32, I32], &[I32]),
+    ("givre_neige_reglage", &[I32], &[I32]),
+    ("givre_neige_mesure", &[I32], &[I32]),
+];
+
+/// Vrai quand la fonctionnalité `etape-g3` est active : le module et la page doivent alors avoir les trente-deux fonctions.
+pub const G3_ACTIVE: bool = cfg!(feature = "etape-g3");
+
 /// Un lecteur d'octets avec une position.
 struct Lecteur<'a> {
     octets: &'a [u8],
