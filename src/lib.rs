@@ -3,6 +3,7 @@
 //! vagues n'éditent pas ce fichier ensemble.
 
 pub mod alea;
+pub mod balayage;
 pub mod cinetique;
 pub mod claquage;
 pub mod correlation;
