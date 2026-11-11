@@ -20,7 +20,7 @@ mod etape_5_commun;
 use std::collections::BTreeMap;
 use std::sync::{Mutex, MutexGuard};
 
-use etape_5_commun::{Natif, TABLE, natif, racine, reference};
+use etape_5_commun::{D3_ACTIVE, Natif, TABLE, natif, racine, reference};
 use givre_lab::dla::{demi_cote_de_la_boite, particules};
 use givre_lab::scenario::{Forme, lire_scenario};
 use givre_lab::vitrine::{
@@ -294,9 +294,10 @@ fn avancer_s_arrete_a_la_duree() {
     }
 }
 
-/// juste : un modèle qui n'existe pas (4, 100, `u32::MAX`) est refusé : `givre_demarrer` rend 0 et ne change **rien** (le
+/// juste : un modèle qui n'existe pas (8, 9, 100, `u32::MAX`) est refusé : `givre_demarrer` rend 0 et ne change **rien** (le
 /// temps, la durée, l'image et l'empreinte de la simulation en cours restent ceux d'avant, et celle-ci continue d'avancer
-/// comme le natif) ; un modèle qui existe rend 1.
+/// comme le natif) ; un modèle qui existe rend 1. Étape D3 : les modèles 4 et 5 (le claquage) existent avec `etape-d3` (rendent 1) ; sans elle, le
+/// code d'avant les refuse (0, rien ne change) et le code de D3 les accepte (1) : l'un ou l'autre.
 ///
 /// Ne couvre pas : le refus quand rien n'a jamais été démarré (voir l'en-tête).
 #[test]
@@ -305,12 +306,22 @@ fn modele_inconnu_ne_change_rien() {
     let _verrou = verrou();
     assert_eq!(givre_demarrer(2, 5), 1);
     assert_eq!(givre_avancer(20), 20);
-    for inconnu in [4, 5, 100, u32::MAX] {
+    for inconnu in [8, 9, 100, u32::MAX] {
         assert_eq!(givre_demarrer(inconnu, 5), 0, "modèle {inconnu}");
         verifier_identique(&natif(2, 5, 20), &format!("après givre_demarrer({inconnu}, 5)"));
     }
     assert_eq!(givre_avancer(10), 10);
     verifier_identique(&natif(2, 5, 30), "la simulation continue");
+    for ancien_inconnu in [4, 5] {
+        let rendu = givre_demarrer(ancien_inconnu, 5);
+        if D3_ACTIVE {
+            assert_eq!(rendu, 1, "modèle {ancien_inconnu}");
+        } else if rendu == 0 {
+            verifier_identique(&natif(2, 5, 30), &format!("après givre_demarrer({ancien_inconnu}, 5)"));
+        } else {
+            assert_eq!(rendu, 1, "modèle {ancien_inconnu}");
+        }
+    }
 }
 
 /// juste : hors de portée, pour chaque modèle, au départ et à la fin. `givre_pixel` rend `u32::MAX` pour `x == largeur`, pour
