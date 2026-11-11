@@ -1,0 +1,4 @@
+# Neige de Gravner et Griffeath, le régime lent : les mêmes réglages de la figure 9 de l'article (annexe 8, ligne « 9 ») avec ρ = 0,40, la plus basse des figures (la plaque à secteurs
+# de la figure 9, vue ici à petite taille) : la croissance est lente (le cristal atteint le rayon 36 en 3500 pas). L'hexagone de rayon 70 garde le mur loin.
+hexagone 70
+neige 3500 0.4 1.3 0.08 0.025 0.003 0.07 0.00005

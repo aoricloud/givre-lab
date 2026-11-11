@@ -192,6 +192,19 @@
 //! (`essayer_ajouter` rend `None`) : la ligne de la directive `claquage`. Rien n'est rendu d'autre dans ces cas. Un
 //! scénario sans directive `claquage` se comporte exactement comme avant cette étape.
 //!
+//! # Ce que fait l'étape G1 : la directive `neige`
+//!
+//! **Cette section est le contrat de [`lancer`] à l'étape G1** (reprise de la documentation de [`crate::neige`], § « La directive `neige` et la sortie de `lancer` »). Le scénario est `hexagone <rayon>` et
+//! **une seule** directive, `neige <pas> <rho> <beta> <alpha> <theta> <kappa> <mu> <gamma>`. Quand la **première** directive s'appelle `neige` (et qu'aucune directive du scénario n'est `dla`, `collage` ou
+//! `bruit`), [`lancer`] appelle [`crate::neige::lancer_neige`] et rend sa [`Sortie`] ; son `Err(ligne)` devient [`ErreurLancer::DirectiveInconnue`]`(ligne)`. La graine n'est pas utilisée (le modèle n'a aucun
+//! hasard : deux graines donnent la même sortie, octet pour octet). Les sorties sont : **l'empreinte** de [`crate::neige::Neige::empreinte`] de l'état final ; **les mesures**, le CSV
+//! `temps,rattachees,rayon,masse_cristal`, avec une ligne à l'instant 0, puis à chaque instant `t` multiple de `intervalle = max(1, pas / 20)` tel que `1 <= t <= pas`, puis une dernière ligne à `t = pas` si ce
+//! n'est pas déjà un multiple (la masse du cristal avec six décimales exactes) ; **l'aperçu**, le PNG ([`crate::image::ecrire_png`]) de [`crate::neige::Neige::apercu`], un carré de côté `2 * rayon + 1`.
+//!
+//! **Les refus**, tous `ErreurLancer::DirectiveInconnue(ligne)` : la ligne de la **première directive fautive dans l'ordre du fichier** : la directive `neige` elle-même si la forme n'est pas un `hexagone`, si elle n'a
+//! pas exactement huit arguments, si `pas` n'est pas un entier décimal de 1 à [`crate::neige::PAS_MAX`] ou si les sept réglages ne se lisent pas par [`crate::neige::Parametres::lire`] ; sinon la ligne de la directive
+//! suivante, quelle qu'elle soit. Rien n'est calculé alors.
+//!
 //! # L'écriture canonique de l'état du scénario vide
 //!
 //! L'empreinte est le SHA-256 (`empreinte::sha256_hex`) de cette suite d'octets, dans cet ordre :
@@ -256,7 +269,7 @@ pub enum ErreurLancer {
 /// Lance le scénario avec cette graine (voir la documentation du module). Pour le même scénario et la même graine, le
 /// résultat est toujours le même, octet pour octet, sur toutes les machines.
 ///
-/// La première directive choisit le lancer : `reiter` appelle [`crate::flocon::lancer_reiter`] (étape 3) ; `dla`,
+/// La première directive choisit le lancer : `reiter` appelle [`crate::flocon::lancer_reiter`] (étape 3) ; `neige` appelle [`crate::neige::lancer_neige`] (étape G1) ; `dla`,
 /// `collage` ou `bruit` le lancer de la DLA de l'étape 1, ou celui de l'étape 2d quand une variante est lue (voir « Ce que
 /// fait l'étape 2d ») ; `cinetique` le lancer cinétique de l'étape 4 ; `surface` le lancer de surface de l'étape 2s (une
 /// `surface` bien formée, et aucune autre directive) ; sans directive, c'est le scénario vide de l'étape 0. Dès qu'une
@@ -281,6 +294,7 @@ pub fn lancer(scenario: &Scenario, graine: u64) -> Result<Sortie, ErreurLancer> 
     };
     match premiere.nom.as_str() {
         "reiter" => crate::flocon::lancer_reiter(scenario).map_err(ErreurLancer::DirectiveInconnue),
+        "neige" => crate::neige::lancer_neige(scenario).map_err(ErreurLancer::DirectiveInconnue),
         "cinetique" => lancer_cinetique(scenario, graine),
         "surface" => lancer_surface_directive(scenario, graine),
         "claquage" => lancer_claquage(scenario, graine),
