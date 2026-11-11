@@ -258,10 +258,13 @@
 //!   `n >= 3` en (3b), et **une** de ses deux proses de l'instabilité (après la figure 10 : `θ` et `α`) échange les deux lettres
 //!   par rapport à l'équation (3b), à la phrase qui précède (3b) et à l'annexe, que ce module suit.
 
+use crate::empreinte;
+use crate::flocon::lire_decimal;
+use crate::image;
 use crate::lancer::Sortie;
 use crate::math::Fixe;
-use crate::reseau::Hexagone;
-use crate::scenario::Scenario;
+use crate::reseau::{DIRECTIONS_HEX, Hexagone, distance_hex};
+use crate::scenario::{Forme, Scenario};
 
 /// Le plus grand rayon permis (celui d'une directive `hexagone` : `scenario::RAYON_MAX`). Un hexagone de rayon `R` a
 /// `3 R (R + 1) + 1` cases : au plus `12 576 769` ; la masse totale d'un état permis est alors `< 2^24`.
@@ -323,15 +326,28 @@ impl Parametres {
     /// Rend `Ok(())` si les sept réglages sont dans leurs plages (voir « Les réglages », bornes incluses), sinon
     /// `Err(ErreurNeige::ParametreHorsPlage(nom))` avec le nom du **premier** réglage hors plage dans l'ordre `rho`, `beta`,
     /// `alpha`, `theta`, `kappa`, `mu`, `gamma`.
-    #[allow(unused_variables)]
     pub fn verifier(&self) -> Result<(), ErreurNeige> {
-        todo!()
+        let un = Fixe::UN.0;
+        let plages: [(&'static str, i64, i64, i64); 7] = [
+            ("rho", self.rho.0, 0, un),
+            ("beta", self.beta.0, un, 8 * un),
+            ("alpha", self.alpha.0, 0, un),
+            ("theta", self.theta.0, 0, 8 * un),
+            ("kappa", self.kappa.0, 0, un),
+            ("mu", self.mu.0, 0, un),
+            ("gamma", self.gamma.0, 0, un),
+        ];
+        for (nom, valeur, bas, haut) in plages {
+            if valeur < bas || valeur > haut {
+                return Err(ErreurNeige::ParametreHorsPlage(nom));
+            }
+        }
+        Ok(())
     }
 
     /// Lit sept décimaux écrits comme dans un scénario (chacun par [`crate::flocon::lire_decimal`], dans l'ordre `rho`, `beta`,
     /// `alpha`, `theta`, `kappa`, `mu`, `gamma`) et rend les réglages, ou `None` si l'un est mal écrit ou si le jeu n'est pas
     /// valide ([`Parametres::verifier`]).
-    #[allow(unused_variables)]
     pub fn lire(
         rho: &str,
         beta: &str,
@@ -341,14 +357,23 @@ impl Parametres {
         mu: &str,
         gamma: &str,
     ) -> Option<Parametres> {
-        todo!()
+        let parametres = Parametres {
+            rho: lire_decimal(rho)?,
+            beta: lire_decimal(beta)?,
+            alpha: lire_decimal(alpha)?,
+            theta: lire_decimal(theta)?,
+            kappa: lire_decimal(kappa)?,
+            mu: lire_decimal(mu)?,
+            gamma: lire_decimal(gamma)?,
+        };
+        parametres.verifier().ok()?;
+        Some(parametres)
     }
 }
 
 /// Une neige de Gravner et Griffeath sans bruit : un hexagone de cases, ses réglages et son temps (voir la documentation du
 /// module). Les champs sont privés : seul le contrat des fonctions compte.
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct Neige {
     hexagone: Hexagone,
     parametres: Parametres,
@@ -375,9 +400,59 @@ impl Neige {
     ///
     /// Jamais de panique : `Err(ErreurNeige::RayonHorsBorne)` si `rayon` est 0 ou plus grand que [`RAYON_MAX`] (testé en
     /// premier), puis `Err(ErreurNeige::ParametreHorsPlage(nom))` si les réglages ne sont pas valides ([`Parametres::verifier`]).
-    #[allow(unused_variables)]
     pub fn essayer_new(rayon: u32, parametres: Parametres) -> Result<Neige, ErreurNeige> {
-        todo!()
+        if rayon == 0 || rayon > RAYON_MAX {
+            return Err(ErreurNeige::RayonHorsBorne);
+        }
+        parametres.verifier()?;
+        let hexagone = Hexagone::new(rayon);
+        let cases = hexagone.cases();
+        let mut a = vec![0_u8; cases];
+        let b = vec![0_i64; cases];
+        let mut c = vec![0_i64; cases];
+        let mut d = vec![parametres.rho.0; cases];
+        let origine = hexagone.index(0, 0);
+        a[origine] = 1;
+        c[origine] = Fixe::UN.0;
+        d[origine] = 0;
+        Ok(Neige::assembler(hexagone, parametres, a, b, c, d))
+    }
+
+    /// Assemble une neige au temps 0 à partir des quatre tableaux (de la taille des cases) : remplit la table des voisins et
+    /// les tampons.
+    fn assembler(
+        hexagone: Hexagone,
+        parametres: Parametres,
+        a: Vec<u8>,
+        b: Vec<i64>,
+        c: Vec<i64>,
+        d: Vec<i64>,
+    ) -> Neige {
+        let cases = hexagone.cases();
+        let mut voisins = Vec::with_capacity(cases);
+        for i in 0..cases {
+            let (q, r) = hexagone.position(i);
+            let mut six = [-1_i32; 6];
+            for (k, &(dq, dr)) in DIRECTIONS_HEX.iter().enumerate() {
+                if hexagone.contient(q + dq, r + dr) {
+                    six[k] = hexagone.index(q + dq, r + dr) as i32;
+                }
+            }
+            voisins.push(six);
+        }
+        Neige {
+            hexagone,
+            parametres,
+            temps: 0,
+            a,
+            b,
+            c,
+            d,
+            voisins,
+            n: vec![0_u8; cases],
+            d_suivant: vec![0_i64; cases],
+            nouveaux: Vec::new(),
+        }
     }
 
     /// Une neige d'état quelconque au temps 0 : `cases` donne la [`Case`] de chaque case **dans l'ordre canonique** de
@@ -390,103 +465,250 @@ impl Neige {
     /// canonique) qui viole (I1), (I2) ou (I3) (une masse négative ; une case rattachée avec `b` ou `d` non nul ; une case non
     /// rattachée sans voisin rattaché, avec `b` ou `c` non nul), les `a` étant ceux de `cases` ; enfin `Err(MasseTropGrande)` si
     /// la somme des `brut` de `b`, `c` et `d` de toutes les cases est `2^56` ou plus.
-    #[allow(unused_variables)]
     pub fn essayer_depuis_cases(rayon: u32, parametres: Parametres, cases: &[Case]) -> Result<Neige, ErreurNeige> {
-        todo!()
+        if rayon == 0 || rayon > RAYON_MAX {
+            return Err(ErreurNeige::RayonHorsBorne);
+        }
+        parametres.verifier()?;
+        let hexagone = Hexagone::new(rayon);
+        if cases.len() != hexagone.cases() {
+            return Err(ErreurNeige::NombreDeCases);
+        }
+        let a: Vec<u8> = cases.iter().map(|case| u8::from(case.a)).collect();
+        let b: Vec<i64> = cases.iter().map(|case| case.b.0).collect();
+        let c: Vec<i64> = cases.iter().map(|case| case.c.0).collect();
+        let d: Vec<i64> = cases.iter().map(|case| case.d.0).collect();
+        let neige = Neige::assembler(hexagone, parametres, a, b, c, d);
+        for i in 0..cases.len() {
+            let case = cases[i];
+            let negative = case.b.0 < 0 || case.c.0 < 0 || case.d.0 < 0;
+            let rattachee_fautive = case.a && (case.b.0 != 0 || case.d.0 != 0);
+            let lointaine_fautive = !case.a
+                && (case.b.0 != 0 || case.c.0 != 0)
+                && !neige.voisins[i].iter().any(|&v| v >= 0 && cases[v as usize].a);
+            if negative || rattachee_fautive || lointaine_fautive {
+                return Err(ErreurNeige::EtatInvalide(i));
+            }
+        }
+        if neige.masse_totale() >= 1_i128 << 56 {
+            return Err(ErreurNeige::MasseTropGrande);
+        }
+        Ok(neige)
     }
 
     /// Le rayon `R` de l'hexagone.
-    #[allow(unused_variables)]
     pub fn rayon(&self) -> u32 {
-        todo!()
+        self.hexagone.rayon()
     }
 
     /// Les réglages.
-    #[allow(unused_variables)]
     pub fn parametres(&self) -> Parametres {
-        todo!()
+        self.parametres
     }
 
     /// Le temps : le nombre de pas faits depuis la construction (0 à la construction).
-    #[allow(unused_variables)]
     pub fn temps(&self) -> u64 {
-        todo!()
+        self.temps
     }
 
     /// La case `(q, r)`, ou `None` si `(q, r)` n'est pas dans l'hexagone (jamais de panique, pour tous les `i32`).
-    #[allow(unused_variables)]
     pub fn case(&self, q: i32, r: i32) -> Option<Case> {
-        todo!()
+        if !self.hexagone.contient(q, r) {
+            return None;
+        }
+        Some(self.case_d_indice(self.hexagone.index(q, r)))
+    }
+
+    /// La case d'indice canonique `i`.
+    fn case_d_indice(&self, i: usize) -> Case {
+        Case { a: self.a[i] == 1, b: Fixe(self.b[i]), c: Fixe(self.c[i]), d: Fixe(self.d[i]) }
     }
 
     /// Toutes les cases, **dans l'ordre canonique** de [`Hexagone`] (`cases()` valeurs).
-    #[allow(unused_variables)]
     pub fn cases(&self) -> Vec<Case> {
-        todo!()
+        (0..self.a.len()).map(|i| self.case_d_indice(i)).collect()
     }
 
     /// Un pas, à la lettre de « Un pas, à la lettre » : l'état est remplacé, le temps augmente de 1. Ne panique jamais (voir
     /// « Ce qui est conservé, et pourquoi rien ne déborde »).
-    #[allow(unused_variables)]
     pub fn pas(&mut self) {
-        todo!()
+        let cases = self.a.len();
+        let p = self.parametres;
+
+        // Bloc 0 : n(x), le nombre de voisins rattachés, sur les `a` du début du pas.
+        for x in 0..cases {
+            let mut n = 0_u8;
+            for &v in &self.voisins[x] {
+                if v >= 0 && self.a[v as usize] == 1 {
+                    n += 1;
+                }
+            }
+            self.n[x] = n;
+        }
+
+        // Bloc 1 : la diffusion. Lit `d`, écrit `d_suivant`.
+        for x in 0..cases {
+            if self.a[x] == 0 {
+                let mut somme = self.d[x];
+                for &v in &self.voisins[x] {
+                    somme += if v >= 0 && self.a[v as usize] == 0 { self.d[v as usize] } else { self.d[x] };
+                }
+                self.d_suivant[x] = Fixe(somme).div_entier(7).0;
+            } else {
+                self.d_suivant[x] = self.d[x];
+            }
+        }
+
+        // Bloc 2 : le gel des cases de bord.
+        for x in 0..cases {
+            if self.a[x] == 0 && self.n[x] >= 1 {
+                let g = (p.kappa * Fixe(self.d_suivant[x])).0;
+                self.c[x] += g;
+                self.b[x] += self.d_suivant[x] - g;
+                self.d_suivant[x] = 0;
+            }
+        }
+
+        // Bloc 3 : le rattachement. Toutes les décisions d'abord, puis les changements.
+        self.nouveaux.clear();
+        for x in 0..cases {
+            if self.a[x] == 0 && self.n[x] >= 1 {
+                let n = self.n[x];
+                let se_rattache = if n >= 4 {
+                    true
+                } else if n == 3 {
+                    let mut t = self.d_suivant[x];
+                    for &v in &self.voisins[x] {
+                        if v >= 0 {
+                            t += self.d_suivant[v as usize];
+                        }
+                    }
+                    self.b[x] >= Fixe::UN.0 || (t < p.theta.0 && self.b[x] >= p.alpha.0)
+                } else {
+                    self.b[x] >= p.beta.0
+                };
+                if se_rattache {
+                    self.nouveaux.push(x);
+                }
+            }
+        }
+        for &x in &self.nouveaux {
+            self.a[x] = 1;
+            self.c[x] += self.b[x];
+            self.b[x] = 0;
+        }
+
+        // Bloc 4 : la fonte des cases non rattachées qui portent de la masse de bord ou cristalline.
+        for x in 0..cases {
+            if self.a[x] == 0 && (self.b[x] != 0 || self.c[x] != 0) {
+                let fb = (p.mu * Fixe(self.b[x])).0;
+                let fc = (p.gamma * Fixe(self.c[x])).0;
+                self.b[x] -= fb;
+                self.c[x] -= fc;
+                self.d_suivant[x] += fb + fc;
+            }
+        }
+
+        std::mem::swap(&mut self.d, &mut self.d_suivant);
+        self.temps += 1;
     }
 
     /// `n` pas de suite : `n` appels de [`Neige::pas`].
-    #[allow(unused_variables)]
     pub fn avancer(&mut self, n: u64) {
-        todo!()
+        for _ in 0..n {
+            self.pas();
+        }
     }
 
     /// Le nombre de cases rattachées (`a = 1`).
-    #[allow(unused_variables)]
     pub fn cases_rattachees(&self) -> usize {
-        todo!()
+        self.a.iter().filter(|&&a| a == 1).count()
     }
 
     /// La masse totale `M = Σ (b + c + d)` : la somme, en `i128`, des `brut` des trois masses de toutes les cases.
-    #[allow(unused_variables)]
     pub fn masse_totale(&self) -> i128 {
-        todo!()
+        let somme = |v: &Vec<i64>| v.iter().map(|&m| i128::from(m)).sum::<i128>();
+        somme(&self.b) + somme(&self.c) + somme(&self.d)
     }
 
     /// La masse du cristal : la somme, en `i128`, des `brut` de `c` sur les cases **rattachées**.
-    #[allow(unused_variables)]
     pub fn masse_du_cristal(&self) -> i128 {
-        todo!()
+        (0..self.a.len()).filter(|&i| self.a[i] == 1).map(|i| i128::from(self.c[i])).sum()
     }
 
     /// Le rayon du cristal : la plus grande distance hexagonale au centre d'une case rattachée (0 pour le germe seul).
-    #[allow(unused_variables)]
     pub fn rayon_cristal(&self) -> u32 {
-        todo!()
+        (0..self.a.len())
+            .filter(|&i| self.a[i] == 1)
+            .map(|i| distance_hex((0, 0), self.hexagone.position(i)))
+            .max()
+            .unwrap_or(0)
     }
 
     /// Le champ que dessine le rendu net ([`crate::rendu_hex::rendre`]) : pour chaque case, **dans l'ordre canonique**, le `brut` de `c` si la case est
     /// **rattachée**, 0 sinon (la case sans glace est blanche). C'est la masse cristalline : l'article la dessine en gris (« les gris dans le cristal représentent
     /// `c`, plus foncé pour une valeur plus haute »). Une case rattachée n'a ni `b` ni `d` (I1) : seule sa glace compte.
-    #[allow(unused_variables)]
     pub fn valeurs_du_cristal(&self) -> Vec<i64> {
-        todo!()
+        (0..self.a.len()).map(|i| if self.a[i] == 1 { self.c[i] } else { 0 }).collect()
     }
 
     /// L'écriture canonique de l'état, `76 + 25 * cases` octets (voir « L'écriture canonique et l'empreinte »).
-    #[allow(unused_variables)]
     pub fn ecriture_canonique(&self) -> Vec<u8> {
-        todo!()
+        let mut octets = Vec::with_capacity(76 + 25 * self.a.len());
+        octets.extend_from_slice(b"GIVREG01");
+        octets.extend_from_slice(&self.hexagone.rayon().to_le_bytes());
+        let p = self.parametres;
+        for reglage in [p.rho, p.beta, p.alpha, p.theta, p.kappa, p.mu, p.gamma] {
+            octets.extend_from_slice(&reglage.0.to_le_bytes());
+        }
+        octets.extend_from_slice(&self.temps.to_le_bytes());
+        for i in 0..self.a.len() {
+            octets.push(self.a[i]);
+            octets.extend_from_slice(&self.b[i].to_le_bytes());
+            octets.extend_from_slice(&self.c[i].to_le_bytes());
+            octets.extend_from_slice(&self.d[i].to_le_bytes());
+        }
+        octets
     }
 
     /// L'empreinte : le SHA-256 en hexadécimal minuscule (`empreinte::sha256_hex`) de [`Neige::ecriture_canonique`].
-    #[allow(unused_variables)]
     pub fn empreinte(&self) -> String {
-        todo!()
+        empreinte::sha256_hex(&self.ecriture_canonique())
     }
 
     /// L'aperçu : l'image RVB carrée de côté `2R + 1`, `3 * (2R + 1)^2` octets (voir « L'aperçu »).
-    #[allow(unused_variables)]
     pub fn apercu(&self) -> Vec<u8> {
-        todo!()
+        let rayon = self.hexagone.rayon();
+        let cote = (2 * rayon + 1) as usize;
+        let mut image = vec![0_u8; 3 * cote * cote];
+        for i in 0..self.a.len() {
+            let (q, r) = self.hexagone.position(i);
+            let x = (q + rayon as i32 + r.div_euclid(2)) as usize;
+            let y = (r + rayon as i32) as usize;
+            let couleur = if self.a[i] == 1 {
+                [235, 245, 255]
+            } else {
+                let niveau = ((i128::from(self.d[i]) * 255) >> 32).min(255) as u8;
+                [0, niveau / 2, niveau]
+            };
+            let debut = 3 * (y * cote + x);
+            image[debut..debut + 3].copy_from_slice(&couleur);
+        }
+        image
     }
+}
+
+/// Écrit une ligne du CSV des mesures pour l'état courant.
+fn ecrire_mesure(mesures: &mut String, neige: &Neige) {
+    let ppm = (2_000_000 * neige.masse_du_cristal() + (1_i128 << 32)) / (1_i128 << 33);
+    mesures.push_str(&format!(
+        "{},{},{},{}.{:06}\n",
+        neige.temps(),
+        neige.cases_rattachees(),
+        neige.rayon_cristal(),
+        ppm / 1_000_000,
+        ppm % 1_000_000
+    ));
 }
 
 /// Lance la directive `neige` d'un scénario (voir « La directive `neige` et la sortie de `lancer` ») : à n'appeler que lorsque
@@ -498,7 +720,35 @@ impl Neige {
 /// elle-même si la forme n'est pas un hexagone, si elle n'a pas exactement huit arguments, si `pas` n'est pas un entier décimal
 /// de 1 à [`PAS_MAX`] ou si les sept réglages ne se lisent pas par [`Parametres::lire`] ; sinon la ligne de la directive
 /// suivante, quelle qu'elle soit (il n'y a qu'une directive en plus de la forme). Rien n'est calculé alors.
-#[allow(unused_variables)]
 pub fn lancer_neige(scenario: &Scenario) -> Result<Sortie, usize> {
-    todo!()
+    let directive = &scenario.directives[0];
+    let ligne = directive.ligne;
+    let Forme::Hexagone { rayon } = scenario.forme else {
+        return Err(ligne);
+    };
+    if directive.args.len() != 8 {
+        return Err(ligne);
+    }
+    let pas = directive.entier(0).map_err(|_| ligne)?;
+    if !(1..=PAS_MAX).contains(&pas) {
+        return Err(ligne);
+    }
+    let a = &directive.args;
+    let parametres = Parametres::lire(&a[1], &a[2], &a[3], &a[4], &a[5], &a[6], &a[7]).ok_or(ligne)?;
+    if let Some(autre) = scenario.directives.get(1) {
+        return Err(autre.ligne);
+    }
+    let mut neige = Neige::essayer_new(rayon, parametres).map_err(|_| ligne)?;
+
+    let intervalle = std::cmp::max(1, pas / 20);
+    let mut mesures = String::from("temps,rattachees,rayon,masse_cristal\n");
+    ecrire_mesure(&mut mesures, &neige);
+    for t in 1..=pas {
+        neige.pas();
+        if t % intervalle == 0 || t == pas {
+            ecrire_mesure(&mut mesures, &neige);
+        }
+    }
+    let cote = 2 * rayon + 1;
+    Ok(Sortie { empreinte: neige.empreinte(), mesures, apercu: image::ecrire_png(cote, cote, &neige.apercu()) })
 }
