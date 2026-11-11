@@ -62,7 +62,8 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use etape_5_commun::{
-    FONCTIONS, FONCTIONS_Z1, Z1_ACTIVE, chemin_module, lancer_le_script, lire_page, natif, node_est_la, racine,
+    D3_ACTIVE, FONCTIONS, FONCTIONS_D3, FONCTIONS_Z1, Z1_ACTIVE, chemin_module, lancer_le_script, lire_page, natif,
+    node_est_la, racine,
 };
 use givre_lab::empreinte::sha256_hex;
 
@@ -302,8 +303,17 @@ fn la_page_a_ses_commandes_et_ses_affichages() {
         }
     }
     let valeurs: Vec<&str> = options.iter().map(|(valeur, _)| valeur.as_str()).collect();
-    assert_eq!(valeurs, ["0", "1", "2", "3"], "les <option> du choix du modèle");
-    for ((_, texte), mot) in options.iter().zip(["dla", "plaque", "toile", "dendrite"]) {
+    // Étape D3 : une cinquième option, le claquage diélectrique (`value` « claquage » : le curseur η donne le numéro du modèle). Avec `etape-d3`, les
+    // cinq seulement ; sans elle, les quatre d'avant ou les cinq.
+    if D3_ACTIVE {
+        assert_eq!(valeurs, ["0", "1", "2", "3", "claquage"], "les <option> du choix du modèle");
+    } else {
+        assert!(
+            valeurs == ["0", "1", "2", "3"] || valeurs == ["0", "1", "2", "3", "claquage"],
+            "les <option> du choix du modèle : {valeurs:?}"
+        );
+    }
+    for ((_, texte), mot) in options.iter().zip(["dla", "plaque", "toile", "dendrite", "claquage"]) {
         assert!(texte.contains(mot), "le texte de l'option « {texte} » ne dit pas « {mot} »");
     }
 }
@@ -360,16 +370,28 @@ fn app_js_emploie_exactement_les_exportations_du_module() {
     // Étape Z1 : avec `etape-z1` la page emploie les quinze fonctions ; sans elle, les onze ou les quinze.
     let quinze: BTreeSet<String> =
         onze.iter().cloned().chain(FONCTIONS_Z1.iter().map(|(nom, _, _)| nom.to_string())).collect();
+    // Étape D3 : avec `etape-d3` la page emploie les vingt-trois fonctions ; sans elle, les onze, les quinze ou les vingt-trois.
+    let vingt_trois: BTreeSet<String> =
+        quinze.iter().cloned().chain(FONCTIONS_D3.iter().map(|(nom, _, _)| nom.to_string())).collect();
     let employes = noms_employes(&code);
-    let exportees = if Z1_ACTIVE || employes == quinze { quinze } else { onze };
+    let exportees = if D3_ACTIVE || employes == vingt_trois {
+        vingt_trois
+    } else if Z1_ACTIVE || employes == quinze {
+        quinze
+    } else {
+        onze
+    };
 
     let inconnus: Vec<&String> = employes.difference(&exportees).collect();
     assert!(inconnus.is_empty(), "app.js emploie des noms que le module n'exporte pas : {inconnus:?}");
     let oublies: Vec<&String> = exportees.difference(&employes).collect();
     assert!(oublies.is_empty(), "app.js n'emploie pas ces exportations du module : {oublies:?}");
 
-    for (nom, parametres, _) in
-        FONCTIONS.iter().chain(FONCTIONS_Z1.iter()).filter(|(nom, _, _)| exportees.contains(*nom))
+    for (nom, parametres, _) in FONCTIONS
+        .iter()
+        .chain(FONCTIONS_Z1.iter())
+        .chain(FONCTIONS_D3.iter())
+        .filter(|(nom, _, _)| exportees.contains(*nom))
     {
         let arites = arites_des_appels(&code, nom);
         assert!(!arites.is_empty(), "app.js n'appelle jamais {nom}(…)");

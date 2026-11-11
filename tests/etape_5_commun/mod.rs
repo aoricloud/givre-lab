@@ -182,6 +182,23 @@ pub const FONCTIONS_Z1: [(&str, &[u8], &[u8]); 4] = [
 /// Vrai quand la fonctionnalité `etape-z1` est active : le module et la page doivent alors avoir les quinze fonctions.
 pub const Z1_ACTIVE: bool = cfg!(feature = "etape-z1");
 
+/// Les huit fonctions de la courbe `D(η)` de l'étape D3 (voir `src/vitrine.rs`, « La courbe D(η) à la demande »), avec leur signature. Le module et la
+/// page d'avant D3 ne les ont pas : tant que la fonctionnalité `etape-d3` n'est pas active, les tests acceptent le module et la page tels qu'ils sont
+/// (les onze de `FONCTIONS`, ou les quinze avec `FONCTIONS_Z1`) ou étendus de ces huit (vingt-trois) ; avec `etape-d3`, ils n'acceptent que l'étendu.
+pub const FONCTIONS_D3: [(&str, &[u8], &[u8]); 8] = [
+    ("givre_courbe_demarrer", &[I32, I32], &[I32]),
+    ("givre_courbe_pas", &[], &[I32]),
+    ("givre_courbe_fait", &[], &[I32]),
+    ("givre_courbe_total", &[], &[I32]),
+    ("givre_courbe_code", &[], &[I32]),
+    ("givre_courbe_moyenne", &[I32], &[F64]),
+    ("givre_courbe_erreur_type", &[I32], &[F64]),
+    ("givre_courbe_repere", &[I32], &[F64]),
+];
+
+/// Vrai quand la fonctionnalité `etape-d3` est active : le module et la page doivent alors avoir les vingt-trois fonctions.
+pub const D3_ACTIVE: bool = cfg!(feature = "etape-d3");
+
 /// Un lecteur d'octets avec une position.
 struct Lecteur<'a> {
     octets: &'a [u8],

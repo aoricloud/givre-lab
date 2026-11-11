@@ -20,8 +20,8 @@ mod etape_5_commun;
 use std::collections::BTreeSet;
 
 use etape_5_commun::{
-    FONCTIONS, FONCTIONS_Z1, Z1_ACTIVE, analyser, chemin_module, lancer_le_script, lire_module, natif, node_est_la,
-    racine, reference,
+    D3_ACTIVE, FONCTIONS, FONCTIONS_D3, FONCTIONS_Z1, Z1_ACTIVE, analyser, chemin_module, lancer_le_script,
+    lire_module, natif, node_est_la, racine, reference,
 };
 use givre_lab::empreinte::sha256_hex;
 
@@ -69,11 +69,19 @@ fn le_module_exporte_exactement_les_fonctions_de_la_vitrine() {
     // Étape Z1 : sans la fonctionnalité `etape-z1`, le module peut avoir les onze fonctions ou les quinze ; avec elle, les quinze seulement.
     let etendues: BTreeSet<&str> =
         attendues.iter().copied().chain(FONCTIONS_Z1.iter().map(|(nom, _, _)| *nom)).collect();
-    if Z1_ACTIVE {
-        assert_eq!(fonctions, etendues, "les fonctions exportées ne sont pas les quinze de la liste");
+    // Étape D3 : avec `etape-d3` les vingt-trois seulement ; sans elle, les quinze (ou les onze sans `etape-z1`) ou les vingt-trois.
+    let etendues_d3: BTreeSet<&str> =
+        etendues.iter().copied().chain(FONCTIONS_D3.iter().map(|(nom, _, _)| *nom)).collect();
+    if D3_ACTIVE {
+        assert_eq!(fonctions, etendues_d3, "les fonctions exportées ne sont pas les vingt-trois de la liste");
+    } else if Z1_ACTIVE {
+        assert!(
+            fonctions == etendues || fonctions == etendues_d3,
+            "les fonctions exportées ne sont ni les quinze ni les vingt-trois de la liste"
+        );
     } else {
         assert!(
-            fonctions == attendues || fonctions == etendues,
+            fonctions == attendues || fonctions == etendues || fonctions == etendues_d3,
             "les fonctions exportées ne sont pas celles de la liste"
         );
     }
@@ -102,7 +110,12 @@ fn chaque_fonction_a_la_bonne_signature() {
     assert_eq!(module.importations, 0, "les indices de fonction supposent qu'il n'y a aucune importation");
 
     // Étape Z1 : les quatre fonctions de mesure sont exigées avec `etape-z1`, vérifiées si elles sont là sans elle.
-    let toutes = FONCTIONS.iter().map(|f| (f, true)).chain(FONCTIONS_Z1.iter().map(|f| (f, Z1_ACTIVE)));
+    // Étape D3 : les huit fonctions de la courbe sont exigées avec `etape-d3`, vérifiées si elles sont là sans elle.
+    let toutes = FONCTIONS
+        .iter()
+        .map(|f| (f, true))
+        .chain(FONCTIONS_Z1.iter().map(|f| (f, Z1_ACTIVE)))
+        .chain(FONCTIONS_D3.iter().map(|f| (f, D3_ACTIVE)));
     for (&(nom, parametres, resultats), exigee) in toutes {
         let Some(exportation) = module.exportations.iter().find(|e| e.genre == 0 && e.nom == nom) else {
             assert!(!exigee, "la fonction {nom} n'est pas exportée");

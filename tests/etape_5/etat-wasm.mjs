@@ -24,7 +24,7 @@
 //   couleurs     : 1 si tous les pixels lus (ceux du temps 0 et ceux de la fin) sont à `0x00RRGGBB` (au plus 0xFFFFFF), sinon 0 ;
 //   bords        : 1 si `givre_pixel` rend 4294967295 pour (largeur, 0), (0, hauteur), (largeur, hauteur), (4294967295, 0) et
 //                  (0, 4294967295), si `givre_empreinte_mot` rend 0 pour 8 et pour 4294967295, et si `givre_demarrer` rend 0
-//                  pour les modèles 4 et 4294967295 sans changer `givre_temps` ; sinon 0.
+//                  pour les modèles 8 et 4294967295 sans changer `givre_temps` ; sinon 0.
 //
 // Si le fichier ou les arguments sont faux, ou si une exportation manque, écrit un message sur la sortie d'erreur, sort avec
 // le code 1 et n'écrit **rien** sur la sortie standard. Aucune dépendance : les modules intégrés de Node seulement.
@@ -146,7 +146,7 @@ async function principal() {
     m.givre_pixel(0, MAX_U32) >>> 0 === MAX_U32 &&
     m.givre_empreinte_mot(8) >>> 0 === 0 &&
     m.givre_empreinte_mot(MAX_U32) >>> 0 === 0 &&
-    m.givre_demarrer(4, 0) >>> 0 === 0 &&
+    m.givre_demarrer(8, 0) >>> 0 === 0 &&
     m.givre_demarrer(MAX_U32, 0) >>> 0 === 0 &&
     m.givre_temps() >>> 0 === temps;
 
