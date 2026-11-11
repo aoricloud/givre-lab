@@ -810,3 +810,144 @@ pas : `d³` par site) : `η = 3` coûte 33 fois plus à 300 sites qu'à 100. **L
 - **L'aspect de l'image** (axes, grille, lisibilité) : seuls la taille, les marqueurs et les barres sont fixés ; la page et le curseur `η` sont D3. Que `etape-d2` laisse la page et le module web inchangés n'est pas testé ici (ni Node ni `wasm32` sur ce PC) ;
   ajouter `etape-d2` à `default` change pourtant les octets du module compilé (règle 12 d'`AGENTS.md`).
 - **Les temps sur une CI** : mesurés ici seulement (voir « Le coût »).
+
+## Étape D3 : la décharge sur la page (le claquage, le curseur η, la courbe D(η) à la demande)
+
+D1 a le claquage diélectrique (`src/claquage.rs`), D2 sa courbe `D(η)` (`src/courbe.rs`) ; D3 les met **sur la page**, comme Z1 y a mis la corrélation. Le modèle « Claquage diélectrique » de la liste, un **curseur `η`** (0 à 3), « Mesurer D » sur l'amas
+du moment avec le repère publié de ce `η`, et un bloc « Courbe D(η) » qui se calcule **un amas à la fois**. Deux promesses : **ce qui peut échouer ne plante pas la page** (une panique dans le module `wasm32` abandonne le module entier : la page se
+figerait) et **la page borne la taille des amas** (le claquage coûte cher : D1). Les fichiers : `src/courbe.rs` (les entrées qui rendent une erreur, fonctionnalité `etape-d3`), `src/vitrine.rs` (les modèles 4 à 7, la mesure du claquage, huit exportations
+de plus : vingt-trois en tout), `docs/index.html`, `docs/app.js`, `docs/lecture.js`, `docs/givre.wasm` (reconstruit). Les valeurs attendues des tests, chacune avec sa source, sont dans `references/etape-d3-valeurs.md`. **La règle des nombres d'`AGENTS.md`
+ne change pas** (`+ - * /`, `sqrt`, `round`, `math::logarithme` par `correlation` ; aucun fil d'exécution ni horloge dans `src/`).
+
+### Les entrées qui rendent une erreur
+
+Les fonctions de D2 **paniquent** sur un cas absurde (c'est leur contrat, éprouvé par les tests gelés de D2, et il ne change pas). D3 **ajoute** des entrées jumelles qui rendent un `Result` : `essayer_demi_cote_de_la_courbe`,
+`essayer_dimension_d_une_graine` (la dimension d'**un** amas : le pas du calcul de la page), `essayer_point_de_la_courbe` (composé des briques de D2 ; **même point, à `to_bits` près**, que `point_de_la_courbe` quand rien n'échoue) et
+`mesure_petit_amas` (la fenêtre des petits amas, les `C(r)` et la dimension, pour la page). `ErreurCourbe` a six variantes (`GrainesInsuffisantes`, `EtaTropGrand`, `DemiCoteHorsBorne`, `TailleHorsBorne`, `FrontiereTouchee { graine }`, `FenetreVide { graine }`) et un
+texte fixé (`Display`). **L'ordre des vérifications** : les graines, puis `eta` (au plus 8, 3 pour le demi-côté de la règle), `demi_cote` (au plus 255), `taille` (au plus 100 000 : `PARTICULES_MAX`), puis la croissance des graines dans l'ordre. Une `taille` de 0 ou 1, ou
+trop petite pour une fenêtre (étendue de moins de 8), est une fenêtre vide, pas une erreur de paramètre. **Aucune borne de temps** : une taille permise peut coûter des heures à `η >= 1` (D1) ; la vitrine borne elle-même. Le débordement de `B × taille` que la
+relecture de la PR 29 avait signalé dans `demi_cote_de_la_courbe` est une erreur (`TailleHorsBorne`) dans `essayer_demi_cote_de_la_courbe` ; la fonction de D2, elle, n'a pas bougé d'un octet (hors de portée de la page).
+
+### Les modèles 4 à 7 et leurs bornes
+
+Le modèle `4 + η` est le claquage d'exposant `η` à une **taille bornée** (germe compris) et au demi-côté de la règle de D2 :
+
+| modèle | `η` | sites | demi-côté | durée | coût natif d'une croissance entière (`release`) |
+|---|---|---|---|---|---|
+| 4 | 0 | 400 | 70 | 399 | 0,02 s |
+| 5 | 1 | 250 | 52 | 249 | 1,5 s en moyenne, 1,7 s au pire (24 graines) ; 3,3 s au pire sur 120 graines (machine chargée) |
+| 6 | 2 | 150 | 49 | 149 | 0,7 s, 0,85 s au pire (24 graines) ; 2,1 s au pire sur 120 graines (machine chargée) |
+| 7 | 3 | 100 | 48 | 99 | 0,5 s, 0,5 s au pire (24 graines) ; 1,9 s au pire sur 120 graines (machine chargée) |
+
+**Les tailles viennent du coût** (D1 : le champ de Laplace est relaxé après chaque site, `d³` par site) : le brief suggérait « une dizaine de secondes pour `η = 3` » (le temps de la croissance entière) ; la mesure dit que `η = 3` à 150 sites coûte 3 à 5 s,
+à 200 sites 7 s, à 300 sites 32 s (une graine, machine chargée) : **100 sites pour `η = 3`** garde la croissance entière autour de la demi-seconde en natif au calme (1 à 2 s quand la machine est chargée) et laisse de la marge au module WebAssembly, dont la vitesse n'est pas mesurée ici (voir « Ce que cette étape n'établit pas »).
+La même idée pour les autres : 150 sites à `η = 2`, 250 à `η = 1` (de 1 à 3 s), 400 à `η = 0` (gratuit). **Le pire d'une unité** (un site ajouté, un appel de `givre_avancer(1)`) : 0,001 s à `η = 0` ; 0,026 s, 0,018 s, 0,013 s à `η = 1, 2, 3` (24 graines, machine au calme),
+jusqu'à 0,09 s à 0,13 s sur 120 graines (machine chargée). C'est pourquoi la page joue ces modèles **unité par unité**, en s'arrêtant quand une trentaine de millisecondes sont écoulées, au lieu d'un appel de `vitesse` unités.
+
+**La marge au bord** (120 graines par modèle, le demi-côté de la table, le rayon de l'amas à la fin ; `frontières` est le nombre d'amas qui ont touché le bord avant leur taille) :
+
+| modèle | rayon moyen | rayon maximal | marge (demi-côté − rayon maximal) | frontières |
+|---|---|---|---|---|
+| 4 (`η = 0`) | 17,2 | 22 | 48 | 0 |
+| 5 (`η = 1`) | 21,1 | 30 | 22 | 0 |
+| 6 (`η = 2`) | 22,7 | 37 | **12** | 0 |
+| 7 (`η = 3`) | 22,2 | 34 | 14 | 0 |
+
+Aucun amas n'a touché la frontière sur 480 amas (graines 1 à 120) : la règle de D2 (« 2,1 à 3,1 fois le rayon moyen ») tient. Si une graine le faisait, `givre_avancer` s'arrêterait sans panique (`Claquage::essayer_ajouter` rend `None`) et la page dirait
+« Scénario terminé » ; ce n'est pas une promesse que 4 milliards de graines ne le font jamais (non testé : voir plus bas).
+
+**Mesure du juge (10/11, natif `release`, machine chargée par d'autres calculs : les temps sont des majorants)**, sur des graines plus nombreuses et sur des graines neuves (7001 à 7050) ; aucune frontière touchée, aucune panique :
+
+| modèle | graines | rayon moyen | rayon maximal | marge | temps moyen (pire) d'une croissance | pire unité |
+|---|---|---|---|---|---|---|
+| 4 (`η = 0`) | 1 à 2000 | 17,2 | 24 | 46 | 0,03 s (0,12 s) | 0,04 s |
+| 5 (`η = 1`) | 1 à 300 | 21,2 | 30 | 22 | 1,8 s (5,2 s) | 0,23 s |
+| 6 (`η = 2`) | 1 à 500 | 22,8 | 37 | 12 | 1,6 s (2,8 s) | 0,17 s |
+| 7 (`η = 3`) | 1 à 500 | 22,7 | **45** | **3** | 1,2 s (3,4 s) | 0,24 s |
+| 4 à 7 | 7001 à 7050 | 16,8 ; 21,3 ; 22,4 ; 22,8 | 20 ; 30 ; 33 ; 31 | 50 ; 22 ; 16 ; 17 | 0,13 (0,25) ; 3,5 (5,2) ; 1,7 (3,3) ; 1,3 (1,8) s | 0,18 ; 0,13 ; 0,08 ; 0,09 s |
+
+**La marge du modèle 7 n'est que de 3 sites sur 500 graines** (un amas de `η = 3` est presque un trait : son rayon maximal vaut deux fois le rayon moyen) : une graine parmi les 4 milliards qui touche le bord à `η = 3` est plausible ; la page dirait alors « Scénario terminé » avant 100 sites, sans panique (c'est le contrat). Relever le demi-côté du modèle 7 (la règle de D2 donne 48) serait un changement de la table (donc des empreintes) : à décider par le pilote, pas fait ici.
+
+**La chaîne entière contre un autre programme** : la dimension de chacun des quatre modèles, joué jusqu'au bout avec la graine 1 et mesuré par la vitrine, est celle de `d2_ref.py amas` (Python : le claquage de `d1_ref.py`, écrit d'après la doc de D1 seule, puis la fenêtre, la corrélation en fractions exactes et la dimension en `decimal` à 60 chiffres de D2) à `1e-12`
+près (1,89281132677495956025 ; 1,74493588341019327296 ; 1,59607404588882589411 ; 1,38303932787124472016) : le test `la_dimension_des_quatre_modeles_est_celle_de_python` la fige.
+
+**L'image et l'empreinte** : l'image est `amas_colore(sites, COTE_APERCU)` de D1/Z1, la même que la DLA (un carré qui suit l'amas, 512 × 512 au temps 0) ; l'empreinte est `Claquage::empreinte()` (elle contient le demi-côté et `η` : deux modèles de claquage n'ont jamais la
+même). **L'empreinte d'une graine sur la page est celle du code natif** (testé sous Node contre le natif pour les quatre modèles).
+
+### Ce que la page mesure, avec le repère de `η`
+
+« Mesurer D » marche pour ces modèles (`givre_mesurer` : la fenêtre des petits amas de D2, rayons de 2 à `max(4, étendue / 6)`, donc **3 à 5 points** pour ces tailles) et écrit le même texte « mesuré par le banc : D = … à N sites », la courbe `C(r)` en log-log avec la droite
+ajustée, puis **le repère publié de `η`** lu dans le module (`givre_courbe_repere` = `courbe::publie`) : le rappel de la DLA pour `η = 1`, Hastings 2001 pour `η = 2` et `3`, rien pour `η = 0` ; **l'écart du banc au repère, signé** ; et la phrase « ce n'est pas un accord ».
+Les phrases du zinc (Z1) ne s'affichent que pour la DLA. **La page n'écrit aucune valeur publiée ni aucune valeur de `D`** : les repères viennent du module (un test lit les fichiers de la page). `D` mesuré par la page sur les modèles à leur taille, graine 1 (moyenne
+sur 120 graines, écart-type d'UNE graine) :
+
+| modèle | sites | `D` (graine 1) | `D` moyen (120 graines) | σ | repère | écart du `D` moyen |
+|---|---|---|---|---|---|---|
+| 4 (`η = 0`) | 400 | 1,8928 | 1,8919 | 0,0136 | — | — |
+| 5 (`η = 1`) | 250 | 1,7449 | 1,6905 | 0,0398 | 1,71 (rappel de la DLA) | -0,019 |
+| 6 (`η = 2`) | 150 | 1,5961 | 1,4802 | 0,0627 | 1,433 (Hastings) | +0,047 |
+| 7 (`η = 3`) | 100 | 1,3830 | 1,3496 | 0,0709 | 1,263 (Hastings) | +0,087 |
+
+**Ces nombres ne sont pas ceux de la courbe de D2** : les tailles diffèrent (400, 250, 150 et 100 sites contre 100 pour la courbe), et `D` en dépend (la dimension monte avec la taille à `η = 0` et `1`, baisse à `η = 2` et `3`, D2). Le texte de la page dit « à N sites ». Une mesure sur un seul
+amas (ce que fait « Mesurer D ») a l'écart-type d'une graine (0,014 à 0,071) : l'écart au repère d'une page est du bruit de cet ordre. **Ce n'est pas un accord** : amas petits, corrélation sur un réseau carré contre l'inverse de la pente de `ln F_1` sur des applications conformes,
+fenêtre de 3 à 5 rayons (D2 : elle déplace `D` de ±0,05), Hastings sans barre d'erreur.
+
+### La courbe `D(η)` à la demande
+
+Huit exportations (`givre_courbe_demarrer`, `_pas`, `_fait`, `_total`, `_code`, `_moyenne`, `_erreur_type`, `_repere`) : un **travail** de quatre points (`η = 0` à 3) de `graines` amas de `taille` sites (graines 1, 2, …, dans l'ordre ; demi-côté de la règle), avancé **un amas par `givre_courbe_pas`**,
+les `η` dans l'ordre 0, 1, 2, 3. Le point d'un `η` est, bit pour bit, celui de `essayer_point_de_la_courbe` ; la moyenne et l'erreur-type d'un `η` sont `NaN` tant que ses amas ne sont pas tous faits. **Les bornes** : `taille` de 1 à **100**, `graines` de 2 à **8**. Les **codes d'erreur** (table dans
+la doc de `src/vitrine.rs`) : 0 aucune erreur ; 1 taille hors borne ; 2 graines hors borne ; 3 un amas a touché la frontière ; 4 un amas n'a pas de dimension (fenêtre vide) ; 5 aucun travail ; 6 une autre erreur de la bibliothèque. Un nouveau démarrage efface l'ancien travail, même refusé ;
+`givre_demarrer` (le modèle) n'y touche pas. **Les codes 3 et 6 ne sont pas atteignables avec les bornes** (3 : aucun amas de 100 sites n'a touché la frontière avec la règle de D2, 170 graines à D2 ; 6 : le module ne passe jamais un `η` ou un demi-côté hors borne) ; le code 4 l'est :
+à 32 sites la graine 1 de `η = 0` et la graine 5 de `η = 1` n'ont pas de fenêtre (étendue de moins de 8), à 30 sites aussi la graine 7 de `η = 0` ; **dès 34 sites les graines 1 à 8 des quatre `η` ont toutes une dimension**.
+**Tout l'espace de la courbe de la page a été joué par le juge** (10/11, natif, par `essayer_dimension_d_une_graine` avec le demi-côté de la règle, ce que `givre_courbe_pas` appelle) : `η` de 0 à 3, graines 1 à 8, taille de 1 à 100, soit 3200 amas : **aucune frontière touchée, aucune autre erreur, aucune panique** ; le code 3 est donc inatteignable depuis la page (pas seulement « non observé »), et le code 4 ne l'est que jusqu'à 32 sites (toutes les 32 combinaisons sans dimension de 1 à 8 sites, 31 à 9 et 10, …, 3 de 27 à 31, 2 à 32, aucune à partir de 33). Le pire amas de cet espace a coûté 2,25 s (`η = 3`, graine 3, taille 90, machine chargée).
+
+**Ce que la page calcule** : 100 sites, 6 graines (24 amas) ; le texte d'avancement dit « η = 2, graine 3 sur 6 » ; un `setTimeout` de 20 ms entre deux pas laisse la page se redessiner. Résultat (graines 1 à 6, mesuré) :
+
+| `η` | `D` moyen ± erreur-type | repère | écart |
+|---|---|---|---|
+| 0 | 1,7601 ± 0,0060 | — | — |
+| 1 | 1,6558 ± 0,0278 | 1,71 | -0,054 |
+| 2 | 1,5123 ± 0,0407 | 1,433 | +0,079 |
+| 3 | 1,3621 ± 0,0348 | 1,263 | +0,099 |
+
+Même signe que D2 pour chaque `η` (au-dessous du rappel de la DLA pour `η = 1`, au-dessus de Hastings pour `η = 2` et `3`) ; les erreurs-types sont celles de 6 graines (de 0,006 à 0,041, de 2 à 4 fois celles de D2 sur 50 graines). **L'ordre `D(0) > D(1) > D(2) > D(3)` se voit ; l'écart au publié n'est pas un accord.** La limite est dite sur la page en clair : amas de 100 sites,
+peu de graines, corrélation sur un réseau contre applications conformes, fenêtre.
+
+### Le coût (mesuré)
+
+Temps natif, `release`, un fil (Ryzen 5 5500U, 12 fils, **machine partagée : les temps varient du simple au double d'une série à l'autre, et les séries sont toutes dites**). Le temps d'**un amas de 100 sites** (le pas de la courbe), moyenne et, entre parenthèses, le pire :
+
+| série | `η = 0` | `η = 1` | `η = 2` | `η = 3` |
+|---|---|---|---|---|
+| A : la croissance du modèle 7, 24 graines, machine au calme | | | | 0,47 s (0,52 s) |
+| B : la courbe de la page, 6 graines, machine chargée | 0,002 s (0,003 s) | 0,41 s (0,64 s) | 0,35 s (0,41 s) | 0,92 s (**1,30 s**) |
+| C : 24 graines, machine plus chargée encore | 0,004 s (0,017 s) | 0,98 s (1,44 s) | 0,73 s (0,94 s) | 1,09 s (**1,46 s**) |
+
+(La série C redonne, aux quatre décimales, la ligne « graines 1 à 24 » de D2 : `D` = 1,7579 ; 1,6574 ; 1,4980 ; 1,3582, erreurs-types 0,0036 ; 0,0117 ; 0,0155 ; 0,0124 : la chaîne de D3 calcule les mêmes amas que celle de D2.)
+La courbe de la page (24 amas à 100 sites) coûte 10 s en natif dans la série B (de l'ordre de 6 s au calme, par extrapolation de A : non mesuré). **« Aucun appel au-delà d'une seconde » n'est donc tenu qu'au calme en natif** : le pire pas (`η = 3`) vaut 0,5 s au calme et 1,3 à 1,5 s quand la machine est
+chargée. Série D (le juge, 10/11, par les exportations `givre_courbe_*`, machine **très** chargée par deux autres calculs) : la courbe de la page (100 sites, 6 graines) 22,9 s en tout, pire pas par `η` 0,006 ; 0,72 ; 2,05 ; **2,98 s** ; à 8 graines 26,8 s, pire pas 0,006 ; 1,52 ; 0,95 ; 1,90 s (les mêmes moyennes aux quatre décimales). Sous Node sur la VM (pilote, 10/11) : le pas de `η = 3` à 100 sites coûte 0,75 s, celui de `η = 1` et `η = 2` 0,43 s ; le temps d'un pas dépend donc d'abord de la machine du visiteur : **la page gèle le temps d'un pas**, de moins d'une seconde au calme à trois secondes sur une machine occupée. Le module WebAssembly est plus lent d'un facteur non mesuré ici : si le pas de `η = 3` dépasse la seconde sous Node, `COURBE_TAILLE_MAX` (100) se baisse (à 80 sites un amas coûte à peu près 0,6 fois autant, D2) ou le pas se fait par tranches de sites. **Les tests** (`cargo test --features etape-d3`,
+ce PC, profil `dev`) : voir le rapport de l'écrivain.
+
+### Références
+
+- M. B. Hastings, *Fractal to Nonfractal Phase Transition in the Dielectric Breakdown Model*, Phys. Rev. Lett. 87, 175502 (2001), arXiv:cond-mat/0103312v2 : tableau II, colonne « full set » (`η = 2 → 1,433`, `η = 3 → 1,263`) ; **lue à D2** (voir « Références » de l'étape D2) ; D3 ne la relit pas, la page la **lit dans la bibliothèque**.
+- J. Mathiesen, M. H. Jensen, J. Ø. Bakke, arXiv:0712.1739, section IV (« the DLA value D=1.71 for η=1 ») : lue à D2.
+- Aucune référence nouvelle : D3 est de la plomberie (la page, les erreurs, la borne) autour de D1 et D2.
+
+### Ce que cette étape n'établit pas
+
+- **Aucun accord avec Hastings, ni avec la DLA à 1,71** : la page écrit l'écart, signé, et « ce n'est pas un accord » ; aucun test ne compare un `D` à un repère. La courbe de la page est à 100 sites et 6 graines : l'ordre se voit, rien de plus.
+- **Que la page marche dans un navigateur** : la page n'est éprouvée que par sa **forme** (des tests lisent les fichiers comme du texte) et par **Node** (`lecture.js`, sans DOM, contre le natif) ; le DOM, le canvas, les `setTimeout`, le curseur, l'animation et ce que la page montre ne sont éprouvés ni par un test ni par un navigateur
+  ici. Un coup d'œil humain dans un navigateur reste nécessaire (Firefox, Safari, téléphone : jamais).
+- **Le temps du module WebAssembly** : ni Node ni `wasm32` sur le PC de l'écrivain. Les bornes (100 sites, 8 graines, les quatre tailles des modèles, 30 ms par image) viennent du temps natif et sont **à relever sur la mesure du module**.
+- **Que le module ne panique jamais** : tout appel du module est écrit sans `unwrap` ni indice hors de portée et les entrées `essayer_*` ne paniquent pas, mais deux paniques de la bibliothèque restent hors d'atteinte du module (`wasm32` n'attrape pas les paniques) : la garde de convergence de `Claquage::relaxer`
+  (« la relaxation ne converge pas », jamais atteinte, D1 : le schéma converge) et `Claquage::essayer_ajouter` (`expect` d'une candidate qui existe toujours). Aucun test ne peut les provoquer. Le juge les a cherchées en natif sur 3300 amas des modèles 4 à 7 (graines 1 à 2000, 300, 500, 500 et 7001 à 7050) et sur les 3200 amas de
+  tout l'espace de la courbe de la page : aucune ; et les vingt-trois exportations appelées avec des paramètres extrêmes dans tous les ordres n'ont pas paniqué. Ce n'est pas une preuve pour 4 milliards de graines.
+- **Que 4 milliards de graines n'atteignent jamais le bord** : 480 amas de l'écrivain (graines 1 à 120 × quatre modèles) et 3300 du juge ne l'ont pas touché, mais la marge du modèle 7 tombe à **3 sites** sur 500 graines (« Les modèles 4 à 7 et leurs bornes ») : un `givre_avancer` qui s'arrête avant la durée (« Scénario terminé » avant 100 sites) est
+  plausible pour quelque graine, sans panique ; le code 3 de la courbe, lui, est inatteignable depuis la page (tout l'espace joué).
+- **Que la page ne gèle jamais plus d'une seconde** : un pas de la courbe est un amas entier, synchrone ; il coûte 0,75 s sous Node sur la VM et jusqu'à 3 s en natif sur une machine occupée (« Le coût ») ; borner ce gel demanderait un pas par tranches de sites (un autre contrat du module) ou une taille de 80 (une courbe qui n'est plus celle de D2).
+- **Le comportement de la page quand les commandes et le modèle divergent** : la page garde l'état du dernier démarrage réussi (`claquageEnCours`, `etaDuModele`) pour le repère de `η`, le texte d'état et le jeu unité par unité ; une graine invalide laisse l'ancien modèle tourner. Ce n'est éprouvé par aucun test (le DOM n'est pas éprouvé).
+- **Les modèles 5 et 6 jusqu'au bout** dans les tests (2 à 5 s chacun en natif) : leur durée est lue à la table au départ, leur état par morceaux jusqu'à 45 unités ; `η = 0` et `η = 3` sont joués jusqu'au bout.
+- **`η` non entier, `η >= 4`** (la transition à `η = 4` est un débat ouvert), la 3D, un amas de plus de quelques centaines de sites dans la page (D1), une courbe à 300 sites (12 minutes).
+- **Que l'activation dans `default` soit sans effet sur l'état** : elle ne change aucune empreinte (testé par les tests de l'étape 5 et le nouveau test « un claquage ne laisse rien derrière lui ») mais change les octets du module (règle 12 : reconstruire **après** l'activation).
+- **L'image** (axes, grille, couleurs) de la courbe de la page : libre ; seule sa forme est lue.
