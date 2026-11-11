@@ -102,13 +102,20 @@
   #repere-zinc, #compatible, #hors-barre, #taille-zinc { color: var(--doux); }
   #compatible { color: #8ee6a8; }
   #hors-barre { color: #ffb27a; }
+  [hidden] { display: none !important; }
+  .minuscule { text-transform: none; }
+  #courbe-eta { image-rendering: auto; }
+  #repere-eta, #ecart-eta, #legende-courbe, #limite-courbe { color: var(--doux); }
+  #pas-un-accord, #pas-un-accord-courbe { color: #ffb27a; }
+  #avancement-courbe { font-variant-numeric: tabular-nums; }
+  #mesure-eta { margin-top: 10px; }
 </style>
 </head>
 <body>
 <main>
   <header>
     <h1>Givre Lab</h1>
-    <p>La DLA et les flocons de Reiter, calculés en WebAssembly et dessinés au fil des unités de temps.</p>
+    <p>La DLA, les flocons de Reiter et le claquage diélectrique, calculés en WebAssembly et dessinés au fil des unités de temps.</p>
   </header>
 
   <section class="commandes" aria-label="Commandes">
@@ -118,9 +125,16 @@
         <option value="1">Reiter, plaque</option>
         <option value="2">Reiter, étoile</option>
         <option value="3">Reiter, dendrite</option>
+        <option value="claquage">Claquage diélectrique</option>
       </select>
     </label>
-    <label for="graine">Graine (DLA)
+    <label for="eta" id="commande-eta" hidden>Exposant <span class="minuscule">η</span> (0 à 3)
+      <span class="curseur">
+        <input id="eta" type="range" min="0" max="3" value="2" step="1">
+        <output id="valeur-eta" for="eta">2</output>
+      </span>
+    </label>
+    <label for="graine">Graine (DLA et claquage)
       <input id="graine" type="number" min="0" max="4294967295" step="1" value="1">
     </label>
     <button id="relancer" type="button">Recommencer</button>
@@ -149,13 +163,32 @@
     <div class="cadre">
       <canvas id="courbe" width="640" height="360" aria-label="Courbe C(r) en échelle log-log et droite ajustée"></canvas>
     </div>
-    <div id="barre-zinc" aria-label="Barre du repère du zinc">
-      <span id="marque-d" hidden></span>
+    <div id="bloc-zinc">
+      <div id="barre-zinc" aria-label="Barre du repère du zinc">
+        <span id="marque-d" hidden></span>
+      </div>
+      <p id="repere-zinc">zinc, Matsushita et coll. 1984 : 1,66 ± 0,03</p>
+      <p id="compatible" hidden>compatible, ce qui ne prouve pas que le zinc suit la DLA</p>
+      <p id="hors-barre" hidden>hors de la barre du zinc : la dimension mesurée n'y tombe pas</p>
+      <p id="taille-zinc">taille d'amas du zinc non relevée</p>
     </div>
-    <p id="repere-zinc">zinc, Matsushita et coll. 1984 : 1,66 ± 0,03</p>
-    <p id="compatible" hidden>compatible, ce qui ne prouve pas que le zinc suit la DLA</p>
-    <p id="hors-barre" hidden>hors de la barre du zinc : la dimension mesurée n'y tombe pas</p>
-    <p id="taille-zinc">taille d'amas du zinc non relevée</p>
+    <div id="bloc-repere-eta" hidden>
+      <p id="repere-eta"></p>
+      <p id="ecart-eta" hidden></p>
+      <p id="pas-un-accord" hidden>ce n'est pas un accord : le banc mesure de petits amas sur un réseau carré, par une corrélation, dans une fenêtre de petits rayons ; l'écart au repère ne dit pas lequel des deux a tort.</p>
+    </div>
+  </section>
+
+  <section class="mesure" aria-label="Courbe de la dimension en fonction de η">
+    <h2>Courbe D(<span class="minuscule">η</span>)</h2>
+    <button id="calculer-courbe" type="button">Calculer la courbe D(η)</button>
+    <p id="avancement-courbe">Aucun calcul pour l'instant.</p>
+    <div class="cadre">
+      <canvas id="courbe-eta" width="640" height="360" aria-label="Dimension moyenne du banc pour chaque exposant η, avec les repères publiés"></canvas>
+    </div>
+    <p id="legende-courbe">Points bleus : la moyenne du banc, avec la barre d'erreur-type de la moyenne. Carrés rouges : les repères publiés (le rappel de la DLA pour η = 1, Hastings 2001 pour η = 2 et η = 3), lus dans le module.</p>
+    <p id="limite-courbe">Limites : des amas de 100 sites (le champ de Laplace coûte trop cher pour plus dans la page), peu de graines par point, une corrélation sur un réseau carré dans une fenêtre de petits rayons ; Hastings (2001) a calculé des amas de 10 000 à 15 000 particules par applications conformes.</p>
+    <p id="pas-un-accord-courbe">Ce n'est pas un accord : seuls l'ordre des points et leur baisse avec η sont à regarder.</p>
   </section>
 
   <p id="etat">Chargement du module…</p>
