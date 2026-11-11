@@ -158,7 +158,7 @@
 
 use std::fmt;
 
-use crate::claquage::{Claquage, DEMI_COTE_MAX};
+use crate::claquage::{Claquage, DEMI_COTE_MAX, ETA_MAX, PARTICULES_MAX};
 use crate::correlation::{Mesure, RAYON_MAX, correlation, dimension_correlation, etendue};
 
 /// Le premier rayon de la fenêtre des petits amas : 2 (voir [`fenetre_petit_amas`]).
@@ -346,9 +346,25 @@ pub enum ErreurCourbe {
 }
 
 impl fmt::Display for ErreurCourbe {
-    #[allow(unused_variables)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+        match self {
+            ErreurCourbe::GrainesInsuffisantes { donnees } => {
+                write!(f, "au moins deux graines sont nécessaires, {donnees} données")
+            }
+            ErreurCourbe::EtaTropGrand { eta, maximum } => write!(f, "η = {eta} : au-delà du maximum {maximum}"),
+            ErreurCourbe::DemiCoteHorsBorne { demi_cote } => {
+                write!(f, "demi-côté {demi_cote} : au-delà du maximum {DEMI_COTE_MAX}")
+            }
+            ErreurCourbe::TailleHorsBorne { taille } => {
+                write!(f, "taille {taille} : au-delà du maximum {PARTICULES_MAX}")
+            }
+            ErreurCourbe::FrontiereTouchee { graine } => {
+                write!(f, "la graine {graine} : l'amas touche la frontière avant d'atteindre sa taille")
+            }
+            ErreurCourbe::FenetreVide { graine } => {
+                write!(f, "la graine {graine} : aucune dimension (fenêtre vide ou C(r) nul)")
+            }
+        }
     }
 }
 
@@ -357,9 +373,14 @@ impl std::error::Error for ErreurCourbe {}
 /// Comme [`demi_cote_de_la_courbe`], mais une erreur au lieu d'une panique ou d'un débordement : `Ok(`[`demi_cote_de_la_courbe`]`(eta, taille))` si
 /// `eta <= ETA_COURBE_MAX` et `taille <= PARTICULES_MAX` ; `Err(`[`ErreurCourbe::EtaTropGrand`]`{ eta, maximum: 3 })` si `eta > 3` (vérifié d'abord) ;
 /// `Err(`[`ErreurCourbe::TailleHorsBorne`]`{ taille })` si `taille > 100000` (le produit `B * taille` de la règle ne déborde alors jamais, même sur 32 bits).
-#[allow(unused_variables)]
 pub fn essayer_demi_cote_de_la_courbe(eta: u32, taille: usize) -> Result<u32, ErreurCourbe> {
-    todo!()
+    if eta > ETA_COURBE_MAX {
+        return Err(ErreurCourbe::EtaTropGrand { eta, maximum: ETA_COURBE_MAX });
+    }
+    if taille > PARTICULES_MAX {
+        return Err(ErreurCourbe::TailleHorsBorne { taille });
+    }
+    Ok(demi_cote_de_la_courbe(eta, taille))
 }
 
 /// La dimension d'**un** amas : celui que fait croître [`point_de_la_courbe`] pour cette `graine` (un [`Claquage`] `Claquage::new(graine, demi_cote, eta)`
@@ -367,14 +388,28 @@ pub fn essayer_demi_cote_de_la_courbe(eta: u32, taille: usize) -> Result<u32, Er
 /// courbe par la page : un amas par appel. Les paramètres sont vérifiés d'abord (`eta`, `demi_cote`, `taille`, voir « Les entrées qui rendent une
 /// erreur »), puis : un amas qui touche la frontière avant d'avoir `taille` sites donne `Err(`[`ErreurCourbe::FrontiereTouchee`]`{ graine })` ; une
 /// dimension `None` donne `Err(`[`ErreurCourbe::FenetreVide`]`{ graine })`. Ne panique jamais.
-#[allow(unused_variables)]
 pub fn essayer_dimension_d_une_graine(
     eta: u32,
     graine: u64,
     taille: usize,
     demi_cote: u32,
 ) -> Result<f64, ErreurCourbe> {
-    todo!()
+    if eta > ETA_MAX {
+        return Err(ErreurCourbe::EtaTropGrand { eta, maximum: ETA_MAX });
+    }
+    if demi_cote > DEMI_COTE_MAX {
+        return Err(ErreurCourbe::DemiCoteHorsBorne { demi_cote });
+    }
+    if taille > PARTICULES_MAX {
+        return Err(ErreurCourbe::TailleHorsBorne { taille });
+    }
+    let mut claquage = Claquage::new(graine, demi_cote, eta);
+    while claquage.sites().len() < taille {
+        if claquage.essayer_ajouter().is_none() {
+            return Err(ErreurCourbe::FrontiereTouchee { graine });
+        }
+    }
+    dimension_d_un_amas(claquage.sites()).ok_or(ErreurCourbe::FenetreVide { graine })
 }
 
 /// Comme [`point_de_la_courbe`], mais une erreur au lieu d'une panique : le même [`PointDeLaCourbe`], à `to_bits` près, quand rien n'échoue. Moins de
@@ -382,14 +417,30 @@ pub fn essayer_dimension_d_une_graine(
 /// (`eta`, `demi_cote`, `taille`) ; puis, pour chaque graine dans l'ordre donné (une graine répétée compte autant de fois qu'elle est donnée), l'erreur de
 /// [`essayer_dimension_d_une_graine`] (la première qui échoue arrête tout) ; puis [`moyenne_et_erreur_type`] des dimensions dans l'ordre des graines
 /// (appelée avec deux valeurs au moins : elle ne panique jamais ici). Ne panique jamais.
-#[allow(unused_variables)]
 pub fn essayer_point_de_la_courbe(
     eta: u32,
     graines: &[u64],
     taille: usize,
     demi_cote: u32,
 ) -> Result<PointDeLaCourbe, ErreurCourbe> {
-    todo!()
+    if graines.len() < 2 {
+        return Err(ErreurCourbe::GrainesInsuffisantes { donnees: graines.len() });
+    }
+    if eta > ETA_MAX {
+        return Err(ErreurCourbe::EtaTropGrand { eta, maximum: ETA_MAX });
+    }
+    if demi_cote > DEMI_COTE_MAX {
+        return Err(ErreurCourbe::DemiCoteHorsBorne { demi_cote });
+    }
+    if taille > PARTICULES_MAX {
+        return Err(ErreurCourbe::TailleHorsBorne { taille });
+    }
+    let mut dimensions = Vec::with_capacity(graines.len());
+    for &graine in graines {
+        dimensions.push(essayer_dimension_d_une_graine(eta, graine, taille, demi_cote)?);
+    }
+    let (moyenne, erreur_type) = moyenne_et_erreur_type(&dimensions);
+    Ok(PointDeLaCourbe { eta, taille, graines: graines.len(), moyenne, erreur_type })
 }
 
 /// La mesure d'un amas par la fenêtre des petits amas : une [`Mesure`] dont les `rayons` sont [`fenetre_petit_amas`]`(sites)`, les `valeurs` les `C(r)` de
@@ -397,9 +448,16 @@ pub fn essayer_point_de_la_courbe(
 /// **exactement** [`dimension_d_un_amas`]`(sites)` (`2.0 + pente` des points `(logarithme(r), logarithme(C(r)))`, la formule de
 /// [`crate::correlation::dimension_correlation`]). `None` dans les cas où [`dimension_d_un_amas`] rend `None` (fenêtre vide ou une valeur `C(r)` nulle,
 /// liste vide comprise). C'est ce que la vitrine garde pour les modèles de claquage. Ne panique jamais.
-#[allow(unused_variables)]
 pub fn mesure_petit_amas(sites: &[(i32, i32)]) -> Option<Mesure> {
-    todo!()
+    let rayons = fenetre_petit_amas(sites);
+    let &dernier = rayons.last()?;
+    let courbe = correlation(sites, dernier);
+    let valeurs: Vec<f64> = rayons.iter().map(|&rayon| courbe[(rayon - 1) as usize]).collect();
+    if valeurs.contains(&0.0) {
+        return None;
+    }
+    let dimension = dimension_d_un_amas(sites)?;
+    Some(Mesure { rayons, valeurs, dimension })
 }
 
 /// Le repère publié affiché pour `eta` : `Some(`[`DLA_RAPPEL`]`)` pour `1`, la valeur de [`HASTINGS_2001_TABLE_II`] pour `2` et `3`, `None` pour
