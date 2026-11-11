@@ -61,3 +61,15 @@ embellir une image ne change aucune d'entre elles.
 
 Un aperçu est pour l'œil, jamais une preuve : les valeurs attendues et les empreintes sont dans `references/`, et
 embellir une image ne change aucune d'entre elles.
+
+
+## Aperçus de l'étape G1
+
+Dessinés par `rendu_hex` (hexagones à leur vraie géométrie, un dégradé de bleus sur fond blanc d'après la masse cristalline `c`, suréchantillonnage 4 × 4 en entiers : plus aucun pixel n'est un agrandissement), calculés hors ligne par `cargo run --release --example apercus_etape_g1`
+(environ cinq minutes pour la planche : le temps est celui de la simulation, le dessin coûte moins d'une seconde ; `cristal` ou `planche` en second argument n'en fait qu'une). Les réglages sont ceux de la figure 9 de Gravner et Griffeath (annexe 8, ligne « 9 » : `β = 1,3`, `α = 0,08`, `θ = 0,025`, `κ = 0,003`, `μ = 0,07`, `γ = 0,00005`).
+
+- `etape-g1-cristal.png` : un cristal à `ρ = 0,46` (8 000 pas, rayon 100, 12 781 cases rattachées, domaine de rayon 150), 1000 × 1000 pixels : un bras vers le haut, six branches, des branches latérales ; la teinte suit `c` (le bleu le plus foncé est atteint dès `c = 1,5`, les cases les plus épaisses).
+- `etape-g1-planche.png` : six cristaux, `ρ` de 0,40 à 0,50 par 0,02 (la figure 9 montre 0,40, 0,41, 0,42, 0,44, 0,46 et 0,50), chacun grandi jusqu'au rayon 100 (ou 40 000 pas : `ρ = 0,40` n'y arrive pas, rayon 88), 400 × 400 pixels par panneau, trois colonnes sur deux rangées, 1200 × 800 : de la plaque à secteurs aux dendrites à branches latérales.
+
+Un aperçu est pour l'œil, jamais une preuve : les valeurs attendues et les empreintes sont dans `references/`, et
+embellir une image ne change aucune d'entre elles. Ces PNG ne sont pas compressés (`3 * largeur * hauteur` octets : 3,0 Mo et 2,9 Mo).
