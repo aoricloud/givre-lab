@@ -75,10 +75,14 @@
     width: 100%;
     max-width: 100%;
     height: auto;
-    image-rendering: pixelated;
     background: #000;
     border-radius: 6px;
   }
+  /* Un pixel par case (la DLA et le claquage, sur une grille carrée) : on agrandit sans lisser, chaque case reste un carré net. */
+  #vitrine { image-rendering: pixelated; }
+  /* L'image nette (les flocons de Reiter, sur la grille hexagonale) est déjà calculée en haute résolution et lissée par le module : le navigateur la lisse aussi, jamais de gros carrés. */
+  #vitrine-nette { image-rendering: auto; background: #fff; }
+  #legende-nette { margin: 10px 2px 0; color: var(--doux); }
   .mesures {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -147,7 +151,9 @@
   </section>
 
   <div class="cadre">
-    <canvas id="vitrine" width="512" height="512" aria-label="Image du modèle en cours"></canvas>
+    <canvas id="vitrine" width="512" height="512" aria-label="Image du modèle en cours, un pixel par case"></canvas>
+    <canvas id="vitrine-nette" width="384" height="384" hidden aria-label="Image nette du modèle en cours, chaque case dessinée comme un hexagone"></canvas>
+    <p id="legende-nette" hidden>Chaque case est un hexagone. Fond blanc : pas de glace. Bleu clair : une case tout juste gelée ; le bleu fonce avec la masse d'eau de la case, qui grandit à chaque pas une fois gelée (le centre, gelé le premier, finit bleu foncé).</p>
   </div>
 
   <dl class="mesures">

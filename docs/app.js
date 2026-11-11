@@ -1,5 +1,6 @@
 // La vitrine de Givre Lab (étape 5) : le module givre.wasm piloté par des nombres, dessiné sur un canvas. Z1 y ajoute la mesure de D
-// par la corrélation ; D3 le claquage diélectrique (le curseur η) et la courbe D(η) calculée un amas à la fois.
+// par la corrélation ; D3 le claquage diélectrique (le curseur η) et la courbe D(η) calculée un amas à la fois ; V7 l'image nette des
+// flocons de Reiter (chaque case un hexagone lisse, calculé par le module) sur un second canvas, sans `image-rendering: pixelated`.
 
 import {
   formater,
@@ -8,7 +9,9 @@ import {
   lireEmpreinte,
   lireGraine,
   lireImage,
+  lireImageNette,
   blocsCaches,
+  imagesCachees,
   numeroDuModele,
   texteAvancement,
   texteRepereEta,
@@ -31,7 +34,17 @@ const COURBE_TAILLE = 100;
 const COURBE_GRAINES = 6;
 const PAUSE_COURBE_MS = 20;
 
+// L'image nette (modèles sur la grille hexagonale) : le module la calcule à la demande, `cote` pixels de côté, `sur × sur` échantillons par pixel (bornes du module :
+// cote pair jusqu'à 2048, sur jusqu'à 4, cote × sur jusqu'à 4096). Pendant l'animation une image légère (768² échantillons : 26 ms pour le module sous Node, 28 ms avec la lecture) ; quand le
+// scénario s'arrête, une image plus fine (3072² échantillons : 0,4 s sous Node) : le navigateur met ensuite le canvas à la taille de l'écran en le lissant, jamais en gros carrés.
+const NETTE_COTE_ANIMATION = 384;
+const NETTE_SUR_ANIMATION = 2;
+const NETTE_COTE_FIN = 1024;
+const NETTE_SUR_FIN = 3;
+
 const canvas = document.getElementById("vitrine");
+const canvasNette = document.getElementById("vitrine-nette");
+const legendeNette = document.getElementById("legende-nette");
 const choixModele = document.getElementById("modele");
 const commandeEta = document.getElementById("commande-eta");
 const curseurEta = document.getElementById("eta");
@@ -59,6 +72,7 @@ const boutonCalculerCourbe = document.getElementById("calculer-courbe");
 const affichageAvancement = document.getElementById("avancement-courbe");
 const canvasCourbeEta = document.getElementById("courbe-eta");
 const contexte = canvas.getContext("2d");
+const contexteNette = canvasNette.getContext("2d");
 const contexteCourbe = canvasCourbe.getContext("2d");
 const contexteCourbeEta = canvasCourbeEta.getContext("2d");
 
@@ -80,17 +94,33 @@ function etaChoisi() {
   return Number(curseurEta.value);
 }
 
-/** Dessine l'image de l'état courant, aux dimensions qu'elle a maintenant. */
-function dessiner() {
-  const { largeur, hauteur, rgba } = lireImage(m);
+/** Pose une image lue dans le module sur un canvas, aux dimensions qu'elle a maintenant. */
+function poser(cible, contexteCible, { largeur, hauteur, rgba }) {
   if (largeur === 0 || hauteur === 0) {
     return;
   }
-  if (canvas.width !== largeur || canvas.height !== hauteur) {
-    canvas.width = largeur;
-    canvas.height = hauteur;
+  if (cible.width !== largeur || cible.height !== hauteur) {
+    cible.width = largeur;
+    cible.height = hauteur;
   }
-  contexte.putImageData(new ImageData(rgba, largeur, hauteur), 0, 0);
+  contexteCible.putImageData(new ImageData(rgba, largeur, hauteur), 0, 0);
+}
+
+/**
+ * Dessine l'image de l'état courant : l'image nette (des hexagones lisses, sur le canvas sans `pixelated`) pour les modèles sur la grille hexagonale, l'image d'un pixel par case
+ * (sur le canvas qui agrandit sans lisser) pour les autres : la DLA et le claquage, dont c'est la vraie géométrie. `fin` vaut vrai quand l'animation s'arrête : l'image nette est alors plus fine.
+ */
+function dessiner(fin) {
+  const nette = lireImageNette(m, fin ? NETTE_COTE_FIN : NETTE_COTE_ANIMATION, fin ? NETTE_SUR_FIN : NETTE_SUR_ANIMATION);
+  const caches = imagesCachees(nette.code);
+  canvas.hidden = caches.carree;
+  canvasNette.hidden = caches.nette;
+  legendeNette.hidden = caches.nette;
+  if (nette.code === 0) {
+    poser(canvasNette, contexteNette, nette);
+  } else {
+    poser(canvas, contexte, lireImage(m));
+  }
 }
 
 function afficherTemps() {
@@ -318,7 +348,7 @@ function image(maintenant) {
     return;
   }
   const joue = avancer();
-  dessiner();
+  dessiner(joue === 0);
   afficherTemps();
   if (joue === 0 || maintenant - derniereEmpreinte >= INTERVALLE_EMPREINTE_MS) {
     afficherEmpreinte();
@@ -359,7 +389,7 @@ function relancer() {
   claquageEnCours = claquageChoisi();
   etaDuModele = etaChoisi();
   montrerLesReperes();
-  dessiner();
+  dessiner(false);
   afficherTemps();
   afficherEmpreinte();
   afficherMesures();
