@@ -1047,3 +1047,91 @@ différemment** (`α` et `θ` échangés et `γ` d'un facteur 10 à gauche ; `γ
 - **La précision de Q31.32 au-delà de 2000 pas** (`R = 22` à 30) ni à 10^5 pas : rien n'est mesuré (l'écart croît plus vite que le temps : une comparaison de seuil peut basculer à un pas lointain) ; la dérive de masse est mesurée jusqu'à 20 000 pas.
 - **Le coût dans un navigateur** : jamais mesuré (ni Node ni `wasm32` sur ce PC) ; le natif donne 0,8 s par 1 000 pas à `R = 100`. **Le module web** : `neige` et `rendu_hex` ne sont appelés par aucune exportation de `vitrine.rs` (vérifié par lecture) ; ajouter `etape-g1` à `default` change pourtant les octets de `docs/givre.wasm` (la section des noms seulement, mesuré sur la VM : règle 12 d'`AGENTS.md`), que la vague du code reconstruit.
 - **Que les images soient belles** : le rendu est jugé par des calculs exacts et une empreinte, jamais par l'œil ; la page (le canvas, la fin de `pixelated` pour la neige) est l'étape G3.
+
+## Étape V7 : le rendu de la page (les flocons de Reiter en hexagones lisses)
+
+Le constat d'André : la page montrait des images « pixelisées ». Pour les flocons de Reiter (modèles 1 à 3, rayons 30, 40 et 60), elle dessinait **un pixel par case** (une image de 61 à 121 pixels) et le navigateur l'agrandissait
+(`image-rendering: pixelated`) en gros carrés. G1 a écrit le moteur qui dessine chaque case comme un **hexagone lisse** (`rendu_hex::rendre` : hexagones à leur vraie géométrie, dégradé de bleus clair puis foncé sur fond blanc,
+suréchantillonnage en entiers, aucun pixel agrandi) ; **V7 le met dans la page**, pour les modèles sur la grille hexagonale. La DLA et le claquage (grille carrée) gardent leurs cases-carrés et leur `pixelated` : un pixel par case y est leur
+vraie géométrie (André décidera s'il veut les adoucir : une autre étape). Les fichiers : `src/vitrine.rs` (quatre exportations de plus : **vingt-sept** en tout), `docs/index.html`, `docs/app.js`, `docs/lecture.js`, `docs/givre.wasm` (reconstruit
+après l'activation de `etape-v7`), `MODELE.md`, `references/etape-v7-valeurs.md` (les valeurs attendues des tests, chacune avec sa source). **Rien de ce qui existe ne change** : les vingt-trois exportations d'avant et l'image d'un pixel par
+case qu'elles rendent (les tests de l'étape 5 la lisent), l'état, l'empreinte affichée, les scénarios. **La règle des nombres ne change pas** (`+ - * /` sur des entiers ; `rendre` est tout en entiers : les octets sont les mêmes sous Linux
+et sous Windows).
+
+### Ce que la page montre
+
+Deux canvas : `#vitrine` (un pixel par case : la DLA et le claquage ; **`image-rendering: pixelated` n'est écrit que pour lui**) et `#vitrine-nette` (les flocons : `image-rendering: auto`, un fond blanc, une légende qui dit « hexagone »).
+La page demande **toujours** l'image nette (`lireImageNette` de `lecture.js`) : le module répond par un code, et le code 1 (« pas de grille hexagonale ») fait retomber la page sur l'image d'un pixel par case et son canvas carré. **La page ne sait donc pas
+quels modèles sont hexagonaux** : la neige (G3) y entrera sans qu'on touche à la page. L'animation dessine à chaque image une **image légère** (384 pixels de côté, 2 × 2 échantillons par pixel) et, **quand le scénario s'arrête, une image plus fine**
+(1024 pixels, 3 × 3 : réduite à l'écran par le navigateur, jamais agrandie en carrés). Le volet caché d'un navigateur fige `requestAnimationFrame` (c'est connu : l'animation attend qu'on le rouvre).
+
+### Le champ dessiné (la décision de l'écrivain, à relire)
+
+`rendre` veut une valeur entière par case, dans l'ordre canonique de `Hexagone`. **Pour un flocon de Reiter, la masse d'eau des cases gelées** (`Flocon::masses`, la seule grandeur du modèle : il n'y a ni température ni épaisseur) : une case gelée gagne `γ` à chaque
+pas et ne reçoit rien d'autre (ses voisines sont réceptives : leur masse qui diffuse est 0), sa masse **suit donc son âge**, à ce qu'elle avait en trop en gelant près (le dégradé montre le cristal qui s'épaissit : le germe est foncé, la pointe d'une
+branche est claire ; mais une case qui gèle peut dépasser 1 : dans la dendrite six cases gelées après lui atteignent ou dépassent la masse du germe, 1,8, et saturent comme lui : **la couleur est une masse, pas une date**, et la légende de la page le dit ainsi).
+La doc de `src/vitrine.rs` fixe au bit près : `E = γ.brut × durée` (ce que le germe gagne pendant tout le scénario : `85 899 346 000`, `51 539 607 600`, `3 435 973 600` pour la plaque, l'étoile, la dendrite), `valeur = 0` pour une case de masse
+inférieure à 1 (le fond, la vapeur, les cases de bord : **blanc** même pour `β = 0,45`), `valeur = 3 (brut − UN) + E` pour une case gelée, `plein = 4 E` : le dégradé `t = 256 + 768 (brut − UN) / E`, plafonné à 1024. **Une case tout juste gelée est au premier
+arrêt (`t = 256`, un bleu clair visible sur le blanc), le germe à la fin du scénario au dernier (`t = 1024`, le bleu foncé)** ; la vue est le carré de `2 R + 1` cases centré sur la case `(0, 0)`.
+**Ce qui a été essayé et refusé** (images regardées, `essai-v7-outils/champ-*.png`) : la masse brute avec `plein` = la masse du germe à la fin (`1 + γ T`) : le bord d'une plaque (`1 / 21` du plein) est presque blanc, le cristal « fond » dans le fond ;
+une masse brute avec un `plein` fixe (2, 3 ou 5) : saturée pour la plaque et l'étoile, trop pâle pour la dendrite (masses de 1 à 1,84) ; la racine carrée de `masse − 1` (`math::racine_entiere`) avec un plancher : des bleus plus soutenus, mais deux
+nombres de plus à fixer sans gain de lecture ; **un plancher d'un quart de l'échelle** (celui retenu : `3 (brut − UN) + E` revient à `t = 256` pour une case tout juste gelée) garde la loi affine (un calcul exact à la main, V-V7-11) et un bord visible pour les trois modèles.
+**L'instant du gel** (le champ que G1 jugeait le plus parlant) n'est pas dans l'état : le garder demanderait un tableau de plus hors de l'empreinte ; **ce n'est pas fait**, et pour Reiter la masse en tient lieu (l'âge de la case, à `γ` près).
+**Contre le repère d'André** (onze neiges de Gravner et Griffeath) : on retrouve des hexagones lisses, un dégradé de bleus et un fond blanc ; on ne retrouve ni la finesse (les cristaux de Reiter à 30, 40 et 60 de rayon n'ont que 1 000 à 2 300 cases :
+une case fait 8 à 17 pixels sur une image de 1024) ni la variété de teintes (un seul champ, une seule loi).
+
+### Les quatre exportations, les bornes et les codes
+
+`givre_nette_preparer(cote, sur)` prépare l'image du modèle en cours dans un **tampon** et rend un code ; `givre_nette_largeur`, `givre_nette_hauteur` et `givre_nette_pixel(x, y)` (`0x00RRGGBB`, comme `givre_pixel`) le lisent sans rien recalculer. **Le tampon
+appartient à l'état qu'il montre** : `givre_demarrer` qui réussit l'efface, `givre_avancer` l'efface dès qu'il joue une unité, une préparation qui échoue l'efface (jamais l'image d'un autre état). Les codes, vérifiés dans cet ordre : 2 rien n'est démarré, 1 le
+modèle n'est pas sur la grille hexagonale (DLA, claquage), 3 `cote` impair ou hors de 2 à 2048, 4 `sur` hors de 1 à 4, 5 `cote × sur` au-delà de 4096, 6 `rendre` a refusé (jamais, avec ces bornes). **Aucune panique** (un code, y compris pour `u32::MAX`).
+**Les bornes viennent du coût** : 4096 échantillons de côté (16,8 millions d'échantillons) coûtent 0,24 à 0,30 s en natif au calme, 0,7 s chargé, et une image de 2048 × 2048 pèse 12 Mio ; au-delà (`(2048, 4)` : 0,94 à 0,99 s) une préparation figerait la page
+(D3 : « aucun appel au-delà d'une seconde environ »). **Le brief suggérait** « 15 à 18 ns par échantillon, 40 ms à 800 × 800 à `sur = 2` » (G1) : **mesuré ici** 15 à 18 ns par échantillon dès `sur >= 2` (**30 ns à `sur = 1`** : le coût d'un pixel s'ajoute) ;
+800 × 800 à `sur = 2` coûte **44 à 47 ms** (pas 40) au calme.
+
+### Le coût (mesuré) et ce que la page en fait
+
+Natif, profil `dev` à `opt-level = 3` (`essai-v7-outils/v7_mesures.rs`, 7 essais, un poste de 12 fils **partagé : le même calcul coûte jusqu'à 1,5 fois plus quand il est chargé** ; les chiffres sont ceux du calme) : le rayon du flocon (30, 40, 60) ne change pas le coût.
+
+| côté, `sur` | échantillons | temps natif |
+|---|---|---|
+| 256, 2 | 262 144 | 4,7 ms |
+| **384, 2 (l'animation de la page)** | 589 824 | **10,3 à 10,8 ms** (17 à 27 ms chargé) |
+| 512, 2 | 1 048 576 | 18,4 à 18,8 ms |
+| 800, 2 | 2 560 000 | 44,7 à 46,6 ms |
+| **1024, 3 (la fin de la page)** | 9 437 184 | **143 à 162 ms** |
+| 1024, 4 et 2048, 2 (la borne) | 16 777 216 | 241 à 268 ms et 290 à 304 ms |
+| 2048, 4 (hors borne) | 67 108 864 | 0,94 à 0,99 s |
+
+La lecture pixel par pixel coûte en plus 1,8 ms pour 384² pixels et 13 ms pour 1024² (natif : 12 ns par appel). **Une image d'animation coûte donc de l'ordre de 12 ms en natif** (préparer et lire). Le juge a refait la mesure sur son poste (7 essais, la vitrine
+elle-même) : `(384, 2)` 13 à 14 ms et 2,5 ms de lecture, `(1024, 3)` 190 ms et 18 ms, `(2048, 2)` 360 ms et 71 ms, 20 à 24 ns par échantillon, les trois flocons confondus ; un `givre_avancer(5)` coûte 0,4 à 1,8 ms : le rendu domine.
+**Le module WebAssembly sous Node** (mesuré par le pilote sur la VM de preuve, Linux, Node 20, le module reconstruit avec le prototype) : **26 ms pour préparer l'image d'animation `(384, 2)`, 28 ms avec la lecture** ; **375 ms pour celle de la fin `(1024, 3)`,
+388 ms avec la lecture** ; 770 ms pour la borne `(2048, 2)`. La borne de départ (une image d'animation sous 50 ms, la dernière sous 1 s) est donc tenue sous Node : une trentaine d'images par seconde au plus pour un flocon, et un arrêt de 0,4 s, une seule fois,
+à la fin du scénario. Un appareil trois à cinq fois plus lent (un téléphone) ferait 7 à 12 images par seconde et une à deux secondes pour la dernière image : l'animation ralentit, elle ne fige pas (une image par `requestAnimationFrame`) ; **ce n'est pas mesuré**.
+La page garde `BUDGET_IMAGE_MS` du claquage pour ses modèles carrés : l'image nette est un calcul court, non découpé.
+
+### Ce qui est prouvé et comment
+
+Tous les tests sont **exacts** (aucune tolérance). La vitrine : l'image est, octet pour octet, `rendre` appliqué au champ de la doc (recalculé dans le test d'après un `Flocon` construit en face), pour plusieurs états et réglages ; les bornes (4096 inclus) et les codes dans
+leur ordre ; une préparation ne change rien à l'état ni à l'image d'un pixel par case ; le tampon appartient à l'état ; les modèles carrés n'ont pas d'image nette ; jamais de panique. Le rendu : un calcul à la main (le germe : quatre pixels `(241, 246, 251)`,
+puis `(198, 219, 239)`, `(130, 185, 220)`, `(70, 144, 198)`, `(8, 48, 107)` à quatre instants), la couleur case par case le long d'un bras, et quatre empreintes de référence **recoupées par un second code Python** écrit d'après la doc seule (`régression`). Le module
+(Node, une fois reconstruit) : les mêmes vérités lues par `lecture.js`. **Avant tout démarrage** (le code 2, le tampon vide) : en natif aussi, par un fichier d'un seul test (`tests/etape_v7_neuf.rs` : un processus neuf). Le champ d'un bras de la plaque à 400 pas
+se calcule **à la main** (`β = 0` : rien ne diffuse, l'anneau `q` gèle au pas `20 q`, sa masse est `(420 − 20 q) γ`) et le test l'exige case par case. La page : `image-rendering: pixelated` n'est pas sur le canvas des hexagones (les règles CSS sont lues : une liste blanche de sélecteurs), `app.js` dessine l'image nette sur son canvas, les
+réglages sont dans les bornes, et `lireImageNette` / `imagesCachees` sont éprouvés sous Node sur un **faux module non carré qui change d'état**. Les tests des étapes 5 et Z1 qui comptent les exportations sont **amendés** (sans `etape-v7` : l'ancien ensemble ou les
+vingt-sept ; avec : les vingt-sept seulement).
+
+### Références
+
+- G1 (`src/rendu_hex.rs`, ci-dessus) : le moteur de rendu, sa géométrie, son dégradé et ses bornes ; aucune référence nouvelle n'est lue pour V7 (le rendu n'est pas une mesure).
+- C. A. Reiter, *Chaos, Solitons & Fractals* 23 (2005) 1111-1119 : le modèle de l'étape 3 (la masse d'eau, les cases gelées, `γ`), déjà cité.
+
+### Ce que cette étape n'établit pas
+
+- **Que la page marche dans un navigateur** : seule sa forme (`index.html`, `app.js`, `lecture.js` lus comme du texte), `lecture.js` sous Node avec un faux module, et le module sous Node une fois reconstruit. Que le canvas des hexagones ne soit pas agrandi en carrés
+  par le navigateur (`image-rendering: auto` sur un canvas réduit ou agrandi de moins de 2) **se voit, il ne se prouve pas** : un coup d'œil humain avec le vrai module reste nécessaire. L'animation (sa fluidité) ne se voit qu'avec le module reconstruit.
+- **Le temps dans un navigateur, sur un appareil lent** : le module est mesuré sous Node sur la VM (voir « Le coût »), pas dans un navigateur ni sur un téléphone.
+- **Que l'image soit belle, ou fidèle au repère** : le rendu est jugé par des calculs exacts, jamais par l'œil ; le champ (la masse d'eau des cases gelées) est un choix de l'écrivain, lisible mais pas celui de l'instant du gel ; les teintes sont moins variées que celles du repère.
+- **Un champ lu dans un autre ordre de cases qui soit une symétrie de l'hexagone** (les douze symétries) : l'état d'un flocon est exactement symétrique, l'image est la même, aucun test ne peut voir cette faute-là. **Une largeur et une hauteur échangées** : l'image est carrée.
+- **Un `>>> 0` oublié sur un pixel** (la couleur `0x00RRGGBB` est positive : la faute ne change rien) ; **le plancher et le plafond de `E`** (1 et `2^58` : aucun des trois modèles ne les atteint, aucun test ne peut les voir) ; **le code 6** (inatteignable).
+- **Ce que les tests de forme de la page laissent passer** : un script qui poserait `pixelated` par une chaîne fabriquée en morceaux, un style venu d'ailleurs que des `<style>` de la page ; les tests lisent du texte, pas un navigateur.
+- **Les modèles carrés lissés** (la DLA, le claquage), **la neige** (G3) ; **Firefox, Safari, un téléphone** : jamais vus.
