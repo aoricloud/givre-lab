@@ -951,3 +951,99 @@ ce PC, profil `dev`) : voir le rapport de l'écrivain.
 - **`η` non entier, `η >= 4`** (la transition à `η = 4` est un débat ouvert), la 3D, un amas de plus de quelques centaines de sites dans la page (D1), une courbe à 300 sites (12 minutes).
 - **Que l'activation dans `default` soit sans effet sur l'état** : elle ne change aucune empreinte (testé par les tests de l'étape 5 et le nouveau test « un claquage ne laisse rien derrière lui ») mais change les octets du module (règle 12 : reconstruire **après** l'activation).
 - **L'image** (axes, grille, couleurs) de la courbe de la page : libre ; seule sa forme est lue.
+
+## Étape G1 : la neige de Gravner et Griffeath (le cœur)
+
+Le cousin riche de Reiter, sur la même grille hexagonale : le modèle mésoscopique de J. Gravner et D. Griffeath, **sans bruit** (`σ = 0`, donc sans aucun hasard). Trois masses par case (la vapeur `d` qui diffuse, une couche
+« quasi-liquide » `b` au bord de la glace, la glace `c`) et un rattachement `a` ; un pas fait quatre sous-pas dans l'ordre de l'article (diffusion, gel, rattachement, fonte) ; sept réglages (`ρ`, `β`, `α`, `θ`, `κ`, `μ`, `γ`). En virgule fixe (Q31.32) et en entiers :
+la symétrie des douze images de l'hexagone est **exacte au bit près**, et la masse est conservée à l'arrondi de la division par 7 près. Le module est `src/neige.rs` (la doc y est la spécification, bit pour bit), la directive de scénario est `neige`, et le **rendu net**
+(des hexagones lisses sur fond blanc, calculés à haute résolution) est un module à part, `src/rendu_hex.rs`. **Rien de ce qui existait ne change** (aucune empreinte, ni la page, ni le module web : `neige` n'est appelé que par `lancer`).
+
+### Le modèle, tel qu'on l'a lu
+
+Source (`references/etape-g1-valeurs.md`, V-G1-00 à 04) : la préimpression de l'article (« Revised version, September 2007 »), sections 5 et 6 et annexe 8, avec les figures 9 et 13 vues. L'état au départ est « une masse cristalline 1 à l'origine, une masse diffusive `ρ` partout ailleurs ».
+Les quatre sous-pas : (1) la diffusion, moyenne sur sept cases (la case et ses six voisines : un voisin du cristal est remplacé par la vapeur de la case, ce qui « réfléchit » au bord du cristal) ; (2) le gel, une part `κ` de la vapeur d'une case de bord devient glace, le reste masse de bord ;
+(3) le rattachement, par le nombre `n` de voisines rattachées : `n = 1` ou 2 et `b >= β`, ou `n = 3` et (`b >= 1` ou (la vapeur du voisinage `< θ` et `b >= α`)), ou `n >= 4` sans condition ; (4) la fonte, une part `μ` de `b` et `γ` de `c` redevient vapeur.
+
+### Les choix à nous (dits, et ce qu'ils changent)
+
+- **Le mur est réfléchissant et fermé** (l'article : un hexagone avec raccord périodique, ou un carré périodique). Une case de la couronne traite un voisin absent comme l'article traite un voisin du cristal. La symétrie reste exacte (le mur est stable par les douze symétries) et la masse est conservée **comme dans l'article** (un domaine fermé).
+  Le prototype a mesuré ce que cela change : **le domaine s'épuise**. À `R = 100`, `ρ = 0,5` (les réglages de la figure 9), le cristal s'arrête vers le rayon 88 (la vapeur du domaine est consommée) ; il faut un rayon de domaine d'au moins 1,5 fois celui du cristal (la règle de l'article : 1,5 fois le diamètre final pour une dendrite, 2 fois pour une plaque lente).
+  `Neige::rayon_cristal() == R` dit que le cristal a touché le mur. Un bord à vapeur fixée (comme Reiter) aurait une réserve infinie : ce n'est pas le modèle de l'article, et il n'est pas offert.
+- **L'arrondi** : la moyenne sur sept cases est la somme exacte de sept entiers divisée par 7 **au plus proche** (`Fixe::div_entier(7)` ; jamais de demi-cas, 7 étant impair). Les produits par `κ`, `μ`, `γ` sont les produits `Fixe` (au plus proche), et chaque « reste » est repris exactement (`b = d1 - g`, la fonte retire ce qu'elle rend) : seule la division par 7 perd ou crée de la masse.
+- **La fonte ne touche que les cases non rattachées** (« plus de dynamique aux cases rattachées » : l'article) : une case qui vient de se rattacher ne fond pas. **La vapeur lue pour `θ`** est celle d'après le gel (un `d°` est la valeur au début du sous-pas) : sur une case de bord, elle est nulle.
+- **Les plages des réglages** (l'article n'en dit pas) : `ρ, α, κ, μ, γ` dans `[0, 1]`, `β` dans `[1, 8]`, `θ` dans `[0, 8]`, bornes incluses ; chacune a sa raison dans la doc (une proportion, `β > 1` de l'article, rien ne déborde). Les réglages de l'article y sont tous.
+- **Les lectures de la source** : la préimpression écrit `n >= 3` en (3b) et `n >= 4` en (3c) (même résultat) ; sa prose de l'instabilité échange `θ` et `α` par rapport à l'équation (3b), que ce module suit (avec l'ordre des colonnes de l'annexe : les valeurs de l'annexe sont cohérentes avec (3b)). **La version publiée dans *Physica D* n'a pas été lue** : si elle diffère de la préimpression, la doc est à corriger.
+- **Un état et des entrées qui ne paniquent pas** : `Neige::essayer_new` et `essayer_depuis_cases` rendent un `Result` ; `pas` ne panique jamais sur un état permis (la masse totale est `< 2^56` au départ, donc aucune somme de sept masses ne dépasse `i64`, pour les 10^10 premiers pas).
+
+### La masse, et sa dérive (mesurée)
+
+La doc fixe la borne : à chaque pas `|M' - M|` est au plus `3 C / 7` unités du dernier chiffre (`C` : les cases non rattachées), et les sous-pas 2 à 4 sont exacts. **Les tests ne fixent aucune tolérance empirique** : la borne est déduite de la formule de l'arrondi (V-G1-MASSE-01), et la conservation est
+exacte quand les vapeurs sont des multiples de 7 (V-G1-MASSE-02). **Mesuré** (`mesure-derive.txt` : `fig9` à `ρ = 0,5` et `0,4`, `fig13m`, `jeuC` ; rayons 20 et 60 ; 500 et 2000 pas) : la dérive totale va de `-2340` à `+9828` unités (une unité vaut `2^-32 ≈ 2,3e-10`), soit de `-0,9e-3` à `+1,7e-3` unité par case et par pas ; la borne est de 165 à 2640 fois plus grande
+(par exemple 8 millions d'unités pour `R = 60` et 2000 pas, contre 5580 mesurées). La dérive est **de signe variable à petite échelle et le plus souvent positive** : de l'ordre de `+1e-3` unité par case et par pas ; sur un cristal de 20 000 pas à `R = 400` elle est de `+7,7e6` unités, soit `7e-9` de la masse totale. Négligeable.
+
+### La précision de la virgule fixe (mesurée)
+
+Q31.32 a un pas de `2,3e-10`. Les petits réglages (`γ = 5e-5`, `μ = 0,07`, `κ = 0,003` pour la figure 9 ; `γ = 1e-5` et `κ = 1e-4` pour la figure 13 au milieu) sont lus exactement par `lire_decimal` (`γ = 0,00005` donne `214748` brut : une erreur relative de `1,7e-6`). **Le prototype est comparé à une
+référence en précision large** (`g1_ref.py precision` : les mêmes équations en `decimal`, 70 chiffres, avec les réglages exacts ou arrondis à Q31.32), `R = 22`, 400 pas, trois jeux (`ρ = 0,5` et `0,4` de la figure 9, la figure 13 au milieu) : **l'écart de chaque masse (`b`, `c`, `d`) à la précision large reste sous 13 unités du dernier chiffre (`3e-9`)** pendant les 400 pas
+(l'écart dû à l'arrondi des réglages à Q31.32 est d'au plus 10 unités, celui de l'arithmétique d'au plus 13), et **les ensembles de cases rattachées sont identiques à chaque pas, pour les trois jeux** : les décisions de rattachement ne basculent pas. L'écart croît lentement avec le temps (de 1 à 5 unités vers 50 pas, de 5 à 13 unités à 400 pas). **Q31.32 suffit à ces échelles** ; ce qu'il en est à 10^5 pas
+(l'écart ne se mesure pas aussi loin avec `decimal` : trop lent) n'est pas établi, et un cristal peut finir par prendre un autre chemin si une comparaison de seuil bascule (les dynamiques sont chaotiques) : si cela compte pour G2, passer à 128 bits est une décision du pilote ; **il n'est pas fait ici**.
+
+**Mesure du juge, plus longue** (un autre outil, `juge_precision.py` : les mêmes équations en entiers à 128 bits après la virgule, réglages exacts) : 2000 pas, `R = 22` à 30, sept jeux (les deux de la figure 9, le milieu de la figure 13, les deux lectures de la droite de la figure 13, `JEU_D`, la ligne « 10 » de l'annexe) : **les ensembles de cases rattachées restent identiques à chaque pas pour les sept jeux**, et l'écart d'une masse atteint 24 à 505 unités du dernier chiffre à 2000 pas (au plus `1,2e-7` ; 10 à 22 unités à 400 pas) : il croît plus vite que le temps (les arrondis s'accumulent sur les cases de bord), et rien n'est mesuré au-delà.
+
+### Le coût (mesuré)
+
+Natif, profil `dev` à `opt-level = 3` (le même temps que `release`, à 10 % près), depuis l'état de départ (`ρ = 0,5`, figure 9). Environ **22 à 30 ns par case et par pas** (quatre sous-pas de boucles simples sur des tableaux ; pas de parallélisme ; **remesuré par le juge sur le même PC : 19 à 40 ns, et jusqu'à 67 ns sur une mesure à `R = 200`** : 5,7 s pour 5000 pas à `R = 100`, 24 s à `R = 200` ; prendre 1 s par 1000 pas à `R = 100` et 5 à 8 s à `R = 200`) :
+
+| rayon | cases | 500 pas | 5000 pas | ms par pas |
+|---|---|---|---|---|
+| 20 | 1 261 | 0,014 s | 0,12 à 0,14 s | 0,028 |
+| 50 | 7 651 | 0,09 s | 0,82 s | 0,17 à 0,19 |
+| 100 | 30 301 | 0,41 s | 3,5 à 3,9 s | 0,71 à 0,85 |
+| 200 | 120 601 | 1,5 à 1,8 s | 15,2 à 15,9 s | 3,0 à 3,2 |
+
+**Un rayon de 100 coûte donc 0,8 s par 1 000 pas** (3,2 s pour un rayon de 200). **Un cristal de la taille de l'article** (un diamètre de 400 à 600 cases, 10 000 à 100 000 pas) : mesuré une fois, `R = 400` (481 201 cases), `ρ = 0,5`, 20 000 pas : **239 s** (24,8 ns par case et par pas ; le cristal a alors le rayon 351 et 101 371 cases : il approche du mur, un domaine plus grand serait
+nécessaire) ; 100 000 pas, **extrapolés et non mesurés**, coûteraient de l'ordre de 20 minutes. Mémoire : de l'ordre de 60 octets par case (`R = 400` : 30 Mo ; `R = 2047` : 750 Mo). **La création** de la neige est négligeable (50 ms à `R = 400`). Les tailles des tests (de 3 à 30 de rayon, de 25 à 4000 pas) tiennent les 41 épreuves de G1 en moins de 3 secondes.
+
+### Le rendu net (`src/rendu_hex.rs`)
+
+Le constat d'André : les aperçus étaient pixelisés parce que le dépôt dessinait **un pixel par case puis agrandissait** (`image-rendering: pixelated`, `rendu.rs`, `apercus/*.png`). Ce module dessine la case pour ce qu'elle est :
+
+- **chaque case est un hexagone à sa vraie géométrie** : à plat en haut (côtés haut et bas horizontaux), d'écart 1 entre voisines, le bras `(1, 0)` de la grille vers le haut (les figures de l'article ont un bras vertical). `√3` n'est jamais calculé : l'inverse `1/√3` est `1239850262 / 2147483647` (écart relatif `2,6e-10`, invisible), ce qui rend tout le calcul entier ;
+- **une couleur continue tirée de la masse cristalline `c`** (`Neige::valeurs_du_cristal` : `c` des cases rattachées, 0 ailleurs) sur **un dégradé de bleus clair puis foncé**, **fond blanc** (la case sans glace est exactement `(255, 255, 255)`), cinq arrêts en entiers. **Pourquoi `c`** : c'est le champ que l'article dessine (« les gris dans le cristal représentent `c` »), il est déjà dans l'état,
+  et il montre l'épaisseur de la glace (les plaques minces remplies après coup, `c` près de 0,1, sont claires ; les branches, `c` de 1 à 1,45, sont plus foncées). **Ce que le modèle offre de mieux** : « l'instant où la case a gelé » montrerait l'ordre d'apparition (les « ribs » de l'article) mais n'est pas dans l'état ; le garder coûte un tableau d'entiers de plus (4 octets par case, hors de l'écriture canonique et de l'empreinte) :
+  **une décision pour G3**, pas faite ici ;
+- **haute résolution et lissage** : `sur × sur` échantillons par pixel (4 dans les exemples : 16 niveaux de couverture au bord d'une case), la case d'un échantillon par un arrondi cubique **en entiers** (`i64`), la couleur du pixel la moyenne entière : les octets sont les mêmes sous Linux et sous Windows, l'image d'un état symétrique est **exactement** symétrique (miroirs et rotation de 180°), aucun agrandissement au plus proche voisin.
+
+**Le coût** (natif, mesuré, `mesure-rendu.txt`) : environ **15 à 18 ns par échantillon**, quel que soit le rayon : une image de `1200 × 1200` pixels à `sur = 4` coûte **0,35 s** (R = 100) à 0,41 s (R = 200) ; `1600 × 1600` : 0,64 à 0,75 s ; `2400 × 2400` : 1,4 s ; `sur = 8` coûte quatre fois plus (2,4 à 2,6 s à `1600`). L'écriture du PNG de `ecrire_png` (**non compressé**) ajoute 0,03 à 0,1 s et
+fait `3 * cote²` octets : 4,3 Mo à 1200 px, 7,7 Mo à 1600, 17 Mo à 2400 : **les aperçus du dépôt pèsent donc des mégaoctets** (un PNG compressé serait une autre étape).
+**Les aperçus** (`examples/apercus_etape_g1.rs`, hors ligne ; réglages de la figure 9, relus à la source) : `apercus/etape-g1-cristal.png` (`ρ = 0,46`, 8 000 pas, rayon 100, 1200 px : 12 s de simulation + 0,4 s de dessin) et `apercus/etape-g1-planche.png` (`ρ` de 0,40 à 0,50 par 0,01 : **onze cristaux**, rayon cible 100 dans un
+domaine de 150, 300 px chacun, 1800 × 600 px : **de 240 à 320 s de simulation** (4 à 5 minutes, selon que la machine est occupée) + 0,3 s de dessin ; `ρ = 0,40` et `0,41` n'atteignent pas le rayon cible et s'arrêtent à 40 000 pas, aux rayons 88 et 97). **On voit** la suite de la figure 9 : la plaque à secteurs (`ρ = 0,40`), l'étoile à plaques, puis des dendrites à branches latérales de plus en plus fines. **Ce qui n'est pas là** : la finesse du repère
+(onze cristaux de 400 à 600 cases), le contraste de teinte du repère (ici `c` ne varie que de 1,0 à 1,45 sur les branches), et la ressemblance n'est pas une preuve.
+
+### Ce qui est prouvé et comment
+
+41 tests, tous étiquetés `juste` ou `régression`, avec leur ligne `Ne couvre pas` : le naïf du test contre la bibliothèque (états sans symétrie, 40 graines ; neuf trajectoires ; toutes les branches du rattachement exercées), le premier pas, le mur, les règles une à une, le rattachement synchrone et `θ` strict **calculés à la main**, huit trajectoires du code Python indépendant, la symétrie des douze images à chaque pas
+et l'équivariance, la masse (borne et exactitude), des régimes, la directive et le binaire, et le rendu (un hexagone calculé à la main, un naïf de géométrie exacte, le dégradé, la symétrie de l'image, une empreinte de référence). **Fautes volontaires** : **58 des 59 fautes volontaires** (une moyenne sur six cases, la division par 7 vers le bas, une diffusion en place, l'ordre des sous-pas, chaque seuil `>` pour `>=` et `<=` pour `<`, `β`, `α` et `θ` échangés, `κ` pour `1 - κ`, la fonte de `c` au lieu de `b`, `γ` oublié, le mur à 0, une voisine oubliée, un rattachement lu après mise à jour, une case de bord comptée comme cristal, un germe décalé, de la masse créée ou perdue, et quatorze fautes du rendu : une grille décalée, des hexagones tournés, un dégradé inversé, un fond noir, une couverture comptée deux fois…) **font échouer au moins un test** ; la 59e (`rendu_sans_plafond`) est un mutant **équivalent** : le plafond de `t` est déjà porté par `t >= 1024`. Le tableau est dans `essai-g1-outils/table-fautes.md`.
+
+### Les valeurs publiées, dites telles quelles
+
+**Aucune valeur de forme n'est un test** : les figures 9 et 13 de l'article n'ont aucun nombre (des images et des réglages). Le jeu de la figure 9 (`β = 1,3`, `α = 0,08`, `θ = 0,025`, `κ = 0,003`, `μ = 0,07`, `γ = 0,00005`, `ρ` de 0,40 à 0,50) est une entrée relue à la source, sans contradiction ; le jeu du milieu de la figure 13 aussi. **Les deux autres cristaux de la figure 13 ont un jeu que le texte et l'annexe donnent
+différemment** (`α` et `θ` échangés et `γ` d'un facteur 10 à gauche ; `γ = .00006` ou `.0006` à droite) : ils ne sont pas employés comme ceux de l'article. À `R = 400`, 20 000 pas, `ρ = 0,5`, le prototype donne une dendrite à branches latérales (vue, pas testée) ; à petit rayon (`R = 30`, 500 pas) le cristal est un astérisque à six pointes (V-G1-REG-07, régression).
+
+### Références
+
+- J. Gravner et D. Griffeath, « Modeling snow crystal growth II: A mesoscopic lattice map with plausible dynamics », *Physica D* 237 (2008) 385-404, https://doi.org/10.1016/j.physd.2007.09.008 : **lue** dans sa préimpression (« Revised version, September 2007 », `mk.bcgsc.ca/snowflakes/paper/modeling-snow-crystal-growth-2.pdf`), section 5 (équations (1) à (5)), section 6, annexe 8 (réglages des figures), figures 9 et 13 vues ; **non lue** : la version publiée, les figures 10 à 12 et 14 à 17.
+- J. Gravner et D. Griffeath, « Modeling snow-crystal growth: A three-dimensional mesoscopic approach », *Phys. Rev. E* 79, 011601 (2009), arXiv:0711.4020 : lue seulement pour la diffusion (mêmes poids `1/7`, « reflecting boundary conditions at the crystal's edge ») et la définition du bord du cristal ; ses règles d'attachement sont celles de la 3D.
+- C. A. Reiter, *Chaos, Solitons & Fractals* 23 (2005) 1111-1119 : le modèle de l'étape 3, dont ce module reprend la grille, la virgule fixe et la preuve de symétrie.
+
+### Ce que cette étape n'établit pas
+
+- **Que la neige ressemble à celle de l'article, ou à une vraie neige** : aucune forme publiée n'est testée, et l'article ne donne aucun nombre pour ses figures. Le prototype montre à grande taille une dendrite à branches latérales et, de `ρ = 0,40` à `0,50`, la suite plaque, étoile, dendrite de la figure 9 : c'est vu, pas démontré, et le détail n'est pas celui de la figure (la finesse des branches de l'article
+  à 400 à 600 cases n'est pas montrée par la planche).
+- **Ni la forme selon la température** (le diagramme de Nakaya : les auteurs disent eux-mêmes ne pas l'expliquer ; passer de (température, sursaturation) aux sept réglages est une question de recherche ouverte), **ni le bruit** (`σ`), **ni la 3D**.
+- **Que le mur soit celui de l'article** (périodique) : le domaine fermé s'épuise (« Le mur est réfléchissant ») ; des cristaux qui touchent le mur ne sont pas ceux de l'article.
+- **Que les versions publiée et préimprimée soient les mêmes** : la version de *Physica D* n'a pas été lue (ni par l'écrivain ni par le juge : l'éditeur refuse l'accès ; la copie du site de l'auteur, `math.ucdavis.edu/~gravner/papers/h2l.pdf`, est le même fichier que la préimpression lue, octet pour octet) ; les contradictions relevées (V-G1-03) ne sont pas arbitrées par la publication.
+- **La précision de Q31.32 au-delà de 2000 pas** (`R = 22` à 30) ni à 10^5 pas : rien n'est mesuré (l'écart croît plus vite que le temps : une comparaison de seuil peut basculer à un pas lointain) ; la dérive de masse est mesurée jusqu'à 20 000 pas.
+- **Le coût dans un navigateur** : jamais mesuré (ni Node ni `wasm32` sur ce PC) ; le natif donne 0,8 s par 1 000 pas à `R = 100`. **Le module web** : `neige` et `rendu_hex` ne sont appelés par aucune exportation de `vitrine.rs` (vérifié par lecture) ; ajouter `etape-g1` à `default` change pourtant les octets de `docs/givre.wasm` (la section des noms seulement, mesuré sur la VM : règle 12 d'`AGENTS.md`), que la vague du code reconstruit.
+- **Que les images soient belles** : le rendu est jugé par des calculs exacts et une empreinte, jamais par l'œil ; la page (le canvas, la fin de `pixelated` pour la neige) est l'étape G3.
