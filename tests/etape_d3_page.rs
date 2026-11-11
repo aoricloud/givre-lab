@@ -360,10 +360,17 @@ fn la_page_a_les_elements_du_claquage_et_de_la_courbe() {
             options.push((attribut(balise, "value").unwrap_or_default(), texte.trim().to_lowercase()));
         }
     }
-    let (valeur, texte) = options.last().expect("des options");
-    assert_eq!(valeur, "claquage", "la dernière option du choix du modèle");
+    // Étape G3 : une sixième option, « neige », peut suivre le claquage (avec `etape-g3` elle y est : voir `etape_g3_page.rs`) ; le claquage est alors l'avant-dernière.
+    let avec_neige = options.last().is_some_and(|(valeur, _)| valeur == "neige");
+    assert!(avec_neige || !e5::G3_ACTIVE, "avec etape-g3, la dernière option du choix du modèle est « neige »");
+    let (valeur, texte) = if avec_neige {
+        options.get(options.len() - 2).expect("des options")
+    } else {
+        options.last().expect("des options")
+    };
+    assert_eq!(valeur, "claquage", "la dernière option du choix du modèle (avant « neige » s'il y en a une)");
     assert!(texte.contains("claquage") && texte.contains("diélectrique"), "le texte de l'option : « {texte} »");
-    assert_eq!(options.len(), 5);
+    assert_eq!(options.len(), if avec_neige { 6 } else { 5 });
     let bouton = texte_de(&html, "calculer-courbe").expect("le bouton");
     assert!(bouton.contains("courbe"), "le texte du bouton est « {bouton} »");
 }
