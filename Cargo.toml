@@ -27,6 +27,7 @@ etape-z1 = []
 etape-d1 = []
 etape-d2 = []
 etape-d3 = []
+etape-g1 = []
 
 # Les tests de simulation (agrégats, surfaces, Monte-Carlo) sont lourds : le profil de test est optimisé. Les
 # vérifications de débordement restent actives. Ne pas le changer sans PR à part.
