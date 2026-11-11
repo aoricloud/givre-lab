@@ -218,6 +218,8 @@
 
 use std::sync::{Mutex, MutexGuard};
 
+use crate::claquage::Claquage;
+use crate::courbe::ErreurCourbe;
 use crate::dla::{Amas, COTE_APERCU, amas_colore};
 use crate::empreinte::sha256;
 use crate::flocon::{Flocon, Parametres};
@@ -229,10 +231,11 @@ struct Image {
     rvb: Vec<u8>,
 }
 
-/// Le modèle en cours : l'amas de DLA ou le flocon de Reiter.
+/// Le modèle en cours : l'amas de DLA, le flocon de Reiter ou l'amas de claquage.
 enum Modele {
     Dla(Amas),
     Flocon(Flocon),
+    Claquage(Claquage),
 }
 
 /// L'état global : le modèle, la durée de son scénario, l'image de l'état courant (refaite quand l'état change) et la mesure
@@ -266,16 +269,51 @@ pub const COURBE_GRAINES_MAX: u32 = 8;
 /// Le seul état de la vitrine ; `None` avant tout démarrage réussi.
 static ETAT: Mutex<Option<Etat>> = Mutex::new(None);
 
+/// Le travail de la courbe `D(η)` : ses paramètres, son avancement et les dimensions déjà obtenues, dans l'ordre des amas.
+struct TravailCourbe {
+    /// Le nombre de sites (germe compris) de chaque amas.
+    taille: usize,
+    /// Le nombre de graines par `η` (de 2 à 8).
+    graines: u32,
+    /// Le nombre d'amas faits (0 au démarrage, `total` à la fin).
+    fait: u32,
+    /// Le nombre total d'amas : `4 × graines`.
+    total: u32,
+    /// Le code d'arrêt (3, 4 ou 6) si un amas a échoué ; le travail n'avance alors plus.
+    arret: Option<u32>,
+    /// Les dimensions obtenues, dans l'ordre des amas (donc des `η`, puis des graines).
+    dimensions: Vec<f64>,
+}
+
+/// L'état de la courbe : le travail en cours (aucun après un démarrage refusé ou avant tout appel) et le dernier code rendu par
+/// `givre_courbe_demarrer` ou `givre_courbe_pas`. Indépendant de [`ETAT`] : `givre_demarrer` n'y touche pas.
+struct EtatCourbe {
+    travail: Option<TravailCourbe>,
+    code: u32,
+}
+
+/// L'état de la courbe ; `None` avant tout démarrage de la courbe (un travail refusé laisse `travail` à `None`).
+static COURBE: Mutex<EtatCourbe> = Mutex::new(EtatCourbe { travail: None, code: 0 });
+
 /// Prend le verrou de l'état ; un verrou empoisonné par une panique se reprend par `into_inner` (jamais de panique ici).
 fn verrouiller() -> MutexGuard<'static, Option<Etat>> {
     ETAT.lock().unwrap_or_else(|empoisonne| empoisonne.into_inner())
 }
 
-/// L'image de l'aperçu d'un modèle : `amas_colore` pour la DLA, `Flocon::apercu` pour un flocon.
+/// Prend le verrou de l'état de la courbe ; un verrou empoisonné par une panique se reprend par `into_inner`.
+fn verrouiller_courbe() -> MutexGuard<'static, EtatCourbe> {
+    COURBE.lock().unwrap_or_else(|empoisonne| empoisonne.into_inner())
+}
+
+/// L'image de l'aperçu d'un modèle : `amas_colore` pour la DLA et le claquage, `Flocon::apercu` pour un flocon.
 fn image_de(modele: &Modele) -> Image {
     match modele {
         Modele::Dla(amas) => {
             let (largeur, hauteur, rvb) = amas_colore(amas.sites(), COTE_APERCU);
+            Image { largeur, hauteur, rvb }
+        }
+        Modele::Claquage(claquage) => {
+            let (largeur, hauteur, rvb) = amas_colore(claquage.sites(), COTE_APERCU);
             Image { largeur, hauteur, rvb }
         }
         Modele::Flocon(flocon) => {
@@ -285,12 +323,22 @@ fn image_de(modele: &Modele) -> Image {
     }
 }
 
-/// Le temps du modèle en cours (voir « Le temps ») : les sites moins le germe pour la DLA, `Flocon::temps` sinon.
+/// Le temps du modèle en cours (voir « Le temps ») : les sites moins le germe pour la DLA et le claquage, `Flocon::temps` sinon.
 fn temps_de(modele: &Modele) -> u32 {
     match modele {
         Modele::Dla(amas) => amas.sites().len().saturating_sub(1) as u32,
+        Modele::Claquage(claquage) => claquage.sites().len().saturating_sub(1) as u32,
         Modele::Flocon(flocon) => u32::try_from(flocon.temps()).unwrap_or(u32::MAX),
     }
+}
+
+/// Le modèle de claquage `4 + η` d'exposant `η` (0 à 3) pour `graine`, avec son demi-côté et sa durée (voir « Les huit modèles ») ;
+/// `None` si `modele` n'est pas de 4 à 7 (le calcul est alors refusé sans panique).
+fn claquage_de(modele: u32, graine: u32) -> Option<(Modele, u32)> {
+    let eta = modele.checked_sub(4)?;
+    let &demi_cote = CLAQUAGE_DEMI_COTE.get(eta as usize)?;
+    let &sites = CLAQUAGE_SITES.get(eta as usize)?;
+    Some((Modele::Claquage(Claquage::new(u64::from(graine), demi_cote, eta)), sites.saturating_sub(1)))
 }
 
 /// Construit un flocon d'après les trois textes de paramètres du scénario ; `None` s'ils ne se lisent pas (ils se lisent).
@@ -315,6 +363,7 @@ pub extern "C" fn givre_demarrer(modele: u32, graine: u32) -> u32 {
         1 => flocon_de(30, "1", "0", "0.05").map(|flocon| (Modele::Flocon(flocon), 400)),
         2 => flocon_de(40, "1", "0.45", "0.1").map(|flocon| (Modele::Flocon(flocon), 120)),
         3 => flocon_de(60, "1", "0.4", "0.001").map(|flocon| (Modele::Flocon(flocon), 800)),
+        4..=7 => claquage_de(modele, graine),
         _ => None,
     };
     let Some((modele, duree)) = construit else { return 0 };
@@ -347,6 +396,16 @@ pub extern "C" fn givre_avancer(n: u32) -> u32 {
             let mut jouees = 0;
             while jouees < a_jouer {
                 if amas.essayer_ajouter().is_none() {
+                    break;
+                }
+                jouees += 1;
+            }
+            jouees
+        }
+        Modele::Claquage(claquage) => {
+            let mut jouees = 0;
+            while jouees < a_jouer {
+                if claquage.essayer_ajouter().is_none() {
                     break;
                 }
                 jouees += 1;
@@ -425,6 +484,7 @@ pub extern "C" fn givre_sites() -> u32 {
     let Some(etat) = garde.as_ref() else { return 0 };
     match &etat.modele {
         Modele::Dla(amas) => amas.sites().len() as u32,
+        Modele::Claquage(claquage) => claquage.sites().len() as u32,
         Modele::Flocon(flocon) => flocon.gelees() as u32,
     }
 }
@@ -436,6 +496,7 @@ pub extern "C" fn givre_rayon() -> u32 {
     let Some(etat) = garde.as_ref() else { return 0 };
     match &etat.modele {
         Modele::Dla(amas) => amas.rayon(),
+        Modele::Claquage(claquage) => claquage.rayon(),
         Modele::Flocon(flocon) => flocon.rayon_cristal(),
     }
 }
@@ -446,7 +507,7 @@ pub extern "C" fn givre_compacite() -> f64 {
     let garde = verrouiller();
     let Some(etat) = garde.as_ref() else { return f64::NAN };
     match &etat.modele {
-        Modele::Dla(_) => f64::NAN,
+        Modele::Dla(_) | Modele::Claquage(_) => f64::NAN,
         Modele::Flocon(flocon) => flocon.compacite().vers_f64(),
     }
 }
@@ -465,6 +526,7 @@ pub extern "C" fn givre_empreinte_mot(i: u32) -> u32 {
     let Some(etat) = garde.as_ref() else { return 0 };
     let ecriture = match &etat.modele {
         Modele::Dla(amas) => amas.ecriture_canonique(),
+        Modele::Claquage(claquage) => claquage.ecriture_canonique(),
         Modele::Flocon(flocon) => flocon.ecriture_canonique(),
     };
     let empreinte = sha256(&ecriture);
@@ -489,6 +551,13 @@ pub extern "C" fn givre_mesurer() -> u32 {
                 None
             } else {
                 crate::correlation::mesure(amas.sites())
+            }
+        }
+        Modele::Claquage(claquage) => {
+            if claquage.sites().len() > MESURE_SITES_MAX {
+                None
+            } else {
+                crate::courbe::mesure_petit_amas(claquage.sites())
             }
         }
         Modele::Flocon(_) => None,
@@ -538,62 +607,144 @@ pub extern "C" fn givre_dimension() -> f64 {
 /// Efface d'abord le travail précédent, quoi qu'il arrive. Rend 0 (accepté ; `givre_courbe_fait` vaut 0 et `givre_courbe_total` vaut `4 × graines`),
 /// 1 si `taille` n'est pas de 1 à [`COURBE_TAILLE_MAX`] ou 2 si `graines` n'est pas de [`COURBE_GRAINES_MIN`] à [`COURBE_GRAINES_MAX`] (la taille est
 /// vérifiée d'abord ; aucun travail n'est alors démarré). Ne fait croître aucun amas : c'est `givre_courbe_pas` qui calcule. Ne panique jamais.
-#[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_courbe_demarrer(taille: u32, graines: u32) -> u32 {
-    todo!()
+    let mut garde = verrouiller_courbe();
+    garde.travail = None;
+    if taille == 0 || taille > COURBE_TAILLE_MAX {
+        garde.code = 1;
+        return 1;
+    }
+    if !(COURBE_GRAINES_MIN..=COURBE_GRAINES_MAX).contains(&graines) {
+        garde.code = 2;
+        return 2;
+    }
+    garde.travail = Some(TravailCourbe {
+        taille: taille as usize,
+        graines,
+        fait: 0,
+        total: 4 * graines,
+        arret: None,
+        dimensions: Vec::new(),
+    });
+    garde.code = 0;
+    0
+}
+
+/// Le code d'erreur rendu pour une [`ErreurCourbe`] (voir la table de « La courbe D(η) à la demande »).
+fn code_de_la_courbe(erreur: &ErreurCourbe) -> u32 {
+    match erreur {
+        ErreurCourbe::FrontiereTouchee { .. } => 3,
+        ErreurCourbe::FenetreVide { .. } => 4,
+        _ => 6,
+    }
 }
 
 /// Fait **un** amas du travail de la courbe, le suivant (voir « La courbe D(η) à la demande »), et rend un code : 0 si l'amas est fait (ou si le travail est
 /// déjà fini : rien ne change), 3, 4 ou 6 si cet amas échoue (le travail est alors arrêté, et tout appel de plus rend le même code sans rien faire), 5
 /// s'il n'y a aucun travail. Quand l'amas fait est le dernier d'un `η`, le point de cet `η` est calculé. Ne panique jamais.
-#[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_courbe_pas() -> u32 {
-    todo!()
+    let mut garde = verrouiller_courbe();
+    let Some(travail) = garde.travail.as_mut() else {
+        garde.code = 5;
+        return 5;
+    };
+    if let Some(code) = travail.arret {
+        garde.code = code;
+        return code;
+    }
+    if travail.fait >= travail.total {
+        garde.code = 0;
+        return 0;
+    }
+    let eta = travail.fait / travail.graines;
+    let graine = u64::from(travail.fait % travail.graines + 1);
+    let taille = travail.taille;
+    let demi_cote = match crate::courbe::essayer_demi_cote_de_la_courbe(eta, taille) {
+        Ok(demi_cote) => demi_cote,
+        Err(erreur) => {
+            let code = code_de_la_courbe(&erreur);
+            travail.arret = Some(code);
+            garde.code = code;
+            return code;
+        }
+    };
+    match crate::courbe::essayer_dimension_d_une_graine(eta, graine, taille, demi_cote) {
+        Ok(dimension) => {
+            travail.fait += 1;
+            travail.dimensions.push(dimension);
+            garde.code = 0;
+            0
+        }
+        Err(erreur) => {
+            let code = code_de_la_courbe(&erreur);
+            travail.arret = Some(code);
+            garde.code = code;
+            code
+        }
+    }
 }
 
 /// Le nombre d'amas faits du travail de la courbe : 0 au démarrage, `4 × graines` à la fin ; 0 sans travail.
-#[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_courbe_fait() -> u32 {
-    todo!()
+    let garde = verrouiller_courbe();
+    garde.travail.as_ref().map_or(0, |travail| travail.fait)
 }
 
 /// Le nombre total d'amas du travail de la courbe : `4 × graines` ; 0 sans travail.
-#[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_courbe_total() -> u32 {
-    todo!()
+    let garde = verrouiller_courbe();
+    garde.travail.as_ref().map_or(0, |travail| travail.total)
 }
 
 /// Le code du dernier appel de `givre_courbe_demarrer` ou de `givre_courbe_pas` (voir la table de « La courbe D(η) à la demande ») ; 0 avant tout appel.
-#[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_courbe_code() -> u32 {
-    todo!()
+    verrouiller_courbe().code
+}
+
+/// La moyenne (`erreur_type` faux) ou l'erreur-type (vrai) du point de `eta` (0 à 3) une fois ses `graines` amas faits ; `NaN` avant, sans travail
+/// et pour `eta > 3`.
+fn statistique_de_la_courbe(eta: u32, erreur_type: bool) -> f64 {
+    let garde = verrouiller_courbe();
+    let Some(travail) = garde.travail.as_ref() else { return f64::NAN };
+    if eta > 3 {
+        return f64::NAN;
+    }
+    let graines = travail.graines as usize;
+    let debut = eta as usize * graines;
+    let Some(fin) = debut.checked_add(graines) else { return f64::NAN };
+    if (travail.fait as usize) < fin {
+        return f64::NAN;
+    }
+    let Some(valeurs) = travail.dimensions.get(debut..fin) else { return f64::NAN };
+    if valeurs.len() < 2 {
+        return f64::NAN;
+    }
+    let (moyenne, ecart_type) = crate::courbe::moyenne_et_erreur_type(valeurs);
+    if erreur_type { ecart_type } else { moyenne }
 }
 
 /// La moyenne des dimensions du point de `eta` (0 à 3), bit pour bit celle de `essayer_point_de_la_courbe`, une fois les `graines` amas de cet `eta`
 /// faits ; `NaN` avant, sans travail et pour `eta > 3`.
-#[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_courbe_moyenne(eta: u32) -> f64 {
-    todo!()
+    statistique_de_la_courbe(eta, false)
 }
 
 /// L'erreur-type de la moyenne du point de `eta` (0 à 3), bit pour bit celle de `essayer_point_de_la_courbe`, une fois les `graines` amas de cet `eta`
 /// faits ; `NaN` avant, sans travail et pour `eta > 3`.
-#[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_courbe_erreur_type(eta: u32) -> f64 {
-    todo!()
+    statistique_de_la_courbe(eta, true)
 }
 
 /// Le repère publié de `eta` : `crate::courbe::publie(eta)` (`1,71`, `1,433`, `1,263` pour `η = 1, 2, 3`), `NaN` quand il n'y en a pas (`η = 0` et
 /// `η >= 4`). Indépendant de tout travail et de tout modèle.
-#[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_courbe_repere(eta: u32) -> f64 {
-    todo!()
+    crate::courbe::publie(eta).unwrap_or(f64::NAN)
 }
