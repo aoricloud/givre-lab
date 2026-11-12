@@ -493,6 +493,8 @@ struct Etat {
     image: Image,
     mesure: Option<crate::correlation::Mesure>,
     nette: Option<Image>,
+    /// L'instantané des masses de la neige (voir « La masse de chaque case ») : `None` à la construction de tout état, rempli par `givre_neige_masses_preparer`, jamais touché ailleurs.
+    masses: Option<Vec<u32>>,
 }
 
 /// Le plus grand amas que [`givre_mesurer`] mesure : 10 000 sites (voir « La mesure de la corrélation »).
@@ -652,7 +654,7 @@ pub extern "C" fn givre_demarrer(modele: u32, graine: u32) -> u32 {
     let Some((modele, duree)) = construit else { return 0 };
     let image = image_de(&modele);
     let mut garde = verrouiller();
-    *garde = Some(Etat { modele, duree, image, mesure: None, nette: None });
+    *garde = Some(Etat { modele, duree, image, mesure: None, nette: None, masses: None });
     1
 }
 
@@ -1239,7 +1241,7 @@ pub extern "C" fn givre_neige_demarrer(jeu: u32, rho: u32, beta: u32, kappa: u32
     let modele = Modele::Neige(neige, jeu);
     let image = image_de(&modele);
     let mut garde = verrouiller();
-    *garde = Some(Etat { modele, duree: nomme.pas, image, mesure: None, nette: None });
+    *garde = Some(Etat { modele, duree: nomme.pas, image, mesure: None, nette: None, masses: None });
     0
 }
 
@@ -1315,15 +1317,28 @@ pub extern "C" fn givre_neige_mesure(champ: u32) -> u32 {
 
 /// Prend un instantané des masses cristallines de la neige en cours (`Neige::valeurs_du_cristal`, dans l'ordre canonique, chacune ramenée à `brut >> 21`) dans le tampon de l'état et rend le nombre de cases (`3 R (R + 1) + 1` : 30 301 pour `R = 100`) ; sans neige en cours (rien de démarré, ou un autre
 /// modèle) rend 0 et efface le tampon. Ne change ni l'état, ni le temps, ni l'empreinte, ni l'image d'un pixel par case, ni l'image nette. Ne panique jamais (voir « La masse de chaque case »).
-#[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_neige_masses_preparer() -> u32 {
-    todo!("étape V8 : givre_neige_masses_preparer")
+    let mut garde = verrouiller();
+    let Some(etat) = garde.as_mut() else { return 0 };
+    let Modele::Neige(neige, _) = &etat.modele else {
+        etat.masses = None;
+        return 0;
+    };
+    let masses: Vec<u32> = neige
+        .valeurs_du_cristal()
+        .iter()
+        .map(|brut| u32::try_from(brut.max(&0) >> NEIGE_MASSE_DECALAGE).unwrap_or(u32::MAX - 1))
+        .collect();
+    let nombre = u32::try_from(masses.len()).unwrap_or(u32::MAX - 1);
+    etat.masses = Some(masses);
+    nombre
 }
 
 /// La masse de la case `i` de l'instantané des masses (`valeurs_du_cristal()[i] >> 21`, en unités de `2^-11`), ou `u32::MAX` si `i` est hors du tampon ou s'il n'y a pas d'instantané. Ne recalcule rien et n'efface rien. Ne panique jamais (voir « La masse de chaque case »).
-#[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_neige_masse(i: u32) -> u32 {
-    todo!("étape V8 : givre_neige_masse")
+    let garde = verrouiller();
+    let Some(masses) = garde.as_ref().and_then(|etat| etat.masses.as_ref()) else { return u32::MAX };
+    masses.get(i as usize).copied().unwrap_or(u32::MAX)
 }
