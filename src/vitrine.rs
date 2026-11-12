@@ -376,12 +376,14 @@
 
 use std::sync::{Mutex, MutexGuard};
 
+use crate::balayage::{Forme, Reglage, classer, jeu_beta, jeu_mu, jeu_rho, mesurer};
 use crate::claquage::Claquage;
 use crate::courbe::ErreurCourbe;
 use crate::dla::{Amas, COTE_APERCU, amas_colore};
 use crate::empreinte::sha256;
 use crate::flocon::{Flocon, Parametres};
 use crate::math::Fixe;
+use crate::neige::{ErreurNeige, Neige, Parametres as ParametresNeige};
 use crate::rendu_hex::{ReglagesImage, rendre};
 
 /// Une image d'aperçu gardée en mémoire : ses dimensions et ses octets R, V, B, ligne par ligne de haut en bas.
@@ -396,6 +398,7 @@ enum Modele {
     Dla(Amas),
     Flocon(Flocon),
     Claquage(Claquage),
+    Neige(Neige, u32),
 }
 
 /// L'état global : le modèle, la durée de son scénario, l'image de l'état courant (refaite quand l'état change), la mesure
@@ -505,6 +508,10 @@ fn image_de(modele: &Modele) -> Image {
             let cote = 2 * flocon.rayon() + 1;
             Image { largeur: cote, hauteur: cote, rvb: flocon.apercu() }
         }
+        Modele::Neige(neige, _) => {
+            let cote = 2 * neige.rayon() + 1;
+            Image { largeur: cote, hauteur: cote, rvb: neige.apercu() }
+        }
     }
 }
 
@@ -514,6 +521,7 @@ fn temps_de(modele: &Modele) -> u32 {
         Modele::Dla(amas) => amas.sites().len().saturating_sub(1) as u32,
         Modele::Claquage(claquage) => claquage.sites().len().saturating_sub(1) as u32,
         Modele::Flocon(flocon) => u32::try_from(flocon.temps()).unwrap_or(u32::MAX),
+        Modele::Neige(neige, _) => u32::try_from(neige.temps()).unwrap_or(u32::MAX),
     }
 }
 
@@ -601,6 +609,20 @@ pub extern "C" fn givre_avancer(n: u32) -> u32 {
             flocon.avancer(u64::from(a_jouer));
             a_jouer
         }
+        Modele::Neige(neige, _) => {
+            let limite = limite_du_mur(neige.rayon());
+            let mut jouees = 0;
+            while jouees < a_jouer {
+                let rayon = neige.rayon_cristal();
+                if rayon >= limite {
+                    break;
+                }
+                let lot = (limite - rayon).min(a_jouer - jouees);
+                neige.avancer(u64::from(lot));
+                jouees += lot;
+            }
+            jouees
+        }
     };
     if jouees > 0 {
         etat.mesure = None;
@@ -672,6 +694,7 @@ pub extern "C" fn givre_sites() -> u32 {
         Modele::Dla(amas) => amas.sites().len() as u32,
         Modele::Claquage(claquage) => claquage.sites().len() as u32,
         Modele::Flocon(flocon) => flocon.gelees() as u32,
+        Modele::Neige(neige, _) => neige.cases_rattachees() as u32,
     }
 }
 
@@ -684,6 +707,7 @@ pub extern "C" fn givre_rayon() -> u32 {
         Modele::Dla(amas) => amas.rayon(),
         Modele::Claquage(claquage) => claquage.rayon(),
         Modele::Flocon(flocon) => flocon.rayon_cristal(),
+        Modele::Neige(neige, _) => neige.rayon_cristal(),
     }
 }
 
@@ -693,7 +717,7 @@ pub extern "C" fn givre_compacite() -> f64 {
     let garde = verrouiller();
     let Some(etat) = garde.as_ref() else { return f64::NAN };
     match &etat.modele {
-        Modele::Dla(_) | Modele::Claquage(_) => f64::NAN,
+        Modele::Dla(_) | Modele::Claquage(_) | Modele::Neige(..) => f64::NAN,
         Modele::Flocon(flocon) => flocon.compacite().vers_f64(),
     }
 }
@@ -714,6 +738,7 @@ pub extern "C" fn givre_empreinte_mot(i: u32) -> u32 {
         Modele::Dla(amas) => amas.ecriture_canonique(),
         Modele::Claquage(claquage) => claquage.ecriture_canonique(),
         Modele::Flocon(flocon) => flocon.ecriture_canonique(),
+        Modele::Neige(neige, _) => neige.ecriture_canonique(),
     };
     let empreinte = sha256(&ecriture);
     let debut = 4 * i as usize;
@@ -746,7 +771,7 @@ pub extern "C" fn givre_mesurer() -> u32 {
                 crate::courbe::mesure_petit_amas(claquage.sites())
             }
         }
-        Modele::Flocon(_) => None,
+        Modele::Flocon(_) | Modele::Neige(..) => None,
     };
     match mesure {
         Some(mesure) => {
@@ -956,7 +981,9 @@ pub extern "C" fn givre_nette_preparer(cote: u32, sur: u32) -> u32 {
     let mut garde = verrouiller();
     let Some(etat) = garde.as_mut() else { return 2 };
     etat.nette = None;
-    let Modele::Flocon(flocon) = &etat.modele else { return 1 };
+    if !matches!(etat.modele, Modele::Flocon(_) | Modele::Neige(..)) {
+        return 1;
+    }
     if !(2..=NETTE_COTE_MAX).contains(&cote) || !cote.is_multiple_of(2) {
         return 3;
     }
@@ -966,9 +993,17 @@ pub extern "C" fn givre_nette_preparer(cote: u32, sur: u32) -> u32 {
     if cote * sur > NETTE_GRILLE_MAX {
         return 5;
     }
-    let (valeurs, plein) = champ_du_flocon(flocon, etat.duree);
-    let rayon = flocon.rayon();
-    match rendre(rayon, &valeurs, &ReglagesImage { cote, rayon_vue: rayon, sur, plein }) {
+    let (rayon, valeurs, plein, rayon_vue) = match &etat.modele {
+        Modele::Flocon(flocon) => {
+            let (valeurs, plein) = champ_du_flocon(flocon, etat.duree);
+            (flocon.rayon(), valeurs, plein, flocon.rayon())
+        }
+        Modele::Neige(neige, _) => {
+            (neige.rayon(), neige.valeurs_du_cristal(), NEIGE_PLEIN, limite_du_mur(neige.rayon()) + NEIGE_MARGE_VUE)
+        }
+        _ => return 1,
+    };
+    match rendre(rayon, &valeurs, &ReglagesImage { cote, rayon_vue, sur, plein }) {
         Ok(rvb) => {
             etat.nette = Some(Image { largeur: cote, hauteur: cote, rvb });
             0
@@ -1013,40 +1048,177 @@ pub extern "C" fn givre_nette_pixel(x: u32, y: u32) -> u32 {
     }
 }
 
+/// Un jeu nommé de la neige, lu dans `balayage` (une seule source) : la figure, le rang, le nombre de cristaux, le réglage balayé, les réglages, le rayon, les pas et « déduit ».
+struct JeuNomme {
+    figure: u32,
+    rang: u32,
+    cristaux: u32,
+    balaye: u32,
+    parametres: ParametresNeige,
+    rayon: u32,
+    pas: u32,
+    deduit: u32,
+}
+
+/// Le jeu nommé `jeu` (de 0 à 18) ; `None` hors de portée (voir « Les jeux nommés »).
+fn jeu_nomme(jeu: u32) -> Option<JeuNomme> {
+    if jeu >= NEIGE_JEUX {
+        return None;
+    }
+    if jeu == 18 {
+        let parametres = ParametresNeige::lire("0.36", "1.09", "0.01", "0.0745", "0.0001", "0.14", "0.00001")?;
+        return Some(JeuNomme {
+            figure: 13,
+            rang: 1,
+            cristaux: 1,
+            balaye: 7,
+            parametres,
+            rayon: 100,
+            pas: NEIGE_PAS_FIGURE_13,
+            deduit: 0,
+        });
+    }
+    let (figure, balayage) = match jeu / 6 {
+        0 => (9, jeu_rho()),
+        1 => (10, jeu_beta()),
+        _ => (12, jeu_mu()),
+    };
+    let rang = (jeu % 6) as usize;
+    let valeur = *balayage.valeurs.get(rang)?;
+    let parametres = balayage.reglage.fixer(balayage.base, valeur);
+    let balaye = match balayage.reglage {
+        Reglage::Rho => 0,
+        Reglage::Beta => 1,
+        _ => 5,
+    };
+    Some(JeuNomme {
+        figure,
+        rang: rang as u32 + 1,
+        cristaux: u32::try_from(balayage.valeurs.len()).unwrap_or(u32::MAX),
+        balaye,
+        parametres,
+        rayon: balayage.rayon,
+        pas: u32::try_from(balayage.pas).unwrap_or(u32::MAX),
+        deduit: u32::from(figure != 9),
+    })
+}
+
+/// Le réglage `numero` (0 à 6 dans l'ordre `ρ β α θ κ μ γ`) de `parametres`, en millionièmes ; `u32::MAX` hors de portée.
+fn reglage_en_ppm(parametres: &ParametresNeige, numero: u32) -> u32 {
+    let brut = match numero {
+        0 => parametres.rho.0,
+        1 => parametres.beta.0,
+        2 => parametres.alpha.0,
+        3 => parametres.theta.0,
+        4 => parametres.kappa.0,
+        5 => parametres.mu.0,
+        6 => parametres.gamma.0,
+        _ => return u32::MAX,
+    };
+    u32::try_from((2_000_000 * i128::from(brut) + (1_i128 << 32)) / (1_i128 << 33)).unwrap_or(u32::MAX)
+}
+
+/// La limite du mur d'une neige de rayon `rayon` : `R · 65 / 100` (voir « La fin et le mur »).
+fn limite_du_mur(rayon: u32) -> u32 {
+    rayon.saturating_mul(NEIGE_MUR_POURCENT) / 100
+}
+
 /// Démarre une neige : les réglages du jeu nommé `jeu` (de 0 à 18, voir « La neige »), sauf `ρ`, `β`, `κ` et `μ` qui prennent `rho`, `beta`, `kappa` et `mu` (en millionièmes, dans cet ordre), le rayon et le nombre de pas du jeu ; remplace l'état entier
 /// (le temps 0, l'image, l'empreinte, le tampon de l'image nette, la mesure gardée). Rend 0 (démarrée), 1 (`jeu >= 19`), 2 (`ρ` hors de `[0 ; 1]`), 3 (`β` hors de `[1 ; 8]`), 4 (`κ` hors de `[0 ; 1]`), 5 (`μ` hors de `[0 ; 1]`) ou 6 (tout autre refus : inatteignable), **dans cet ordre** ;
 /// un refus ne change rien et rien ne panique, pour aucun `u32`.
-#[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_neige_demarrer(jeu: u32, rho: u32, beta: u32, kappa: u32, mu: u32) -> u32 {
-    todo!("étape G3 : voir « La neige »")
+    let Some(nomme) = jeu_nomme(jeu) else { return 1 };
+    let parametres = ParametresNeige {
+        rho: Fixe::rapport(i64::from(rho), 1_000_000),
+        beta: Fixe::rapport(i64::from(beta), 1_000_000),
+        kappa: Fixe::rapport(i64::from(kappa), 1_000_000),
+        mu: Fixe::rapport(i64::from(mu), 1_000_000),
+        ..nomme.parametres
+    };
+    if let Err(ErreurNeige::ParametreHorsPlage(nom)) = parametres.verifier() {
+        return match nom {
+            "rho" => 2,
+            "beta" => 3,
+            "kappa" => 4,
+            "mu" => 5,
+            _ => 6,
+        };
+    }
+    let Ok(neige) = Neige::essayer_new(nomme.rayon, parametres) else { return 6 };
+    let modele = Modele::Neige(neige, jeu);
+    let image = image_de(&modele);
+    let mut garde = verrouiller();
+    *garde = Some(Etat { modele, duree: nomme.pas, image, mesure: None, nette: None });
+    0
 }
 
 /// Le nombre de jeux de réglages nommés de la neige : [`NEIGE_JEUX`], soit 19 (voir « La neige »).
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_neige_jeux() -> u32 {
-    todo!("étape G3 : voir « La neige »")
+    NEIGE_JEUX
 }
 
 /// Un champ du jeu nommé `jeu` (de 0 à 18) : la figure, le rang, le nombre de cristaux, le réglage qui varie, les sept réglages en millionièmes, le rayon du domaine, le nombre de pas, « déduit » (voir « La neige » : le tableau des champs, de 0 à 13) ;
 /// `u32::MAX` hors de portée. Ne dépend d'aucun état et n'en change aucun.
-#[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_neige_jeu(jeu: u32, champ: u32) -> u32 {
-    todo!("étape G3 : voir « La neige »")
+    let Some(nomme) = jeu_nomme(jeu) else { return u32::MAX };
+    match champ {
+        0 => nomme.figure,
+        1 => nomme.rang,
+        2 => nomme.cristaux,
+        3 => nomme.balaye,
+        4..=10 => reglage_en_ppm(&nomme.parametres, champ - 4),
+        11 => nomme.rayon,
+        12 => nomme.pas,
+        13 => nomme.deduit,
+        _ => u32::MAX,
+    }
 }
 
 /// Un champ des réglages de la neige **en cours** : `ρ`, `β`, `α`, `θ`, `κ`, `μ`, `γ` en millionièmes (de 0 à 6), le numéro du jeu démarré (7), le rayon du domaine (8), le nombre de pas (9) ; `u32::MAX` sans neige en cours ou hors de portée (voir « La neige »).
-#[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_neige_reglage(champ: u32) -> u32 {
-    todo!("étape G3 : voir « La neige »")
+    let garde = verrouiller();
+    let Some(etat) = garde.as_ref() else { return u32::MAX };
+    let Modele::Neige(neige, jeu) = &etat.modele else { return u32::MAX };
+    match champ {
+        0..=6 => reglage_en_ppm(&neige.parametres(), champ),
+        7 => *jeu,
+        8 => neige.rayon(),
+        9 => etat.duree,
+        _ => u32::MAX,
+    }
 }
 
 /// Une mesure de la neige **en cours**, à l'instant : les six mesures de `balayage::mesurer` (de 0 à 5), son étiquette de `balayage::classer` (6 : 0 aucune, 1 plaque, 2 secteurs, 3 dendrite, 4 fougère), « au mur » (7 : 1 ou 0) ; `u32::MAX` sans neige en cours ou hors de portée
 /// (voir « La neige »). Ne garde rien et ne change rien.
-#[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_neige_mesure(champ: u32) -> u32 {
-    todo!("étape G3 : voir « La neige »")
+    let garde = verrouiller();
+    let Some(etat) = garde.as_ref() else { return u32::MAX };
+    let Modele::Neige(neige, _) = &etat.modele else { return u32::MAX };
+    if champ > 7 {
+        return u32::MAX;
+    }
+    if champ == 7 {
+        return u32::from(neige.rayon_cristal() >= limite_du_mur(neige.rayon()));
+    }
+    let mesures = mesurer(neige);
+    match champ {
+        0 => mesures.rattachees,
+        1 => mesures.rayon,
+        2 => mesures.compacite,
+        3 => mesures.pointes,
+        4 => mesures.aiguilles,
+        5 => mesures.hexagonalite,
+        _ => match classer(&mesures) {
+            Forme::Aucune => 0,
+            Forme::Plaque => 1,
+            Forme::Secteurs => 2,
+            Forme::Dendrite => 3,
+            Forme::Fougere => 4,
+        },
+    }
 }
