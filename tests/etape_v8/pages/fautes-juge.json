@@ -1,0 +1,956 @@
+{
+ "_lisez_moi": "Les pages du juge de l'étape V8. `passent` : des pages qui doivent passer TOUS les tests des cinq fichiers de la page ; `fautes` : chacune est la page `base` avec UNE faute, et doit faire échouer au moins les tests de `doit_echouer` (`amendement` : l'amendement du juge qui la tue, vide si les tests de l'écrivain la tuaient déjà). Les opérations sont celles de `fautes.json` (`remplacer` [ancien, nouveau] : exactement une fois ; `ajouter` au bout ; `creer` ; `octets` : N octets, un PNG si le nom finit par .png ; `supprimer`), plus `polices` : N polices de 25 000 octets en `data:` dans une feuille. Les pages `juge-*` n'ont pas de `lecture.js` : le script y copie celui de `rhabillee/`. Joué par `essai-v8-juge-outils/jouer_pages_juge.py`.",
+ "passent": [
+  {
+   "nom": "juge-tiroir",
+   "base": "juge-tiroir",
+   "operations": []
+  },
+  {
+   "nom": "juge-en-ligne",
+   "base": "juge-en-ligne",
+   "operations": []
+  },
+  {
+   "nom": "juge-modules",
+   "base": "juge-modules",
+   "operations": []
+  },
+  {
+   "nom": "juge-tiroir-au-poids-du-guide",
+   "base": "juge-tiroir",
+   "operations": [
+    {
+     "fichier": "css/polices.css",
+     "polices": 8
+    },
+    {
+     "fichier": "js/le-reste.js",
+     "octets": 56000
+    }
+   ]
+  }
+ ],
+ "fautes": [
+  {
+   "nom": "importscripts-externe",
+   "base": "juge-tiroir",
+   "faute": "le worker charge une bibliothèque par importScripts(\"https://…\")",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "ouvriers/cristal.js",
+     "ajouter": "importScripts(\"https://cdn.exemple.org/lib.js\");\n"
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_n_a_aucune_ressource_externe"
+   ]
+  },
+  {
+   "nom": "link-css-protocole-relatif",
+   "base": "juge-tiroir",
+   "faute": "une feuille de style chargée par <link rel=\"stylesheet\" href=\"//cdn…\">",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<link rel=\"stylesheet\" href=\"css/page.css\">",
+      "<link rel=\"stylesheet\" href=\"css/page.css\">\n<link rel=\"stylesheet\" href=\"//cdn.exemple.org/x.css\">"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_n_a_aucune_ressource_externe"
+   ]
+  },
+  {
+   "nom": "img-http",
+   "base": "juge-tiroir",
+   "faute": "une image chargée par <img src=\"http://…\">",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<h1>La neige, case par case</h1>",
+      "<h1>La neige, case par case</h1><img src=\"http://exemple.org/a.png\" alt=\"\">"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_n_a_aucune_ressource_externe"
+   ]
+  },
+  {
+   "nom": "img-src-sans-guillemets",
+   "base": "juge-en-ligne",
+   "faute": "une image externe, l'attribut écrit sans guillemets (<img src=https://… >)",
+   "amendement": "J3",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<h1>Givre Lab</h1>",
+      "<h1>Givre Lab</h1><img src=https://exemple.org/a.png alt=x>"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_n_a_aucune_ressource_externe"
+   ]
+  },
+  {
+   "nom": "script-src-majuscules",
+   "base": "juge-tiroir",
+   "faute": "un script externe, la balise et l'attribut en majuscules",
+   "amendement": "J3",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "</body>",
+      "<SCRIPT SRC=\"https://exemple.org/x.js\"></SCRIPT>\n</body>"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_n_a_aucune_ressource_externe"
+   ]
+  },
+  {
+   "nom": "script-src-espaces",
+   "base": "juge-tiroir",
+   "faute": "un script externe, des espaces autour du = (src = \"https://…\")",
+   "amendement": "J3",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "</body>",
+      "<script src = \"https://exemple.org/x.js\"></script>\n</body>"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_n_a_aucune_ressource_externe"
+   ]
+  },
+  {
+   "nom": "base-href",
+   "base": "juge-tiroir",
+   "faute": "<base href=\"https://…\"> : toutes les adresses relatives partent au-dehors",
+   "amendement": "J4",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<meta charset=\"utf-8\">",
+      "<meta charset=\"utf-8\">\n<base href=\"https://exemple.org/givre/\">"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_n_a_aucune_ressource_externe"
+   ]
+  },
+  {
+   "nom": "fetch-sous-une-cle-data",
+   "base": "juge-tiroir",
+   "faute": "un fetch externe écrit en compact derrière une clé data: ({data:fetch(\"https://…\")})",
+   "amendement": "J1",
+   "operations": [
+    {
+     "fichier": "ouvriers/cristal.js",
+     "ajouter": "postMessage({type:\"x\",data:fetch(\"https://exemple.org/api\")});\n"
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_n_a_aucune_ressource_externe"
+   ]
+  },
+  {
+   "nom": "exportation-inconnue-sous-une-cle-data",
+   "base": "juge-tiroir",
+   "faute": "une exportation inconnue employée derrière une clé data:",
+   "amendement": "J1",
+   "operations": [
+    {
+     "fichier": "ouvriers/cristal.js",
+     "ajouter": "function lot() { return {data:m.givre_neige_masses_lire(0)}; }\n"
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_emploie_les_exportations_du_module_et_rien_d_autre"
+   ]
+  },
+  {
+   "nom": "exportation-inconnue-worker",
+   "base": "juge-tiroir",
+   "faute": "une exportation inconnue employée par le worker",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "ouvriers/cristal.js",
+     "ajouter": "function volume() { return m.givre_neige_volume(); }\n"
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_emploie_les_exportations_du_module_et_rien_d_autre"
+   ]
+  },
+  {
+   "nom": "worker-externe",
+   "base": "juge-tiroir",
+   "faute": "un worker lancé d'une adresse externe par new Worker(new URL(\"https://…\"))",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "js/page.js",
+     "ajouter": "const autre = new Worker(new URL(\"https://exemple.org/w.js\"));\n"
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_n_a_aucune_ressource_externe"
+   ]
+  },
+  {
+   "nom": "import-externe",
+   "base": "juge-modules",
+   "faute": "un import statique d'une adresse externe",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "js/principal.js",
+     "remplacer": [
+      "import { leModule } from \"./module.js\";",
+      "import { leModule } from \"./module.js\";\nimport \"https://exemple.org/mesure-d-audience.js\";"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_n_a_aucune_ressource_externe"
+   ]
+  },
+  {
+   "nom": "module-externe",
+   "base": "juge-tiroir",
+   "faute": "le module chargé d'une adresse externe",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "ouvriers/cristal.js",
+     "remplacer": [
+      "\"../givre.wasm\"",
+      "\"https://exemple.org/givre.wasm\""
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_n_a_aucune_ressource_externe"
+   ]
+  },
+  {
+   "nom": "id-seulement-en-commentaire",
+   "base": "juge-modules",
+   "faute": "l'identifiant `temps` n'est plus écrit que dans un commentaire HTML",
+   "amendement": "J2",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<p id=\"temps\"></p>",
+      "<!-- <p id=\"temps\"></p> -->"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::les_identifiants_sont_dans_index_html_une_seule_fois"
+   ]
+  },
+  {
+   "nom": "canvas-seulement-en-commentaire",
+   "base": "juge-en-ligne",
+   "faute": "le canvas `vitrine-nette` n'est plus écrit que dans un commentaire HTML",
+   "amendement": "J2",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<canvas id=\"vitrine-nette\" width=2 height=2></canvas>",
+      "<!-- <canvas id=\"vitrine-nette\" width=2 height=2></canvas> -->"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::les_identifiants_sont_dans_index_html_une_seule_fois",
+    "etape_v7_page::la_page_a_les_deux_canvas_et_la_legende"
+   ]
+  },
+  {
+   "nom": "id-deux-fois-deux-elements",
+   "base": "juge-tiroir",
+   "faute": "l'identifiant `empreinte` est porté par deux éléments",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<h1>La neige, case par case</h1>",
+      "<h1>La neige, case par case</h1><span id=\"empreinte\"></span>"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::les_identifiants_sont_dans_index_html_une_seule_fois"
+   ]
+  },
+  {
+   "nom": "mot-interdit-sous-dossier",
+   "base": "juge-tiroir",
+   "faute": "un mot interdit écrit par un script d'un sous-dossier",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "js/page.js",
+     "ajouter": "element(\"legende-nette\").title = \"un rendu fidèle de la figure\";\n"
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::la_page_ne_dit_pas_plus_que_le_modele"
+   ]
+  },
+  {
+   "nom": "mot-interdit-apostrophe-echappee",
+   "base": "juge-modules",
+   "faute": "« conforme à l'article » dans une chaîne à apostrophes ('conforme à l\\'article')",
+   "amendement": "J5",
+   "operations": [
+    {
+     "fichier": "js/principal.js",
+     "ajouter": "par(\"legende-nette\").textContent = 'Une forme conforme à l\\'article.';\n"
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::la_page_ne_dit_pas_plus_que_le_modele"
+   ]
+  },
+  {
+   "nom": "mot-interdit-apostrophe-typographique",
+   "base": "juge-en-ligne",
+   "faute": "« identique à l’article » écrit avec l'apostrophe typographique",
+   "amendement": "J5",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "Chaque case est un hexagone, dessiné d’après sa masse.",
+      "Chaque case est un hexagone, identique à l’article."
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::la_page_ne_dit_pas_plus_que_le_modele"
+   ]
+  },
+  {
+   "nom": "mot-interdit-entite",
+   "base": "juge-en-ligne",
+   "faute": "« réaliste » écrit avec une entité HTML (r&eacute;aliste)",
+   "amendement": "J5",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "Chaque case est un hexagone, dessiné d’après sa masse.",
+      "Un flocon r&eacute;aliste."
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::la_page_ne_dit_pas_plus_que_le_modele"
+   ]
+  },
+  {
+   "nom": "mot-interdit-echappement-unicode",
+   "base": "juge-modules",
+   "faute": "« réaliste » écrit par un échappement (r\\u00e9aliste) dans un script",
+   "amendement": "J5",
+   "operations": [
+    {
+     "fichier": "js/principal.js",
+     "ajouter": "par(\"legende-nette\").textContent = \"Un flocon r\\u00e9aliste.\";\n"
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::la_page_ne_dit_pas_plus_que_le_modele"
+   ]
+  },
+  {
+   "nom": "mot-interdit-css-content",
+   "base": "juge-tiroir",
+   "faute": "un mot interdit affiché par la feuille de style (content: \"…\")",
+   "amendement": "J6",
+   "operations": [
+    {
+     "fichier": "css/page.css",
+     "ajouter": ".legende::after { content: \" — fidèle à la figure\"; }\n"
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::la_page_ne_dit_pas_plus_que_le_modele"
+   ]
+  },
+  {
+   "nom": "mot-interdit-carte-de-partage",
+   "base": "juge-tiroir",
+   "faute": "un mot interdit dans og:description (la carte de partage)",
+   "amendement": "J6",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "Un cristal de neige calculé en direct, dans ce navigateur.",
+      "Un cristal de neige réaliste, calculé en direct."
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::la_page_ne_dit_pas_plus_que_le_modele"
+   ]
+  },
+  {
+   "nom": "mot-interdit-alt",
+   "base": "juge-tiroir",
+   "faute": "un mot interdit dans le texte de remplacement d'une image",
+   "amendement": "J6",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<h1>La neige, case par case</h1>",
+      "<h1>La neige, case par case</h1><img src=\"apercu.png\" alt=\"Une neige qui ressemble à celle de l'article\">"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::la_page_ne_dit_pas_plus_que_le_modele"
+   ]
+  },
+  {
+   "nom": "d-fige-dans-un-attribut",
+   "base": "juge-en-ligne",
+   "faute": "une valeur de D écrite dans une infobulle (title=\"D = 1,7\")",
+   "amendement": "J6",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<p id=\"resultat\"></p>",
+      "<p id=\"resultat\" title=\"D = 1,7 attendu\"></p>"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_z1_page::la_page_ne_fige_aucune_valeur_de_d"
+   ]
+  },
+  {
+   "nom": "d-fige",
+   "base": "juge-tiroir",
+   "faute": "une valeur de D écrite dans la page",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<h2>La figure 10, refaite</h2>",
+      "<h2>La figure 10, refaite</h2><p>Mesuré par le banc : D = 1,70</p>"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_z1_page::la_page_ne_fige_aucune_valeur_de_d"
+   ]
+  },
+  {
+   "nom": "index-vide",
+   "base": "juge-tiroir",
+   "faute": "index.html ne contient que des espaces",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "creer": " \n"
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::les_identifiants_sont_dans_index_html_une_seule_fois",
+    "etape_5_page::la_page_a_un_canvas_un_viewport_et_charge_un_script"
+   ]
+  },
+  {
+   "nom": "index-que-des-commentaires",
+   "base": "juge-tiroir",
+   "faute": "index.html ne contient qu'un commentaire",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "creer": "<!-- la page viendra -->\n"
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::les_identifiants_sont_dans_index_html_une_seule_fois"
+   ]
+  },
+  {
+   "nom": "sans-lecture-js",
+   "base": "juge-tiroir",
+   "faute": "le dossier de la page n'a pas de lecture.js",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "lecture.js",
+     "supprimer": true
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_emploie_lecture_js",
+    "etape_5_page::les_scripts_de_la_page_sont_du_javascript_valide"
+   ]
+  },
+  {
+   "nom": "fichier-vide",
+   "base": "juge-tiroir",
+   "faute": "un fichier de 0 octet dans la page (un worker jamais écrit)",
+   "amendement": "J10",
+   "operations": [
+    {
+     "fichier": "ouvriers/vide.js",
+     "octets": 0
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_ne_depasse_pas_son_budget"
+   ]
+  },
+  {
+   "nom": "image-de-301-ko",
+   "base": "juge-tiroir",
+   "faute": "une image de 301 000 octets",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "apercu.png",
+     "octets": 301000
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_ne_depasse_pas_son_budget"
+   ]
+  },
+  {
+   "nom": "trois-images-de-603-ko",
+   "base": "juge-tiroir",
+   "faute": "trois images de 201 000 octets (603 000 en tout)",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "a.png",
+     "octets": 201000
+    },
+    {
+     "fichier": "b.webp",
+     "octets": 201000
+    },
+    {
+     "fichier": "c.jpg",
+     "octets": 201000
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_ne_depasse_pas_son_budget"
+   ]
+  },
+  {
+   "nom": "code-de-385-kio",
+   "base": "juge-tiroir",
+   "faute": "du code de 385 Kio (une bibliothèque recopiée dans un sous-dossier)",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "js/bibliotheque.js",
+     "octets": 394240
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_ne_depasse_pas_son_budget"
+   ]
+  },
+  {
+   "nom": "reglage-ecrit-dans-la-legende",
+   "base": "juge-tiroir",
+   "faute": "la légende du guide avec ρ écrit en dur par le script (« vapeur ρ = 0,8 »)",
+   "amendement": "J16",
+   "operations": [
+    {
+     "fichier": "js/page.js",
+     "remplacer": [
+      "\" : vapeur ρ = \" + formaterReglage(neige.reglages.rho) + \", seuil β = \"",
+      "\" : vapeur ρ = 0,8, seuil β = \""
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::aucun_reglage_n_est_ecrit_dans_la_page"
+   ]
+  },
+  {
+   "nom": "decimal-rare-nombre-pur",
+   "base": "juge-tiroir",
+   "faute": "le κ de la figure 12 écrit comme un nombre pur dans la feuille (opacity: 0.025)",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "css/page.css",
+     "ajouter": ".voile { opacity: 0.025; }\n"
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::aucun_reglage_n_est_ecrit_dans_la_page"
+   ]
+  },
+  {
+   "nom": "reglage-dans-l-appel",
+   "base": "juge-en-ligne",
+   "faute": "un réglage écrit dans l'appel de givre_neige_demarrer",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "curseurs[0], curseurs[1]",
+      "800000, curseurs[1]"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::aucun_reglage_n_est_ecrit_dans_la_page"
+   ]
+  },
+  {
+   "nom": "pixelated-media-imbrique",
+   "base": "juge-tiroir",
+   "faute": "image-rendering: pixelated dans un @media imbriqué dans une règle",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "css/page.css",
+     "ajouter": ".scene { @media (min-width: 100px) { canvas { image-rendering: pixelated; } } }\n"
+    }
+   ],
+   "doit_echouer": [
+    "etape_v7_page::le_canvas_des_modeles_hexagonaux_n_est_pas_pixelise"
+   ]
+  },
+  {
+   "nom": "pixelated-attribut-style",
+   "base": "juge-en-ligne",
+   "faute": "image-rendering: pixelated par un attribut style du canvas net",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<canvas id=\"vitrine-nette\" width=2 height=2>",
+      "<canvas id=\"vitrine-nette\" width=2 height=2 style=\"image-rendering:pixelated\">"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_v7_page::le_canvas_des_modeles_hexagonaux_n_est_pas_pixelise"
+   ]
+  },
+  {
+   "nom": "canvas-rebaptise",
+   "base": "juge-tiroir",
+   "faute": "un script donne l'id `vitrine` au canvas net",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "js/page.js",
+     "ajouter": "scene.id = \"vitrine\";\n"
+    }
+   ],
+   "doit_echouer": [
+    "etape_v7_page::le_canvas_des_modeles_hexagonaux_n_est_pas_pixelise"
+   ]
+  },
+  {
+   "nom": "lissage-coupe",
+   "base": "juge-tiroir",
+   "faute": "le worker coupe le lissage du canvas (imageSmoothingEnabled = false)",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "ouvriers/cristal.js",
+     "remplacer": [
+      "trait.imageSmoothingEnabled = true;",
+      "trait.imageSmoothingEnabled = false;"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_v7_page::le_canvas_des_modeles_hexagonaux_n_est_pas_pixelise"
+   ]
+  },
+  {
+   "nom": "repere-du-zinc-sans-barre",
+   "base": "juge-en-ligne",
+   "faute": "le repère du zinc sans sa barre d'erreur (0,03)",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "1,66 ± 0,03",
+      "1,66"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_z1_page::la_page_dit_le_repere_du_zinc_comme_un_repere"
+   ]
+  },
+  {
+   "nom": "accord-affirme",
+   "base": "juge-modules",
+   "faute": "« C'est un accord » écrit par un script",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "js/principal.js",
+     "ajouter": "par(\"resultat\").textContent = 'C\\'est un accord avec Hastings.';\n"
+    }
+   ],
+   "doit_echouer": [
+    "etape_d3_page::la_page_dit_pas_un_accord_et_la_limite"
+   ]
+  },
+  {
+   "nom": "phrase-du-mur-retiree",
+   "base": "juge-en-ligne",
+   "faute": "la légende de la neige ne dit plus que le mur est à nous (la phrase reste dans un commentaire)",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<em>le mur est à nous</em>",
+      "<!-- le mur est à nous -->il y a un mur"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::la_page_ne_dit_pas_plus_que_le_modele"
+   ]
+  },
+  {
+   "nom": "phrase-dans-un-commentaire-de-script",
+   "base": "juge-modules",
+   "faute": "une phrase d'honnêteté écrite seulement dans un commentaire d'un script",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "js/principal.js",
+     "remplacer": [
+      " Ce sont des stades précoces.',",
+      "', // Ce sont des stades précoces."
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::la_page_ne_dit_pas_plus_que_le_modele"
+   ]
+  },
+  {
+   "nom": "exportation-oubliee",
+   "base": "juge-modules",
+   "faute": "une des trente-deux exportations n'est plus employée par aucun fichier (givre_compacite)",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "js/dessin.js",
+     "remplacer": [
+      "m.givre_compacite()",
+      "0"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_emploie_les_exportations_du_module_et_rien_d_autre"
+   ]
+  },
+  {
+   "nom": "arite-fausse-worker",
+   "base": "juge-tiroir",
+   "faute": "le worker appelle givre_avancer avec deux arguments",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "ouvriers/cristal.js",
+     "remplacer": [
+      "m.givre_avancer(message.pas)",
+      "m.givre_avancer(message.pas, 2)"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_emploie_les_exportations_du_module_et_rien_d_autre"
+   ]
+  },
+  {
+   "nom": "mesure-avec-argument",
+   "base": "juge-modules",
+   "faute": "givre_mesurer appelée avec un argument",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "js/mesure.js",
+     "remplacer": [
+      "m.givre_mesurer()",
+      "m.givre_mesurer(eta)"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_emploie_les_exportations_du_module_et_rien_d_autre"
+   ]
+  },
+  {
+   "nom": "lecture-impure",
+   "base": "juge-tiroir",
+   "faute": "lecture.js touche au DOM",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "lecture.js",
+     "ajouter": "export function titre() {\n  return document.title;\n}\n"
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_emploie_lecture_js"
+   ]
+  },
+  {
+   "nom": "canvas-net-pas-un-canvas",
+   "base": "juge-modules",
+   "faute": "`vitrine-nette` n'est plus un <canvas>",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<canvas id=\"vitrine-nette\"></canvas>",
+      "<div id=\"vitrine-nette\"></div>"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_v7_page::la_page_a_les_deux_canvas_et_la_legende"
+   ]
+  },
+  {
+   "nom": "source-neige-ecrite",
+   "base": "juge-tiroir",
+   "faute": "source-neige écrite d'avance dans la page",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<p id=\"source-neige\"></p>",
+      "<p id=\"source-neige\">lu dans l'article</p>"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::la_page_ne_dit_pas_plus_que_le_modele"
+   ]
+  },
+  {
+   "nom": "source-neige-ecrite-dans-une-balise",
+   "base": "juge-tiroir",
+   "faute": "source-neige écrite d'avance, dans une balise intérieure",
+   "amendement": "J5",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<p id=\"source-neige\"></p>",
+      "<p id=\"source-neige\"><em>lu dans l'article</em></p>"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::la_page_ne_dit_pas_plus_que_le_modele"
+   ]
+  },
+  {
+   "nom": "menu-des-jeux-ecrit",
+   "base": "juge-tiroir",
+   "faute": "une option écrite dans le menu des jeux",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<select id=\"jeu-neige\"></select>",
+      "<select id=\"jeu-neige\"><option>Figure 10</option></select>"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::la_page_a_le_panneau_de_la_neige"
+   ]
+  },
+  {
+   "nom": "curseur-avec-valeur",
+   "base": "juge-tiroir",
+   "faute": "un curseur de la neige a une valeur initiale écrite",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<input id=\"neige-rho\" type=\"range\" min=\"0\" max=\"1000000\" step=\"10000\">",
+      "<input id=\"neige-rho\" type=\"range\" min=\"0\" max=\"1000000\" step=\"10000\" value=\"800000\">"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::la_page_a_le_panneau_de_la_neige"
+   ]
+  },
+  {
+   "nom": "compatible-montre",
+   "base": "juge-tiroir",
+   "faute": "la phrase « compatible » n'est plus cachée au départ",
+   "amendement": "",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<p id=\"compatible\" hidden>",
+      "<p id=\"compatible\">"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_z1_page::les_phrases_du_repere_attendent_la_mesure"
+   ]
+  }
+ ]
+}
