@@ -83,6 +83,8 @@
   /* L'image nette (les flocons de Reiter, sur la grille hexagonale) est déjà calculée en haute résolution et lissée par le module : le navigateur la lisse aussi, jamais de gros carrés. */
   #vitrine-nette { image-rendering: auto; background: #fff; }
   #legende-nette { margin: 10px 2px 0; color: var(--doux); }
+  .note-neige { grid-column: 1 / -1; margin: 0; color: var(--doux); }
+  #reglages-neige, #mesures-neige, #forme-neige { margin: 6px 0; font-variant-numeric: tabular-nums; }
   .mesures {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -119,7 +121,7 @@
 <main>
   <header>
     <h1>Givre Lab</h1>
-    <p>La DLA, les flocons de Reiter et le claquage diélectrique, calculés en WebAssembly et dessinés au fil des unités de temps.</p>
+    <p>La DLA, les flocons de Reiter, le claquage diélectrique et la neige de Gravner et Griffeath, calculés en WebAssembly et dessinés au fil des unités de temps.</p>
   </header>
 
   <section class="commandes" aria-label="Commandes">
@@ -130,6 +132,7 @@
         <option value="2">Reiter, étoile</option>
         <option value="3">Reiter, dendrite</option>
         <option value="claquage">Claquage diélectrique</option>
+        <option value="neige">Neige de Gravner</option>
       </select>
     </label>
     <label for="eta" id="commande-eta" hidden>Exposant <span class="minuscule">η</span> (0 à 3)
@@ -150,10 +153,42 @@
     </label>
   </section>
 
+  <section class="commandes" id="commandes-neige" aria-label="Réglages de la neige" hidden>
+    <label for="jeu-neige">Jeu de réglages (une figure de l'article)
+      <select id="jeu-neige"></select>
+    </label>
+    <label for="neige-rho">Vapeur <span class="minuscule">ρ</span>
+      <span class="curseur">
+        <input id="neige-rho" type="range" min="0" max="1000000" step="10000">
+        <output id="valeur-neige-rho" for="neige-rho"></output>
+      </span>
+    </label>
+    <label for="neige-beta">Seuil <span class="minuscule">β</span>
+      <span class="curseur">
+        <input id="neige-beta" type="range" min="1000000" max="4000000" step="10000">
+        <output id="valeur-neige-beta" for="neige-beta"></output>
+      </span>
+    </label>
+    <label for="neige-kappa">Gel d'un coup <span class="minuscule">κ</span>
+      <span class="curseur">
+        <input id="neige-kappa" type="range" min="0" max="100000" step="100">
+        <output id="valeur-neige-kappa" for="neige-kappa"></output>
+      </span>
+    </label>
+    <label for="neige-mu">Fonte <span class="minuscule">μ</span>
+      <span class="curseur">
+        <input id="neige-mu" type="range" min="0" max="200000" step="1000">
+        <output id="valeur-neige-mu" for="neige-mu"></output>
+      </span>
+    </label>
+    <p id="source-neige" class="note-neige"></p>
+    <p id="legende-neige" class="note-neige">Quatre réglages sont libres (ρ la vapeur, β le seuil, κ le gel d'un coup, μ la fonte) ; les trois autres (α, θ, γ), la taille du domaine et le nombre de pas restent ceux du jeu choisi. Le cristal s'arrête quand il arrive près du mur du domaine : le mur est à nous, au-delà ce ne serait plus la neige de l'article (et pour certains réglages le cristal le ressent déjà avant). Ce sont des stades précoces de la croissance, bien plus petits que les cristaux de l'article.</p>
+  </section>
+
   <div class="cadre">
     <canvas id="vitrine" width="512" height="512" aria-label="Image du modèle en cours, un pixel par case"></canvas>
     <canvas id="vitrine-nette" width="384" height="384" hidden aria-label="Image nette du modèle en cours, chaque case dessinée comme un hexagone"></canvas>
-    <p id="legende-nette" hidden>Chaque case est un hexagone. Fond blanc : pas de glace. Bleu clair : une case tout juste gelée ; le bleu fonce avec la masse d'eau de la case, qui grandit à chaque pas une fois gelée (le centre, gelé le premier, finit bleu foncé).</p>
+    <p id="legende-nette" hidden>Chaque case est un hexagone. Fond blanc : pas de glace. Le bleu fonce avec la masse de la case : pour un flocon de Reiter, la masse d'eau qu'elle a gagnée depuis qu'elle a gelé (le centre, gelé le premier, finit bleu foncé) ; pour la neige, sa masse cristalline.</p>
   </div>
 
   <dl class="mesures">
@@ -161,6 +196,13 @@
     <div><dt>Empreinte SHA-256</dt><dd><code id="empreinte">–</code></dd></div>
     <div><dt>Sites, rayon, compacité</dt><dd id="mesures">–</dd></div>
   </dl>
+
+  <section class="mesure" id="mesures-neige-bloc" aria-label="Ce que la neige a fait" hidden>
+    <h2>La neige</h2>
+    <p id="reglages-neige"></p>
+    <p id="mesures-neige"></p>
+    <p id="forme-neige"></p>
+  </section>
 
   <section class="mesure" aria-label="Mesure de la dimension par corrélation">
     <h2>Dimension par corrélation</h2>

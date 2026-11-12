@@ -1,4 +1,4 @@
-// Ce que la page lit du module (l'empreinte, l'image, l'image nette, la graine, la mesure de corrélation, le travail de la courbe D(η)) et les textes qu'elle en tire. Aucun DOM ici : Node l'éprouve contre le code natif.
+// Ce que la page lit du module (l'empreinte, l'image, l'image nette, la graine, la mesure de corrélation, le travail de la courbe D(η), la neige : ses jeux nommés, ses réglages, ses mesures) et les textes qu'elle en tire. Aucun DOM ici : Node l'éprouve contre le code natif.
 
 const GRAINE_MAX = 4294967295;
 
@@ -169,4 +169,162 @@ export function texteRepereEta(eta, repere, dimension) {
     repere: `repère publié (${SOURCES_REPERES[eta]}) : ${formater(repere)}`,
     ecart: `écart du banc au repère : ${ecart < 0 ? "−" : "+"}${formater(Math.abs(ecart))}`,
   };
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// La neige de Gravner et Griffeath (étape G3) : ce que la page lit du module et les textes qu'elle en tire. Les réglages passent en millionièmes (des entiers) ; aucun réglage n'est écrit ici : les jeux nommés viennent du module.
+// ---------------------------------------------------------------------------------------------------------------
+
+// « Pas de valeur » du module pour la neige (rien en cours, ou un champ hors de portée) : `u32::MAX`.
+const NEIGE_ABSENTE = 4294967295;
+
+// Les sept réglages dans l'ordre du module (numéros 0 à 6) : leur lettre et leur clé.
+const REGLAGES_NEIGE = [
+  { lettre: "ρ", cle: "rho" },
+  { lettre: "β", cle: "beta" },
+  { lettre: "α", cle: "alpha" },
+  { lettre: "θ", cle: "theta" },
+  { lettre: "κ", cle: "kappa" },
+  { lettre: "μ", cle: "mu" },
+  { lettre: "γ", cle: "gamma" },
+];
+
+// Les étiquettes de forme dans l'ordre du module (0 à 4) : notre classement, pas celui de l'article.
+const FORMES_NEIGE = ["trop petit pour être rangé", "plaque", "plaque à secteurs", "dendrite", "fougère"];
+
+/** Les sept réglages en millionièmes, lus par `lire(numero)` (le numéro de 0 à 6), sous leur clé : { rho, beta, alpha, theta, kappa, mu, gamma }. */
+function reglagesNeige(lire) {
+  const reglages = {};
+  REGLAGES_NEIGE.forEach(({ cle }, numero) => {
+    reglages[cle] = lire(numero) >>> 0;
+  });
+  return reglages;
+}
+
+/**
+ * Les jeux de réglages nommés de la neige, lus dans le module (`givre_neige_jeux`, `givre_neige_jeu`) : un tableau, dans l'ordre du module, de { indice, figure, rang, cristaux, balaye, reglages, rayon, pas, deduit }.
+ * `balaye` est le numéro du réglage qui varie dans la figure (0 à 6 ; 7 : aucun), `reglages` les sept réglages en millionièmes, `deduit` vrai si les réglages sont déduits de l'annexe de l'article. Ne démarre rien.
+ */
+export function lireJeuxNeige(m) {
+  const nombre = m.givre_neige_jeux() >>> 0;
+  const jeux = [];
+  for (let indice = 0; indice < nombre; indice++) {
+    const champ = (c) => m.givre_neige_jeu(indice, c) >>> 0;
+    jeux.push({
+      indice,
+      figure: champ(0),
+      rang: champ(1),
+      cristaux: champ(2),
+      balaye: champ(3),
+      reglages: reglagesNeige((numero) => champ(4 + numero)),
+      rayon: champ(11),
+      pas: champ(12),
+      deduit: champ(13) === 1,
+    });
+  }
+  return jeux;
+}
+
+/**
+ * Les réglages de la neige **en cours dans le module** (pas ceux des curseurs) : { jeu, rayon, pas, reglages } ou null quand le module n'a pas de neige en cours (rien n'est démarré, ou le modèle en cours est un autre).
+ */
+export function lireReglagesNeige(m) {
+  const jeu = m.givre_neige_reglage(7) >>> 0;
+  if (jeu === NEIGE_ABSENTE) {
+    return null;
+  }
+  return {
+    jeu,
+    rayon: m.givre_neige_reglage(8) >>> 0,
+    pas: m.givre_neige_reglage(9) >>> 0,
+    reglages: reglagesNeige((numero) => m.givre_neige_reglage(numero)),
+  };
+}
+
+/**
+ * Les mesures de la neige en cours, à l'instant (`givre_neige_mesure` recalcule à chaque appel : la page ne les lit pas à chaque image) : { rattachees, rayon, compacite, pointes, aiguilles, hexagonalite, forme, auMur }
+ * ou null sans neige en cours. `forme` est le numéro de l'étiquette (0 à 4), `auMur` vrai quand le cristal a atteint la limite du mur.
+ */
+export function lireMesuresNeige(m) {
+  const rattachees = m.givre_neige_mesure(0) >>> 0;
+  if (rattachees === NEIGE_ABSENTE) {
+    return null;
+  }
+  return {
+    rattachees,
+    rayon: m.givre_neige_mesure(1) >>> 0,
+    compacite: m.givre_neige_mesure(2) >>> 0,
+    pointes: m.givre_neige_mesure(3) >>> 0,
+    aiguilles: m.givre_neige_mesure(4) >>> 0,
+    hexagonalite: m.givre_neige_mesure(5) >>> 0,
+    forme: m.givre_neige_mesure(6) >>> 0,
+    auMur: (m.givre_neige_mesure(7) >>> 0) === 1,
+  };
+}
+
+/** Un réglage en millionièmes écrit en décimal avec une virgule, sans zéro inutile mais avec au moins deux décimales : 250000 donne « 0,25 », 1500000 « 1,50 », 5 « 0,000005 ». Que des entiers : aucun arrondi. */
+export function formaterReglage(millionniemes) {
+  const entier = Math.floor(millionniemes / 1000000);
+  let fraction = String(millionniemes % 1000000).padStart(6, "0");
+  while (fraction.length > 2 && fraction.endsWith("0")) {
+    fraction = fraction.slice(0, -1);
+  }
+  return `${entier},${fraction}`;
+}
+
+/** Un nombre de millièmes écrit avec trois décimales et une virgule : 512 donne « 0,512 », 1000 « 1,000 ». */
+function formaterMillieme(millieme) {
+  return `${Math.floor(millieme / 1000)},${String(millieme % 1000).padStart(3, "0")}`;
+}
+
+/** Le texte d'un jeu nommé dans le menu : la figure de l'article, le rang du cristal et le réglage qui varie. Aucun réglage n'y est écrit (il est lu dans le module). */
+export function texteDuJeuNeige(jeu) {
+  if (jeu.cristaux === 1) {
+    return `Figure ${jeu.figure} : le cristal du milieu`;
+  }
+  const varie = REGLAGES_NEIGE[jeu.balaye];
+  return `Figure ${jeu.figure} : cristal ${jeu.rang} sur ${jeu.cristaux}${varie ? ` (${varie.lettre} varie)` : ""}`;
+}
+
+/**
+ * D'où viennent les réglages d'un jeu : lus dans l'article (la figure 9 : les légendes de la figure donnent ρ, la ligne de l'annexe les six autres, et une autre ligne de l'annexe les redonne tous les sept ; la figure 13 : le texte et l'annexe),
+ * ou déduits de l'annexe (la colonne du réglage qui varie y manque et rien d'autre ne la recoupe) ; `modifie` vrai quand les curseurs ne sont plus ceux du jeu :
+ * seuls α, θ, γ, le domaine et les pas sont alors encore ceux du jeu.
+ */
+export function texteSourceNeige(jeu, modifie) {
+  if (modifie) {
+    return "Curseurs déplacés : ρ, β, κ et μ ne sont plus ceux de la figure ; α, θ, γ, la taille du domaine et le nombre de pas restent ceux du jeu.";
+  }
+  return jeu.deduit
+    ? "Réglages déduits de l'annexe de l'article : la colonne du réglage qui varie y manque."
+    : "Réglages lus dans l'article (ses figures, son texte et son annexe se recoupent).";
+}
+
+/** Le texte d'une étiquette de forme (le numéro du module) : « notre classement, pas celui de l'article ». */
+export function texteDeLaFormeNeige(forme) {
+  const nom = FORMES_NEIGE[forme];
+  return `Forme (notre classement, pas celui de l'article) : ${nom === undefined ? "inconnue" : nom}.`;
+}
+
+/** Le texte des mesures de la neige : cases du cristal, rayon, compacité et hexagonalité (en millièmes), pointes et aiguilles. */
+export function texteMesuresNeige(mesures) {
+  return `${mesures.rattachees} cases · rayon ${mesures.rayon} · compacité ${formaterMillieme(mesures.compacite)} · pointes ${mesures.pointes} · aiguilles ${mesures.aiguilles} · hexagonalité ${formaterMillieme(mesures.hexagonalite)}`;
+}
+
+/** Le texte de la fin d'une neige : le mur du domaine (le mur est à nous : au-delà ce ne serait plus la neige de l'article) ou la durée du jeu. */
+export function texteFinNeige(mesures) {
+  return mesures.auMur
+    ? "Arrêté près du mur du domaine : au-delà, ce ne serait plus la neige de l'article (le mur est à nous, et pour certains réglages le cristal le ressent déjà). Recommencez ou choisissez un autre modèle."
+    : "Scénario terminé (tous les pas du jeu sont joués) : recommencez ou choisissez un autre modèle.";
+}
+
+/** Le texte d'un refus de `givre_neige_demarrer` (le code du module) : le réglage fautif. */
+export function texteRefusNeige(code) {
+  const refus = { 1: "jeu inconnu", 2: "ρ hors plage", 3: "β hors plage", 4: "κ hors plage", 5: "μ hors plage" };
+  return `La neige ne démarre pas : ${refus[code] ?? "refus du module"} (code ${code}).`;
+}
+
+/** Ce que la page montre d'après le modèle en cours (vrai : la neige tourne) : le panneau des réglages et celui des mesures de la neige ne sont montrés que pour elle. Rend { commandes, mesures } : vrai quand le bloc est caché. */
+export function blocsNeige(neige) {
+  return { commandes: !neige, mesures: !neige };
 }

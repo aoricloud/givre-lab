@@ -1,6 +1,7 @@
 // La vitrine de Givre Lab (étape 5) : le module givre.wasm piloté par des nombres, dessiné sur un canvas. Z1 y ajoute la mesure de D
 // par la corrélation ; D3 le claquage diélectrique (le curseur η) et la courbe D(η) calculée un amas à la fois ; V7 l'image nette des
-// flocons de Reiter (chaque case un hexagone lisse, calculé par le module) sur un second canvas, sans `image-rendering: pixelated`.
+// flocons de Reiter (chaque case un hexagone lisse, calculé par le module) sur un second canvas, sans `image-rendering: pixelated` ; G3 la neige de Gravner et Griffeath
+// (un jeu de réglages nommé, quatre curseurs, ses mesures), jouée par la même boucle et dessinée par la même image nette.
 
 import {
   formater,
@@ -10,11 +11,22 @@ import {
   lireGraine,
   lireImage,
   lireImageNette,
+  lireJeuxNeige,
+  lireMesuresNeige,
+  lireReglagesNeige,
   blocsCaches,
+  blocsNeige,
+  formaterReglage,
   imagesCachees,
   numeroDuModele,
   texteAvancement,
+  texteDeLaFormeNeige,
+  texteDuJeuNeige,
+  texteFinNeige,
+  texteMesuresNeige,
+  texteRefusNeige,
   texteRepereEta,
+  texteSourceNeige,
 } from "./lecture.js";
 
 // Huit appels de givre_empreinte_mot recalculent huit fois tout l'état : on lit l'empreinte au plus toutes les 500 ms.
@@ -27,6 +39,11 @@ const ZINC_PLAGE = 0.25;
 
 // Le claquage : une unité de temps y coûte la relaxation du champ ; la page n'en joue qu'une par appel et rend la main quand BUDGET_IMAGE_MS sont écoulées.
 const BUDGET_IMAGE_MS = 30;
+
+// La neige : un pas coûte de l'ordre de la milliseconde en natif (mesuré dans un domaine de rayon 100, et autant par appel pour refaire l'image d'un pixel par case ; le module sous Node, de l'ordre du double pour l'image nette,
+// n'était pas mesuré pour la neige quand ce fichier a été écrit) ; la page en joue par lots de PAS_PAR_APPEL_NEIGE et rend la main quand BUDGET_IMAGE_MS sont écoulées.
+// Comme le claquage, une image de l'animation ne dure donc pas plus que ce budget (plus l'image nette) : un curseur de vitesse élevé ralentit la page, il ne la fige pas.
+const PAS_PAR_APPEL_NEIGE = 5;
 
 // La courbe D(η) : un amas par appel de givre_courbe_pas, avec une pause entre deux appels pour que la page se redessine. La taille et le
 // nombre de graines sont ceux que le module accepte (jusqu'à 100 sites et de 2 à 8 graines).
@@ -46,6 +63,21 @@ const canvas = document.getElementById("vitrine");
 const canvasNette = document.getElementById("vitrine-nette");
 const legendeNette = document.getElementById("legende-nette");
 const choixModele = document.getElementById("modele");
+const commandesNeige = document.getElementById("commandes-neige");
+const menuJeuNeige = document.getElementById("jeu-neige");
+const curseurNeigeRho = document.getElementById("neige-rho");
+const curseurNeigeBeta = document.getElementById("neige-beta");
+const curseurNeigeKappa = document.getElementById("neige-kappa");
+const curseurNeigeMu = document.getElementById("neige-mu");
+const valeurNeigeRho = document.getElementById("valeur-neige-rho");
+const valeurNeigeBeta = document.getElementById("valeur-neige-beta");
+const valeurNeigeKappa = document.getElementById("valeur-neige-kappa");
+const valeurNeigeMu = document.getElementById("valeur-neige-mu");
+const affichageSourceNeige = document.getElementById("source-neige");
+const blocMesuresNeige = document.getElementById("mesures-neige-bloc");
+const affichageReglagesNeige = document.getElementById("reglages-neige");
+const affichageMesuresNeige = document.getElementById("mesures-neige");
+const affichageFormeNeige = document.getElementById("forme-neige");
 const commandeEta = document.getElementById("commande-eta");
 const curseurEta = document.getElementById("eta");
 const valeurEta = document.getElementById("valeur-eta");
@@ -83,6 +115,9 @@ let minuterieCourbe = null;
 // Le modèle en cours est celui du dernier démarrage réussi, pas celui des commandes : une graine invalide laisse l'ancien modèle tourner.
 let claquageEnCours = false;
 let etaDuModele = 0;
+// De même pour la neige : elle tourne si le dernier démarrage réussi est celui de la neige, quels que soient les curseurs. Les jeux nommés sont lus dans le module (aucun réglage n'est écrit dans la page).
+let neigeEnCours = false;
+let jeuxNeige = [];
 
 /** Vrai si le modèle choisi est le claquage (le curseur η donne alors le modèle 4 + η). */
 function claquageChoisi() {
@@ -92,6 +127,11 @@ function claquageChoisi() {
 /** L'exposant η du curseur, un entier de 0 à 3. */
 function etaChoisi() {
   return Number(curseurEta.value);
+}
+
+/** Vrai si le modèle choisi est la neige (les quatre curseurs et le jeu nommé donnent alors son démarrage, pas `givre_demarrer`). */
+function neigeChoisie() {
+  return choixModele.value === "neige";
 }
 
 /** Pose une image lue dans le module sur un canvas, aux dimensions qu'elle a maintenant. */
@@ -127,8 +167,9 @@ function afficherTemps() {
   affichageTemps.textContent = `${m.givre_temps() >>> 0} / ${m.givre_duree() >>> 0}`;
 }
 
-function afficherEmpreinte() {
-  affichageEmpreinte.textContent = lireEmpreinte(m);
+/** Écrit l'empreinte. Celle de la neige hache tout l'état huit fois (de l'ordre de 25 ms en natif, non mesuré sous Node quand ce fichier a été écrit) : pendant l'animation de la neige elle n'est pas calculée (`complete` faux), seulement à l'arrêt. */
+function afficherEmpreinte(complete) {
+  affichageEmpreinte.textContent = !neigeEnCours || complete ? lireEmpreinte(m) : "calculée à l'arrêt";
 }
 
 function afficherMesures() {
@@ -137,6 +178,83 @@ function afficherMesures() {
   const compacite = m.givre_compacite();
   const complement = Number.isNaN(compacite) ? "" : ` · compacité ${compacite.toFixed(4)}`;
   affichageMesures.textContent = `${sites} sites · rayon ${rayon}${complement}`;
+  if (neigeEnCours) {
+    afficherLaNeige();
+  }
+}
+
+/** Écrit ce que le module dit de la neige en cours (ses réglages, ses mesures, son étiquette), jamais ce que disent les curseurs. */
+function afficherLaNeige() {
+  const reglages = lireReglagesNeige(m);
+  const mesures = lireMesuresNeige(m);
+  if (reglages === null || mesures === null) {
+    return;
+  }
+  const r = reglages.reglages;
+  affichageReglagesNeige.textContent = `Démarrée avec ρ ${formaterReglage(r.rho)} · β ${formaterReglage(r.beta)} · κ ${formaterReglage(r.kappa)} · μ ${formaterReglage(r.mu)} (et α ${formaterReglage(r.alpha)} · θ ${formaterReglage(r.theta)} · γ ${formaterReglage(r.gamma)} du jeu), ${reglages.pas} pas au plus.`;
+  affichageMesuresNeige.textContent = texteMesuresNeige(mesures);
+  affichageFormeNeige.textContent = texteDeLaFormeNeige(mesures.forme);
+}
+
+/** Écrit les valeurs des quatre curseurs de la neige à côté d'eux, et dit s'ils sont encore ceux du jeu du menu (ce que disent les curseurs, pas ce que le module a démarré : voir `afficherLaNeige`). */
+function afficherLesCurseursNeige() {
+  valeurNeigeRho.textContent = formaterReglage(Number(curseurNeigeRho.value));
+  valeurNeigeBeta.textContent = formaterReglage(Number(curseurNeigeBeta.value));
+  valeurNeigeKappa.textContent = formaterReglage(Number(curseurNeigeKappa.value));
+  valeurNeigeMu.textContent = formaterReglage(Number(curseurNeigeMu.value));
+  const jeu = jeuxNeige[Number(menuJeuNeige.value)];
+  if (jeu !== undefined) {
+    const modifie =
+      curseurNeigeRho.value !== String(jeu.reglages.rho) ||
+      curseurNeigeBeta.value !== String(jeu.reglages.beta) ||
+      curseurNeigeKappa.value !== String(jeu.reglages.kappa) ||
+      curseurNeigeMu.value !== String(jeu.reglages.mu);
+    affichageSourceNeige.textContent = texteSourceNeige(jeu, modifie);
+  }
+}
+
+/** Remplit le menu des jeux nommés d'après le module (la page n'écrit ni leur nombre ni leurs réglages) et pose les curseurs sur le premier. */
+function remplirLeMenuNeige() {
+  jeuxNeige = lireJeuxNeige(m);
+  for (const jeu of jeuxNeige) {
+    const option = document.createElement("option");
+    option.value = String(jeu.indice);
+    option.textContent = texteDuJeuNeige(jeu);
+    menuJeuNeige.append(option);
+  }
+  poserLesCurseursNeige();
+}
+
+/** Pose les quatre curseurs sur les réglages du jeu du menu (lus dans le module) et dit d'où ils viennent. */
+function poserLesCurseursNeige() {
+  const jeu = jeuxNeige[Number(menuJeuNeige.value)];
+  if (jeu === undefined) {
+    return;
+  }
+  curseurNeigeRho.value = String(jeu.reglages.rho);
+  curseurNeigeBeta.value = String(jeu.reglages.beta);
+  curseurNeigeKappa.value = String(jeu.reglages.kappa);
+  curseurNeigeMu.value = String(jeu.reglages.mu);
+  afficherLesCurseursNeige();
+}
+
+/** Démarre la neige du jeu du menu avec les quatre curseurs, en millionièmes dans l'ordre ρ β κ μ du module ; rend le code du module (0 : démarrée). C'est le seul endroit qui lit les curseurs de la neige. */
+function demarrerLaNeige() {
+  return (
+    m.givre_neige_demarrer(
+      Number(menuJeuNeige.value),
+      Number(curseurNeigeRho.value),
+      Number(curseurNeigeBeta.value),
+      Number(curseurNeigeKappa.value),
+      Number(curseurNeigeMu.value),
+    ) >>> 0
+  );
+}
+
+/** Le texte de fin du scénario : celui de la neige dit pourquoi elle s'arrête (le mur ou la durée), d'après le module. */
+function texteDeFin() {
+  const mesures = neigeEnCours ? lireMesuresNeige(m) : null;
+  return mesures === null ? "Scénario terminé : recommencez ou choisissez un autre modèle." : texteFinNeige(mesures);
 }
 
 function afficherVitesse() {
@@ -273,6 +391,9 @@ function montrerLesReperes() {
   blocZinc.hidden = caches.zinc;
   blocRepereEta.hidden = caches.repereEta;
   commandeEta.hidden = caches.commandeEta;
+  const cachesNeige = blocsNeige(neigeEnCours);
+  commandesNeige.hidden = cachesNeige.commandes;
+  blocMesuresNeige.hidden = cachesNeige.mesures;
 }
 
 /** Écrit le repère publié de l'η du curseur, lu dans le module, l'écart du banc et la phrase « ce n'est pas un accord ». */
@@ -324,6 +445,9 @@ function mesurer() {
  */
 function avancer() {
   const vitesse = Number(curseurVitesse.value);
+  if (neigeEnCours) {
+    return avancerLaNeige(vitesse);
+  }
   if (!claquageEnCours) {
     return m.givre_avancer(vitesse) >>> 0;
   }
@@ -342,6 +466,23 @@ function avancer() {
   return joue;
 }
 
+/** Joue les pas de la neige par lots de PAS_PAR_APPEL_NEIGE, au plus `vitesse` pas, et s'arrête dès que BUDGET_IMAGE_MS sont écoulées ; rend le nombre de pas joués (0 : le scénario est fini, durée atteinte ou mur). */
+function avancerLaNeige(vitesse) {
+  const debut = performance.now();
+  let joue = 0;
+  while (joue < vitesse) {
+    const lot = m.givre_avancer(Math.min(PAS_PAR_APPEL_NEIGE, vitesse - joue)) >>> 0;
+    if (lot === 0) {
+      break;
+    }
+    joue += lot;
+    if (performance.now() - debut >= BUDGET_IMAGE_MS) {
+      break;
+    }
+  }
+  return joue;
+}
+
 /** Une image de l'animation : joue les unités du curseur, dessine, puis se rappelle. */
 function image(maintenant) {
   if (!enCours) {
@@ -351,13 +492,13 @@ function image(maintenant) {
   dessiner(joue === 0);
   afficherTemps();
   if (joue === 0 || maintenant - derniereEmpreinte >= INTERVALLE_EMPREINTE_MS) {
-    afficherEmpreinte();
+    afficherEmpreinte(joue === 0);
     afficherMesures();
     derniereEmpreinte = maintenant;
   }
   if (joue === 0) {
     enCours = false;
-    affichageEtat.textContent = "Scénario terminé : recommencez ou choisissez un autre modèle.";
+    affichageEtat.textContent = texteDeFin();
     return;
   }
   requestAnimationFrame(image);
@@ -365,6 +506,9 @@ function image(maintenant) {
 
 /** Le texte d'état d'un démarrage : le modèle, l'η et la graine quand ils comptent. */
 function texteDEtat(modele, graine) {
+  if (neigeEnCours) {
+    return "Neige de Gravner et Griffeath (pas de hasard : la graine ne sert pas).";
+  }
   if (claquageEnCours) {
     return `Claquage diélectrique, η = ${etaDuModele}, graine ${graine}.`;
   }
@@ -376,22 +520,30 @@ function relancer() {
   if (m === null) {
     return;
   }
-  const modele = numeroDuModele(choixModele.value, etaChoisi());
+  const neige = neigeChoisie();
   const graine = lireGraine(champGraine.value);
-  if (graine === null) {
+  if (!neige && graine === null) {
     affichageEtat.textContent = "Graine invalide : un entier de 0 à 4294967295.";
     return;
   }
-  if ((m.givre_demarrer(modele, graine) >>> 0) !== 1) {
+  const modele = neige ? -1 : numeroDuModele(choixModele.value, etaChoisi());
+  if (neige) {
+    const code = demarrerLaNeige();
+    if (code !== 0) {
+      affichageEtat.textContent = texteRefusNeige(code);
+      return;
+    }
+  } else if ((m.givre_demarrer(modele, graine) >>> 0) !== 1) {
     affichageEtat.textContent = "Modèle inconnu.";
     return;
   }
   claquageEnCours = claquageChoisi();
   etaDuModele = etaChoisi();
+  neigeEnCours = neige;
   montrerLesReperes();
   dessiner(false);
   afficherTemps();
-  afficherEmpreinte();
+  afficherEmpreinte(false);
   afficherMesures();
   effacerMesure();
   derniereEmpreinte = performance.now();
@@ -505,6 +657,12 @@ function calculerLaCourbe() {
   minuterieCourbe = setTimeout(pasDeLaCourbe, PAUSE_COURBE_MS);
 }
 
+/** Un autre jeu nommé : les curseurs prennent ses réglages (lus dans le module), puis la neige repart. */
+function choisirUnJeuNeige() {
+  poserLesCurseursNeige();
+  relancer();
+}
+
 async function charger() {
   try {
     const reponse = await fetch("givre.wasm");
@@ -521,6 +679,11 @@ async function charger() {
   boutonMesurer.addEventListener("click", mesurer);
   boutonCalculerCourbe.addEventListener("click", calculerLaCourbe);
   choixModele.addEventListener("change", relancer);
+  menuJeuNeige.addEventListener("change", choisirUnJeuNeige);
+  for (const curseur of [curseurNeigeRho, curseurNeigeBeta, curseurNeigeKappa, curseurNeigeMu]) {
+    curseur.addEventListener("input", afficherLesCurseursNeige);
+    curseur.addEventListener("change", relancer);
+  }
   curseurEta.addEventListener("input", afficherEta);
   curseurEta.addEventListener("change", relancer);
   champGraine.addEventListener("keydown", (evenement) => {
@@ -531,6 +694,7 @@ async function charger() {
   curseurVitesse.addEventListener("input", afficherVitesse);
   afficherVitesse();
   afficherEta();
+  remplirLeMenuNeige();
   dessinerCourbeEta(lireCourbe(m));
   relancer();
 }
