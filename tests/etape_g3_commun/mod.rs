@@ -285,7 +285,7 @@ pub fn chemin_du_module() -> String {
 }
 
 pub fn chemin_de_lecture() -> String {
-    racine().join("docs").join("lecture.js").to_str().expect("chemin en UTF-8").to_string()
+    e5::chemin_de_lecture().to_str().expect("chemin en UTF-8").to_string()
 }
 
 /// Un nombre non signé écrit en décimal.
