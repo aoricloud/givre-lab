@@ -1,0 +1,4 @@
+@import "polices.css";
+body { margin: 0; font-family: "Inter", sans-serif; }
+#vitrine-nette { width: 100%; image-rendering: auto; }
+.tiroir[hidden] { display: none; }

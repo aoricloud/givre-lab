@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Givre Lab : page d'essai « juge-modules »</title>
+<link rel="stylesheet" href="css/page.css">
+<script type="module" src="js/principal.js"></script>
+</head>
+<body>
+<canvas id="vitrine"></canvas>
+<canvas id="vitrine-nette"></canvas>
+<p id="legende-nette"></p>
+<p id="temps"></p>
+<p id="empreinte"></p>
+<details class="tiroir">
+  <summary>Réglages</summary>
+
+  <label for="modele">Modèle</label>
+  <select id="modele">
+    <option value="0">DLA</option>
+    <option value="1">Reiter, plaque</option>
+    <option value="2">Reiter, étoile</option>
+    <option value="3">Reiter, dendrite</option>
+    <option value="claquage">Claquage diélectrique</option>
+    <option value="neige">Neige de Gravner et Griffeath</option>
+  </select>
+  <p id="commande-eta"><input id="eta" type="range" min="0" max="3" value="1" step="1"> <output id="valeur-eta" for="eta">1</output></p>
+  <label for="graine">Graine</label> <input id="graine" type="number" min="0" max="4294967295" step="1" value="1">
+  <button id="relancer" type="button">Recommencer</button>
+  <label for="vitesse">Vitesse</label> <input id="vitesse" type="range" min="1" max="120" value="5" step="1">
+  <fieldset id="commandes-neige">
+    <select id="jeu-neige"></select>
+    <input id="neige-rho" type="range" min="0" max="1000000" step="10000"> <output id="valeur-neige-rho" for="neige-rho"></output>
+    <input id="neige-beta" type="range" min="1000000" max="4000000" step="10000"> <output id="valeur-neige-beta" for="neige-beta"></output>
+    <input id="neige-kappa" type="range" min="0" max="100000" step="100"> <output id="valeur-neige-kappa" for="neige-kappa"></output>
+    <input id="neige-mu" type="range" min="0" max="200000" step="1000"> <output id="valeur-neige-mu" for="neige-mu"></output>
+    <p id="source-neige"></p>
+    <p id="legende-neige"></p>
+  </fieldset>
+  <div id="mesures-neige-bloc"><p id="reglages-neige"></p><p id="mesures-neige"></p><p id="forme-neige"></p></div>
+  <div id="bloc-zinc">
+    <button id="mesurer" type="button">Mesurer D</button>
+    <canvas id="courbe" width="320" height="200"></canvas>
+    <p id="resultat"></p>
+    <div id="barre-zinc"><span id="marque-d"></span></div>
+    <p id="repere-zinc"></p>
+    <p id="compatible" hidden></p>
+    <p id="hors-barre" hidden>hors de la barre du zinc</p>
+    <p id="taille-zinc"></p>
+  </div>
+  <div id="bloc-repere-eta" hidden>
+    <p id="repere-eta"></p>
+    <p id="ecart-eta" hidden></p>
+    <p id="pas-un-accord" hidden></p>
+  </div>
+  <button id="calculer-courbe" type="button">Calculer la courbe D(η)</button>
+  <p id="avancement-courbe"></p>
+  <canvas id="courbe-eta" width="320" height="200"></canvas>
+  <p id="legende-courbe">Points : le banc ; carrés : les repères publiés (rappel de la DLA, Hastings 2001).</p>
+  <p id="limite-courbe">Des amas petits et peu de graines : la méthode de corrélation et la fenêtre diffèrent de celles de Hastings.</p>
+  <p id="pas-un-accord-courbe"></p>
+
+</details>
+</body>
+</html>

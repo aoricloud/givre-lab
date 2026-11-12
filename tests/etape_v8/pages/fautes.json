@@ -1,0 +1,793 @@
+{
+ "_lisez_moi": "Les pages fautives de l'étape V8 : chacune est la page `rhabillee/` avec UNE faute (les opérations ci-dessous, appliquées à une copie : `remplacer` [ancien, nouveau] exige que `ancien` y soit exactement une fois ; `ajouter` au bout (ou en tête) d'un fichier ; `creer` un fichier de ce texte ; `octets` un fichier de N octets (un PNG si le nom finit par .png, sinon du texte) ; `supprimer`). `doit_echouer` : les tests (fichier::nom) qui doivent échouer ; d'autres peuvent aussi échouer (une page fautive casse parfois plus d'un test). Le script `essai-v8-juge-outils/jouer_pages_juge.py` les joue (avec les pages du juge : `fautes-juge.json`) : `GIVRE_DOCS=<la copie> cargo test --features etape-v8 --test etape_5_page --test etape_z1_page --test etape_d3_page --test etape_v7_page --test etape_g3_page`. La page `rhabillee/` doit passer tous les tests de ces cinq fichiers.",
+ "fautes": [
+  {
+   "nom": "id-manquant",
+   "faute": "l'identifiant `temps` n'est plus dans index.html",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<p id=\"temps\"></p>",
+      "<p></p>"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::les_identifiants_sont_dans_index_html_une_seule_fois",
+    "etape_5_page::la_page_a_ses_commandes_et_ses_affichages"
+   ]
+  },
+  {
+   "nom": "id-deux-fois",
+   "faute": "l'identifiant `relancer` est écrit deux fois",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<button id=\"relancer\" type=\"button\">Recommencer</button>",
+      "<button id=\"relancer\" type=\"button\">Recommencer</button><button id=\"relancer\" type=\"button\">Encore</button>"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::les_identifiants_sont_dans_index_html_une_seule_fois"
+   ]
+  },
+  {
+   "nom": "id-dans-un-autre-html",
+   "faute": "l'identifiant `empreinte` est repris dans un second fichier HTML",
+   "operations": [
+    {
+     "fichier": "tiroir.html",
+     "creer": "<!doctype html><title>t</title><p id=\"empreinte\"></p>"
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::les_identifiants_sont_dans_index_html_une_seule_fois"
+   ]
+  },
+  {
+   "nom": "exportation-inconnue",
+   "faute": "le worker emploie une exportation que le module n'a pas",
+   "operations": [
+    {
+     "fichier": "calcul.js",
+     "remplacer": [
+      "  m.givre_demarrer(modele, graine);",
+      "  m.givre_neige_inconnue(1);\n  m.givre_demarrer(modele, graine);"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_emploie_les_exportations_du_module_et_rien_d_autre",
+    "etape_z1_page::la_page_emploie_les_quinze_exportations_et_lire_correlation"
+   ]
+  },
+  {
+   "nom": "exportation-jamais-employee",
+   "faute": "`givre_rayon` n'est plus employée nulle part",
+   "operations": [
+    {
+     "fichier": "calcul.js",
+     "remplacer": [
+      " m.givre_rayon(),",
+      ""
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_emploie_les_exportations_du_module_et_rien_d_autre",
+    "etape_z1_page::la_page_emploie_les_quinze_exportations_et_lire_correlation"
+   ]
+  },
+  {
+   "nom": "arite-fausse",
+   "faute": "`givre_pixel(0)` sans son second argument",
+   "operations": [
+    {
+     "fichier": "calcul.js",
+     "remplacer": [
+      "m.givre_pixel(0, 0), m.givre_sites()",
+      "m.givre_pixel(0), m.givre_sites()"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_emploie_les_exportations_du_module_et_rien_d_autre",
+    "etape_z1_page::la_page_emploie_les_quinze_exportations_et_lire_correlation"
+   ]
+  },
+  {
+   "nom": "script-externe",
+   "faute": "un `<script src=\"https://…\">`",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "</head>",
+      "<script src=\"https://cdn.example.org/lib.js\"></script>\n</head>"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_n_a_aucune_ressource_externe"
+   ]
+  },
+  {
+   "nom": "import-css-externe",
+   "faute": "un `@import` d'une feuille externe",
+   "operations": [
+    {
+     "fichier": "style.css",
+     "ajouter": "@import url(\"https://fonts.example.org/inter.css\");\n",
+     "en_tete": true
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_n_a_aucune_ressource_externe"
+   ]
+  },
+  {
+   "nom": "fetch-externe",
+   "faute": "un `fetch(\"https://…\")` dans le worker",
+   "operations": [
+    {
+     "fichier": "calcul.js",
+     "ajouter": "fetch(\"https://api.example.org/donnees.json\");\n",
+     "en_tete": false
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_n_a_aucune_ressource_externe"
+   ]
+  },
+  {
+   "nom": "worker-externe",
+   "faute": "un `new Worker(\"https://…\")`",
+   "operations": [
+    {
+     "fichier": "app.js",
+     "ajouter": "new Worker(\"https://cdn.example.org/calcul.js\");\n",
+     "en_tete": false
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_n_a_aucune_ressource_externe"
+   ]
+  },
+  {
+   "nom": "link-externe",
+   "faute": "un `<link rel=\"stylesheet\" href=\"https://…\">`",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "</head>",
+      "<link rel=\"stylesheet\" href=\"https://fonts.example.org/css\">\n</head>"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_n_a_aucune_ressource_externe"
+   ]
+  },
+  {
+   "nom": "url-css-externe",
+   "faute": "un `url(https://…)` dans une règle",
+   "operations": [
+    {
+     "fichier": "style.css",
+     "ajouter": ".fond { background: url(https://cdn.example.org/fond.png); }\n",
+     "en_tete": false
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_n_a_aucune_ressource_externe"
+   ]
+  },
+  {
+   "nom": "image-externe",
+   "faute": "un `<img src=\"//cdn…\">`",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "</header>",
+      "<img src=\"//cdn.example.org/x.png\" alt=\"\">\n</header>"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_n_a_aucune_ressource_externe"
+   ]
+  },
+  {
+   "nom": "mot-interdit-par-script",
+   "faute": "un script écrit « réaliste »",
+   "operations": [
+    {
+     "fichier": "app.js",
+     "ajouter": "etat.textContent = \"un flocon réaliste\";\n",
+     "en_tete": false
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::la_page_ne_dit_pas_plus_que_le_modele"
+   ]
+  },
+  {
+   "nom": "mot-interdit-dans-le-html",
+   "faute": "le texte visible dit « conforme à l'article »",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<h1>Un cristal qui pousse, calculé dans ce navigateur</h1>",
+      "<h1>Un cristal conforme à l'article</h1>"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::la_page_ne_dit_pas_plus_que_le_modele"
+   ]
+  },
+  {
+   "nom": "mot-interdit-dans-un-svg",
+   "faute": "un fichier SVG dit « fidèle »",
+   "operations": [
+    {
+     "fichier": "glyphe.svg",
+     "creer": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"40\" height=\"20\"><text x=\"2\" y=\"14\">fidèle à l'article</text></svg>"
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::la_page_ne_dit_pas_plus_que_le_modele"
+   ]
+  },
+  {
+   "nom": "reglage-figure-12-dans-le-worker",
+   "faute": "un réglage de la figure 12 écrit dans le worker (`θ = 0,005`, `κ = 0,001`, `μ = 0,04`)",
+   "operations": [
+    {
+     "fichier": "calcul.js",
+     "ajouter": "const reglagesFigure12 = { theta: 0.005, kappa: 0.001, mu: 0.04 };\n",
+     "en_tete": false
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::aucun_reglage_n_est_ecrit_dans_la_page"
+   ]
+  },
+  {
+   "nom": "valeur-balayee-ecrite",
+   "faute": "une valeur balayée (`ρ = 0,46`) écrite dans la page",
+   "operations": [
+    {
+     "fichier": "app.js",
+     "ajouter": "const essai = { rho: 0.46 };\n",
+     "en_tete": false
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::aucun_reglage_n_est_ecrit_dans_la_page"
+   ]
+  },
+  {
+   "nom": "reglage-en-millionnieme",
+   "faute": "`mu: 70000` (millionièmes) écrit dans la page",
+   "operations": [
+    {
+     "fichier": "app.js",
+     "ajouter": "const essai = { mu: 70000 };\n",
+     "en_tete": false
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::aucun_reglage_n_est_ecrit_dans_la_page"
+   ]
+  },
+  {
+   "nom": "reglage-dans-l-appel",
+   "faute": "les quatre réglages écrits dans l'appel de `givre_neige_demarrer`",
+   "operations": [
+    {
+     "fichier": "calcul.js",
+     "remplacer": [
+      "m.givre_neige_demarrer(jeu, rho, beta, kappa, mu)",
+      "m.givre_neige_demarrer(jeu, 400000, 1300000, 3000, 70000)"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::aucun_reglage_n_est_ecrit_dans_la_page"
+   ]
+  },
+  {
+   "nom": "decimal-rare-dans-le-html",
+   "faute": "`0,0745` écrit dans la page (un commentaire du HTML)",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<p id=\"source-neige\"></p>",
+      "<p id=\"source-neige\"></p><!-- theta 0,0745 -->"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::aucun_reglage_n_est_ecrit_dans_la_page"
+   ]
+  },
+  {
+   "nom": "pixelated-sur-la-neige",
+   "faute": "`#vitrine-nette { image-rendering: pixelated }`",
+   "operations": [
+    {
+     "fichier": "style.css",
+     "ajouter": "#vitrine-nette { image-rendering: pixelated; }\n",
+     "en_tete": false
+    }
+   ],
+   "doit_echouer": [
+    "etape_v7_page::le_canvas_des_modeles_hexagonaux_n_est_pas_pixelise"
+   ]
+  },
+  {
+   "nom": "pixelated-sur-tout-canvas",
+   "faute": "`canvas { image-rendering: crisp-edges }`",
+   "operations": [
+    {
+     "fichier": "style.css",
+     "ajouter": "canvas { image-rendering: crisp-edges; }\n",
+     "en_tete": false
+    }
+   ],
+   "doit_echouer": [
+    "etape_v7_page::le_canvas_des_modeles_hexagonaux_n_est_pas_pixelise"
+   ]
+  },
+  {
+   "nom": "pixelated-imbrique",
+   "faute": "`pixelated` dans une règle CSS imbriquée du tiroir",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "& canvas { image-rendering: auto; }",
+      "& canvas { image-rendering: pixelated; }"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_v7_page::le_canvas_des_modeles_hexagonaux_n_est_pas_pixelise"
+   ]
+  },
+  {
+   "nom": "pixelated-par-script",
+   "faute": "`scene.style.imageRendering = \"pixelated\"`",
+   "operations": [
+    {
+     "fichier": "app.js",
+     "ajouter": "scene.style.imageRendering = \"pixelated\";\n",
+     "en_tete": false
+    }
+   ],
+   "doit_echouer": [
+    "etape_v7_page::le_canvas_des_modeles_hexagonaux_n_est_pas_pixelise"
+   ]
+  },
+  {
+   "nom": "pixelated-dans-un-attribut-style",
+   "faute": "un attribut `style=\"image-rendering: pixelated\"`",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<canvas id=\"vitrine-nette\" width=\"640\" height=\"640\">",
+      "<canvas id=\"vitrine-nette\" width=\"640\" height=\"640\" style=\"image-rendering: pixelated\">"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_v7_page::le_canvas_des_modeles_hexagonaux_n_est_pas_pixelise"
+   ]
+  },
+  {
+   "nom": "canvas-rebaptise",
+   "faute": "un script rebaptise le canvas de la neige `vitrine`",
+   "operations": [
+    {
+     "fichier": "app.js",
+     "ajouter": "scene.id = \"vitrine\";\n",
+     "en_tete": false
+    }
+   ],
+   "doit_echouer": [
+    "etape_v7_page::le_canvas_des_modeles_hexagonaux_n_est_pas_pixelise"
+   ]
+  },
+  {
+   "nom": "phrase-du-mur-retiree",
+   "faute": "la légende de la neige ne dit plus « le mur est à nous »",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "le mur est à nous, au-delà",
+      "au-delà"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::la_page_ne_dit_pas_plus_que_le_modele"
+   ]
+  },
+  {
+   "nom": "phrase-du-zinc-changee",
+   "faute": "`taille-zinc` dit autre chose",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "taille d'amas du zinc non relevée",
+      "taille d'amas du zinc : 40 sites"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_z1_page::la_page_dit_le_repere_du_zinc_comme_un_repere"
+   ]
+  },
+  {
+   "nom": "compatible-ecrit-autrement",
+   "faute": "le script écrit « compatible » tout court",
+   "operations": [
+    {
+     "fichier": "app.js",
+     "remplacer": [
+      "const PHRASE_COMPATIBLE = \"compatible, ce qui ne prouve pas que le zinc suit la DLA\";",
+      "const PHRASE_COMPATIBLE = \"compatible\";"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_z1_page::la_page_dit_le_repere_du_zinc_comme_un_repere"
+   ]
+  },
+  {
+   "nom": "un-accord",
+   "faute": "« C'est un accord » à la place de « Ce n'est pas un accord »",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "Ce n'est pas un accord.</p>\n  </div>",
+      "C'est un accord.</p>\n  </div>"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_d3_page::la_page_dit_pas_un_accord_et_la_limite"
+   ]
+  },
+  {
+   "nom": "valeur-publiee-dans-un-commentaire",
+   "faute": "`1,71` dans un commentaire du worker",
+   "operations": [
+    {
+     "fichier": "calcul.js",
+     "ajouter": "// le repère de la DLA : 1,71\n",
+     "en_tete": false
+    }
+   ],
+   "doit_echouer": [
+    "etape_d3_page::la_page_ne_fige_aucune_valeur_publiee",
+    "etape_z1_page::la_page_ne_fige_aucune_valeur_de_d"
+   ]
+  },
+  {
+   "nom": "valeur-de-d-ecrite",
+   "faute": "un script écrit « D = 1,7 »",
+   "operations": [
+    {
+     "fichier": "app.js",
+     "ajouter": "etat.textContent = \"D = 1,7\";\n",
+     "en_tete": false
+    }
+   ],
+   "doit_echouer": [
+    "etape_z1_page::la_page_ne_fige_aucune_valeur_de_d",
+    "etape_d3_page::la_page_ne_fige_aucune_valeur_publiee"
+   ]
+  },
+  {
+   "nom": "image-de-400-ko",
+   "faute": "une image de 400 000 octets",
+   "operations": [
+    {
+     "fichier": "apercu-gros.png",
+     "octets": 400000
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_ne_depasse_pas_son_budget"
+   ]
+  },
+  {
+   "nom": "images-de-750-ko",
+   "faute": "trois images de 250 000 octets (total 750 000)",
+   "operations": [
+    {
+     "fichier": "apercu-0.png",
+     "octets": 250000
+    },
+    {
+     "fichier": "apercu-1.png",
+     "octets": 250000
+    },
+    {
+     "fichier": "apercu-2.png",
+     "octets": 250000
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_ne_depasse_pas_son_budget"
+   ]
+  },
+  {
+   "nom": "code-de-400-kio",
+   "faute": "du code (une feuille de style) de 400 Kio",
+   "operations": [
+    {
+     "fichier": "police-enorme.css",
+     "octets": 409600,
+     "texte": true
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_ne_depasse_pas_son_budget"
+   ]
+  },
+  {
+   "nom": "lecture-js-impur",
+   "faute": "`lecture.js` emploie `window`",
+   "operations": [
+    {
+     "fichier": "lecture.js",
+     "ajouter": "export const largeurEcran = window.innerWidth;\n",
+     "en_tete": false
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_emploie_lecture_js"
+   ]
+  },
+  {
+   "nom": "lecture-js-sans-export",
+   "faute": "`lecture.js` ne déclare plus `lireGraine`",
+   "operations": [
+    {
+     "fichier": "lecture.js",
+     "remplacer": [
+      "export function lireGraine(",
+      "function lireGraine("
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_emploie_lecture_js"
+   ]
+  },
+  {
+   "nom": "script-module-absent",
+   "faute": "le `<script type=\"module\">` désigne un fichier qui n'existe pas",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "src=\"app.js\"",
+      "src=\"absent.js\""
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_a_un_canvas_un_viewport_et_charge_un_script"
+   ]
+  },
+  {
+   "nom": "module-jamais-charge",
+   "faute": "plus aucun texte ne désigne `givre.wasm`",
+   "operations": [
+    {
+     "fichier": "calcul.js",
+     "remplacer": [
+      "new URL(\"./givre.wasm\", import.meta.url)",
+      "new URL(\"./autre.wasm\", import.meta.url)"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_charge_le_module"
+   ]
+  },
+  {
+   "nom": "id-demande-absent",
+   "faute": "le script demande `getElementById(\"inexistant\")`",
+   "operations": [
+    {
+     "fichier": "app.js",
+     "ajouter": "document.getElementById(\"inexistant\");\n",
+     "en_tete": false
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::les_identifiants_sont_dans_index_html_une_seule_fois"
+   ]
+  },
+  {
+   "nom": "cote-impair",
+   "faute": "`givre_nette_preparer(383, 2)` : un côté impair",
+   "operations": [
+    {
+     "fichier": "calcul.js",
+     "remplacer": [
+      "m.givre_nette_preparer(NETTE_COTE, NETTE_SUR)",
+      "m.givre_nette_preparer(383, 2)"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_v7_page::les_reglages_de_l_image_nette_sont_dans_les_bornes"
+   ]
+  },
+  {
+   "nom": "trop-d-echantillons",
+   "faute": "`lireImageNette(m, 2048, 3)` : plus de 4096 de côté de grille",
+   "operations": [
+    {
+     "fichier": "calcul.js",
+     "remplacer": [
+      "lireImageNette(m, NETTE_COTE, NETTE_SUR)",
+      "lireImageNette(m, 2048, 3)"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_v7_page::les_reglages_de_l_image_nette_sont_dans_les_bornes"
+   ]
+  },
+  {
+   "nom": "courbe-hors-bornes",
+   "faute": "`givre_courbe_demarrer(150, 4)`",
+   "operations": [
+    {
+     "fichier": "calcul.js",
+     "remplacer": [
+      "m.givre_courbe_demarrer(COURBE_TAILLE, COURBE_GRAINES)",
+      "m.givre_courbe_demarrer(150, 4)"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_d3_page::la_page_demande_des_amas_dans_les_bornes_du_module"
+   ]
+  },
+  {
+   "nom": "numero-du-claquage-calcule-a-part",
+   "faute": "la page écrit `MODELE_CLAQUAGE` : le numéro du claquage n'est plus celui de `numeroDuModele`",
+   "operations": [
+    {
+     "fichier": "app.js",
+     "ajouter": "const MODELE_CLAQUAGE = 4;\n",
+     "en_tete": false
+    }
+   ],
+   "doit_echouer": [
+    "etape_d3_page::lecture_js_declare_ce_que_la_page_lit"
+   ]
+  },
+  {
+   "nom": "budget-d-image-trop-long",
+   "faute": "`const BUDGET_IMAGE_MS = 400`",
+   "operations": [
+    {
+     "fichier": "app.js",
+     "ajouter": "const BUDGET_IMAGE_MS = 400;\n",
+     "en_tete": false
+    }
+   ],
+   "doit_echouer": [
+    "etape_d3_page::le_budget_d_une_image_est_borne"
+   ]
+  },
+  {
+   "nom": "etiquette-sans-lecture-js",
+   "faute": "plus aucun fichier hors `lecture.js` n'appelle `texteDeLaFormeNeige`",
+   "operations": [
+    {
+     "fichier": "app.js",
+     "remplacer": [
+      "formeNeige.textContent = texteDeLaFormeNeige(donnee.forme);",
+      "formeNeige.textContent = \"Forme : \" + donnee.forme;"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::la_page_ne_dit_pas_plus_que_le_modele",
+    "etape_g3_page::lecture_js_declare_ce_que_la_page_lit_de_la_neige"
+   ]
+  },
+  {
+   "nom": "refus-sans-lecture-js",
+   "faute": "plus aucun fichier hors `lecture.js` n'appelle `texteRefusNeige` : un refus du module n'est pas dit",
+   "operations": [
+    {
+     "fichier": "app.js",
+     "remplacer": [
+      "etat.textContent = texteRefusNeige(donnee.refus);",
+      "etat.textContent = \"refus\";"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::lecture_js_declare_ce_que_la_page_lit_de_la_neige"
+   ]
+  },
+  {
+   "nom": "lecteur-de-la-neige-dans-le-worker",
+   "faute": "le worker lit `givre_neige_mesure` lui-même (pas par `lecture.js`)",
+   "operations": [
+    {
+     "fichier": "calcul.js",
+     "ajouter": "const lecteurDirect = () => m.givre_neige_mesure(0);\n",
+     "en_tete": false
+    }
+   ],
+   "doit_echouer": [
+    "etape_g3_page::lecture_js_declare_ce_que_la_page_lit_de_la_neige"
+   ]
+  },
+  {
+   "nom": "javascript-invalide",
+   "faute": "un worker qui n'est pas du JavaScript",
+   "operations": [
+    {
+     "fichier": "calcul.js",
+     "ajouter": "const = ;\n",
+     "en_tete": false
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::les_scripts_de_la_page_sont_du_javascript_valide"
+   ]
+  },
+  {
+   "nom": "page-vide",
+   "faute": "`index.html` est vide",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "creer": ""
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_a_un_canvas_un_viewport_et_charge_un_script"
+   ]
+  },
+  {
+   "nom": "lecture-js-absent",
+   "faute": "`lecture.js` n'existe pas",
+   "operations": [
+    {
+     "fichier": "lecture.js",
+     "supprimer": true
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_emploie_lecture_js",
+    "etape_5_page::lecture_js_lit_le_module_comme_le_natif"
+   ]
+  }
+ ]
+}
