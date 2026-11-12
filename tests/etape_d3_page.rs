@@ -3,7 +3,9 @@
 //! `lecture_pure_dit_ce_que_la_doc_dit` appelle les fonctions de `lecture.js` qui n'ont pas besoin du module (le numéro de modèle, les textes d'avancement et de repère) et compare à un calcul fait à
 //! la main ; il ne lit pas `docs/givre.wasm` et passe dès que `lecture.js` est écrit. La lecture du module par `lecture.js` (`lireCourbe`) est éprouvée dans `etape_d3_module.rs`.
 //!
-//! # Ce que fait la page (la consigne des mains qui l'écrivent : le prototype de l'écrivain fait foi, ses fichiers se recopient à l'octet)
+//! **Étape V8 : la page est tous les fichiers de son dossier** (voir `etape_5_page.rs`) : ces tests lisent `index.html`, ses scripts en ligne, les feuilles de style et **tous** les fichiers JavaScript ; ils ne figent plus l'écriture d'`app.js` (qui peut être réécrit, ou calculer dans un worker).
+//!
+//! # Ce que fait la page (la consigne des mains qui l'écrivent : celle de D3 ; V8 en a retiré ce qui n'était que l'écriture d'`app.js`)
 //!
 //! - `index.html` ajoute, en gardant tout ce que les étapes 5 et Z1 demandent : une cinquième `<option value="claquage">` « Claquage diélectrique » dans `#modele` ; un curseur `<input id="eta"
 //!   type="range" min="0" max="3" step="1">` (l'exposant `η`, un entier de 0 à 3) avec son `<output id="valeur-eta">`, dans un conteneur `id="commande-eta"` **caché au départ** (`hidden`) ; un
@@ -24,7 +26,7 @@
 
 mod etape_d3_commun;
 
-use etape_d3_commun::{e5, lancer_le_script, racine};
+use etape_d3_commun::{e5, lancer_le_script};
 
 // ---------------------------------------------------------------------------------------------------------------
 // Lecture du texte de la page.
@@ -76,8 +78,9 @@ fn sans_commentaires(script: &str) -> String {
     sortie
 }
 
+/// Tout le code JavaScript de la page (tous les fichiers `.js`, `.mjs` et les scripts en ligne), sans ses commentaires (V8).
 fn code_de_app_js() -> String {
-    sans_commentaires(&e5::lire_page("app.js"))
+    e5::tout_le_code_js()
 }
 
 fn code_de_lecture_js() -> String {
@@ -134,17 +137,7 @@ fn balises(html: &str) -> Vec<&str> {
 
 /// La valeur de l'attribut `nom` d'une balise (entre guillemets ou apostrophes, précédé d'une espace).
 fn attribut(balise: &str, nom: &str) -> Option<String> {
-    let motif = format!("{nom}=");
-    for (position, _) in balise.match_indices(&motif) {
-        if !balise[..position].ends_with(char::is_whitespace) {
-            continue;
-        }
-        let apres = &balise[position + motif.len()..];
-        let guillemet = apres.chars().next().filter(|c| *c == '"' || *c == '\'')?;
-        let valeur = &apres[1..];
-        return Some(valeur[..valeur.find(guillemet)?].to_string());
-    }
-    None
+    e5::attribut(balise, nom)
 }
 
 fn nom_de_balise(balise: &str) -> String {
@@ -158,32 +151,7 @@ fn balise_d_id<'a>(html: &'a str, id: &str) -> Option<&'a str> {
 
 /// Le texte qui suit la balise d'`id` donné, jusqu'au `<` suivant, sans espaces de début et de fin.
 fn texte_de(html: &str, id: &str) -> Option<String> {
-    for morceau in html.split('<').skip(1) {
-        let (balise, texte) = morceau.split_once('>')?;
-        if attribut(balise, "id").as_deref() == Some(id) {
-            return Some(texte.trim().to_string());
-        }
-    }
-    None
-}
-
-/// Le texte visible de la page : tout ce qui n'est pas dans une balise, ni dans `<style>` ni dans `<script>`.
-fn texte_visible(html: &str) -> String {
-    let mut sortie = String::new();
-    let mut ignore = false;
-    for morceau in html.split('<').skip(1) {
-        let (balise, texte) = morceau.split_once('>').unwrap_or((morceau, ""));
-        let ferme = balise.starts_with('/');
-        match nom_de_balise(balise.trim_start_matches('/')).as_str() {
-            "style" | "script" => ignore = !ferme,
-            _ => {}
-        }
-        if !ignore {
-            sortie.push_str(texte);
-            sortie.push(' ');
-        }
-    }
-    sortie
+    e5::texte_de_l_element(html, id)
 }
 
 /// Vrai si la balise porte l'attribut `nom` (booléen comme `hidden`, ou avec une valeur).
@@ -192,89 +160,6 @@ fn a_l_attribut(balise: &str, nom: &str) -> bool {
         .split_whitespace()
         .skip(1)
         .any(|mot| mot == nom || mot.starts_with(&format!("{nom}=")) || mot == format!("{nom}/"))
-}
-
-/// Les `id` des balises contenues dans le `<div>` d'`id` `conteneur` (à n'importe quelle profondeur), dans l'ordre du document.
-fn ids_dans_le_div(html: &str, conteneur: &str) -> Vec<String> {
-    let mut ids = Vec::new();
-    let mut profondeur = 0_i32;
-    for balise in balises(html) {
-        let ferme = balise.starts_with('/');
-        let nom = nom_de_balise(balise.trim_start_matches('/'));
-        if profondeur == 0 {
-            if !ferme && nom == "div" && attribut(balise, "id").as_deref() == Some(conteneur) {
-                profondeur = 1;
-            }
-            continue;
-        }
-        if nom == "div" {
-            profondeur += if ferme { -1 } else { 1 };
-        }
-        if profondeur > 0
-            && let Some(id) = attribut(balise, "id")
-        {
-            ids.push(id);
-        }
-    }
-    ids
-}
-
-/// L'indice du caractère `}` qui ferme l'accolade ouvrante à `ouvrante` dans `code` (les chaînes de caractères sont sautées).
-fn fermeture(code: &str, ouvrante: usize) -> usize {
-    let c: Vec<(usize, char)> = code.char_indices().collect();
-    let depart = c.iter().position(|&(i, _)| i == ouvrante).expect("accolade ouvrante");
-    let (mut profondeur, mut guillemet, mut echappe) = (0_i32, None, false);
-    for &(i, ch) in &c[depart..] {
-        if let Some(g) = guillemet {
-            if echappe {
-                echappe = false;
-            } else if ch == '\\' {
-                echappe = true;
-            } else if ch == g {
-                guillemet = None;
-            }
-            continue;
-        }
-        match ch {
-            '"' | '\'' | '`' => guillemet = Some(ch),
-            '{' => profondeur += 1,
-            '}' => {
-                profondeur -= 1;
-                if profondeur == 0 {
-                    return i;
-                }
-            }
-            _ => {}
-        }
-    }
-    panic!("accolade non fermée");
-}
-
-/// La fonction déclarée (`function nom(…) { … }`) qui contient la position `position` de `code` : son nom et son corps.
-fn fonction_qui_contient(code: &str, position: usize) -> Option<(String, String)> {
-    let mut candidate = None;
-    for (debut, _) in code.match_indices("function ") {
-        if debut > position {
-            break;
-        }
-        let nom: String =
-            code[debut + 9..].chars().take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$').collect();
-        let ouvrante = debut + code[debut..].find('{')?;
-        let fin = fermeture(code, ouvrante);
-        if fin > position {
-            candidate = Some((nom, code[ouvrante..=fin].to_string()));
-        }
-    }
-    candidate
-}
-
-/// Le nom de la variable à laquelle `app.js` affecte `document.getElementById("id")` (`const nom = document.getElementById("id")`).
-fn variable_de(code: &str, id: &str) -> Option<String> {
-    let appel = format!("getElementById(\"{id}\")");
-    let position = code.find(&appel)?;
-    let avant = code[..position].trim_end().strip_suffix("document.")?.trim_end().strip_suffix('=')?.trim_end();
-    let nom: String = avant.chars().rev().take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$').collect();
-    Some(nom.chars().rev().collect())
 }
 
 /// La valeur entière de `const NOM = <chiffres>` dans le code.
@@ -293,12 +178,49 @@ fn constante_entiere(code: &str, nom: &str) -> Option<u64> {
     None
 }
 
+/// Les `id` des balises contenues dans l'élément d'`id` `conteneur` (de n'importe quelle sorte : `div`, `section`, `details`, `aside`…), à n'importe quelle profondeur, dans l'ordre du document (V8 : le test ne dépend plus de la sorte du conteneur).
+fn ids_dans_l_element(html: &str, conteneur: &str) -> Vec<String> {
+    let mut ids = Vec::new();
+    let (mut profondeur, mut sorte) = (0_i32, String::new());
+    for balise in balises(html) {
+        let ferme = balise.starts_with('/');
+        let nom = nom_de_balise(balise.trim_start_matches('/'));
+        if profondeur == 0 {
+            if !ferme && attribut(balise, "id").as_deref() == Some(conteneur) {
+                profondeur = 1;
+                sorte = nom;
+            }
+            continue;
+        }
+        if nom == sorte {
+            profondeur += if ferme { -1 } else { 1 };
+        }
+        if profondeur > 0
+            && let Some(id) = attribut(balise, "id")
+        {
+            ids.push(id);
+        }
+    }
+    ids
+}
+
+/// Vrai si la phrase est **écrite par la page** (V8) : dans le texte de l'élément d'`id` (s'il en a un dans `index.html`), sinon dans une chaîne de caractères de l'un des fichiers JavaScript (une légende peut être écrite par un script).
+fn phrase_dite(html: &str, id: &str, contient: &[&str]) -> bool {
+    let statique = texte_de(html, id).unwrap_or_default().to_lowercase();
+    if !statique.is_empty() {
+        return contient.iter().all(|mot| statique.contains(&mot.to_lowercase()));
+    }
+    e5::chaines_du_code(&e5::tout_le_code_js())
+        .iter()
+        .any(|chaine| contient.iter().all(|mot| chaine.to_lowercase().contains(&mot.to_lowercase())))
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Les tests de forme.
 // ---------------------------------------------------------------------------------------------------------------
 
 /// forme : `index.html` a les éléments du claquage et de la courbe, chacun avec son `id` et sa sorte (V-D3-27) : `<input id="eta" type="range" min="0" max="3" step="1">` (un curseur entier de 0 à 3) et
-/// son `<output id="valeur-eta">` ; le conteneur `commande-eta` est **caché au départ** ; la cinquième option du choix du modèle a la valeur `claquage` et son texte dit « claquage » et
+/// son `<output id="valeur-eta">` ; (V8 : le conteneur `commande-eta` n'est plus exigé caché au départ : c'était l'état d'ouverture de l'ancienne page) ; la cinquième option du choix du modèle a la valeur `claquage` et son texte dit « claquage » et
 /// « diélectrique » ; `<button id="calculer-courbe">`, `<canvas id="courbe-eta">`, et des éléments `avancement-courbe`, `legende-courbe`, `limite-courbe`, `pas-un-accord-courbe`, `bloc-zinc`, `bloc-repere-eta`,
 /// `repere-eta`, `ecart-eta`, `pas-un-accord`.
 ///
@@ -343,8 +265,6 @@ fn la_page_a_les_elements_du_claquage_et_de_la_courbe() {
         Some(valeur_initiale.as_str()),
         "la sortie du curseur dit la valeur initiale"
     );
-    let commande = balise_d_id(&html, "commande-eta").expect("commande-eta");
-    assert!(a_l_attribut(commande, "hidden"), "commande-eta n'est pas cachée au départ : <{commande}>");
 
     // La dernière option du choix du modèle.
     let mut options: Vec<(String, String)> = Vec::new();
@@ -375,31 +295,30 @@ fn la_page_a_les_elements_du_claquage_et_de_la_courbe() {
     assert!(bouton.contains("courbe"), "le texte du bouton est « {bouton} »");
 }
 
-/// forme : les phrases (V-D3-28). `pas-un-accord` et `pas-un-accord-courbe` disent « ce n'est pas un accord » (sans tenir compte de la casse) ; `limite-courbe` dit la limite en clair (les mots `amas`,
-/// `graines`, `méthode` ou `corrélation`, `fenêtre`, `Hastings`) ; `legende-courbe` nomme les deux sortes de repère (`Hastings 2001` et `rappel de la DLA`) ; `bloc-repere-eta`, `ecart-eta` et
-/// `pas-un-accord` sont **cachés au départ** (rien n'est dit avant une mesure) ; `repere-eta` est vide au départ (le repère vient du module). Le mot « accord » ne figure jamais sans négation dans la page
-/// (« en accord », « d'accord », « un accord » hors de « pas un accord » : refusés).
+/// forme : les phrases (V-D3-28). `pas-un-accord` et `pas-un-accord-courbe` disent « ce n'est pas un accord » (sans tenir compte de la casse) ; `limite-courbe` dit la limite en clair (les mots `amas`, `graines`, `méthode` ou `corrélation`, `fenêtre`, `Hastings`) ; `legende-courbe` nomme les deux sortes de repère (`Hastings 2001` et `rappel de la DLA`) ;
+/// `bloc-repere-eta`, `ecart-eta` et `pas-un-accord` sont **cachés au départ** (rien n'est dit avant une mesure) ; `repere-eta` est vide au départ (le repère vient du module). Le mot « accord » ne figure jamais sans négation dans **tout ce que la page écrit** (le texte visible de chaque fichier HTML, les chaînes de caractères de tous les fichiers JavaScript, le
+/// texte des SVG : « en accord », « d'accord », « un accord » hors de « pas un accord » : refusés). **V8 : une phrase peut être écrite par un script** : si l'élément est vide dans `index.html`, la phrase doit être une chaîne de caractères de l'un des fichiers JavaScript de la page ; si l'élément a un texte, c'est lui qui est jugé.
 ///
-/// Ne couvre pas : l'affichage de l'une ou l'autre phrase selon la mesure (le DOM n'est pas éprouvé) ; la justesse de la limite dite.
+/// Ne couvre pas : l'affichage de l'une ou l'autre phrase selon la mesure (le DOM n'est pas éprouvé) ; la justesse de la limite dite ; que le script écrive la phrase dans le bon élément.
 #[test]
 #[cfg_attr(not(feature = "etape-d3"), ignore)]
 fn la_page_dit_pas_un_accord_et_la_limite() {
     let html = e5::lire_page("index.html");
     for id in ["pas-un-accord", "pas-un-accord-courbe"] {
-        let texte = texte_de(&html, id).unwrap_or_else(|| panic!("pas d'élément d'id « {id} »")).to_lowercase();
-        assert!(texte.contains("ce n'est pas un accord"), "« {id} » dit : « {texte} »");
+        assert!(balise_d_id(&html, id).is_some(), "pas d'élément d'id « {id} »");
+        assert!(phrase_dite(&html, id, &["ce n'est pas un accord"]), "« {id} » ne dit pas « ce n'est pas un accord »");
     }
-    let limite = texte_de(&html, "limite-courbe").expect("limite-courbe").to_lowercase();
+    assert!(balise_d_id(&html, "limite-courbe").is_some(), "pas d'élément d'id « limite-courbe »");
     for mot in ["amas", "graines", "fenêtre", "hastings"] {
-        assert!(limite.contains(mot), "la limite dite « {limite} » ne parle pas de « {mot} »");
+        assert!(phrase_dite(&html, "limite-courbe", &[mot]), "la limite dite ne parle pas de « {mot} »");
     }
     assert!(
-        limite.contains("méthode") || limite.contains("corrélation"),
-        "la limite ne dit pas la méthode : « {limite} »"
+        phrase_dite(&html, "limite-courbe", &["méthode"]) || phrase_dite(&html, "limite-courbe", &["corrélation"]),
+        "la limite ne dit pas la méthode"
     );
-    let legende = texte_de(&html, "legende-courbe").expect("legende-courbe");
+    assert!(balise_d_id(&html, "legende-courbe").is_some(), "pas d'élément d'id « legende-courbe »");
     for mot in ["Hastings 2001", "rappel de la DLA"] {
-        assert!(legende.contains(mot), "la légende « {legende} » ne dit pas « {mot} »");
+        assert!(phrase_dite(&html, "legende-courbe", &[mot]), "la légende de la courbe ne dit pas « {mot} »");
     }
     for id in ["bloc-repere-eta", "ecart-eta", "pas-un-accord"] {
         let balise = balise_d_id(&html, id).unwrap_or_else(|| panic!("pas d'élément d'id « {id} »"));
@@ -411,206 +330,114 @@ fn la_page_dit_pas_un_accord_et_la_limite() {
         "le repère de η est écrit par la page, depuis le module"
     );
     // « accord » toujours nié : chaque occurrence est précédée de « pas un ».
-    let visible = texte_visible(&html).to_lowercase();
-    for (position, _) in visible.match_indices("accord") {
+    let ecrit = e5::textes_en_prose_de_la_page().to_lowercase();
+    for (position, _) in ecrit.match_indices("accord") {
         assert!(
-            visible[..position].trim_end().ends_with("pas un"),
+            ecrit[..position].trim_end().ends_with("pas un"),
             "« accord » sans « pas un » : …{}",
-            &visible[position.saturating_sub(30)..(position + 10).min(visible.len())]
+            &ecrit[position.saturating_sub(30)..(position + 10).min(ecrit.len())]
         );
     }
 }
 
-/// forme : les phrases du zinc ne sont que pour la DLA (V-D3-29). Dans `index.html`, le conteneur `bloc-zinc` contient `barre-zinc`, `marque-d`, `repere-zinc`, `compatible`, `hors-barre` et `taille-zinc`, et
-/// ne contient ni `bloc-repere-eta`, ni `repere-eta`, ni `pas-un-accord` ; le conteneur `bloc-repere-eta` contient `repere-eta`, `ecart-eta` et `pas-un-accord`, et rien du zinc. `app.js` demande
-/// `bloc-zinc`, `bloc-repere-eta` et `commande-eta` et écrit leur `.hidden` d'après `blocsCaches(choix)` de `lecture.js` (une seule fois, sans négation).
+/// forme : les phrases du zinc ne sont que pour la DLA (V-D3-29). Dans `index.html`, le conteneur `bloc-zinc` (de n'importe quelle sorte d'élément) contient `barre-zinc`, `marque-d`, `repere-zinc`, `compatible`, `hors-barre` et `taille-zinc`, et ne contient ni `bloc-repere-eta`, ni `repere-eta`, ni `pas-un-accord` ; le conteneur
+/// `bloc-repere-eta` contient `repere-eta`, `ecart-eta` et `pas-un-accord`, et rien du zinc. **V8 ne lit plus `app.js`** (il demandait `bloc-zinc`, `bloc-repere-eta` et `commande-eta` et écrivait leur `.hidden` d'après `blocsCaches(choix)`, « sans négation » : une écriture) : que le zinc soit caché pour un autre modèle que la DLA se voit sous un navigateur
+/// (voir `MODELE.md`, étape V8) ; `blocsCaches` reste éprouvé sous Node (`lecture_pure_dit_ce_que_la_doc_dit`).
 ///
 /// Ne couvre pas : la condition qui cache ou montre chaque bloc (le DOM n'est pas éprouvé : seul un navigateur le montre).
 #[test]
 #[cfg_attr(not(feature = "etape-d3"), ignore)]
 fn les_phrases_du_zinc_ne_sont_que_pour_la_dla() {
     let html = e5::lire_page("index.html");
-    let zinc = ids_dans_le_div(&html, "bloc-zinc");
+    let zinc = ids_dans_l_element(&html, "bloc-zinc");
     for id in ["barre-zinc", "marque-d", "repere-zinc", "compatible", "hors-barre", "taille-zinc"] {
         assert!(zinc.iter().any(|dedans| dedans == id), "« {id} » n'est pas dans bloc-zinc : {zinc:?}");
     }
     for id in ["bloc-repere-eta", "repere-eta", "ecart-eta", "pas-un-accord"] {
         assert!(!zinc.iter().any(|dedans| dedans == id), "« {id} » est dans bloc-zinc");
     }
-    let repere = ids_dans_le_div(&html, "bloc-repere-eta");
+    let repere = ids_dans_l_element(&html, "bloc-repere-eta");
     for id in ["repere-eta", "ecart-eta", "pas-un-accord"] {
         assert!(repere.iter().any(|dedans| dedans == id), "« {id} » n'est pas dans bloc-repere-eta : {repere:?}");
     }
     for id in ["repere-zinc", "compatible", "hors-barre", "taille-zinc", "barre-zinc"] {
         assert!(!repere.iter().any(|dedans| dedans == id), "« {id} » est dans bloc-repere-eta");
     }
-    let code = code_de_app_js();
-    for id in ["bloc-zinc", "bloc-repere-eta", "commande-eta"] {
-        let variable = variable_de(&code, id)
-            .unwrap_or_else(|| panic!("app.js ne garde pas l'élément « {id} » dans une variable"));
-        assert!(
-            code.contains(&format!("{variable}.hidden =")),
-            "app.js n'écrit jamais `{variable}.hidden =` (l'élément « {id} »)"
-        );
-        // La décision (cacher ou montrer) vient de `blocsCaches` de lecture.js, que Node éprouve : app.js l'écrit telle quelle, sans négation.
-        assert!(
-            code.contains(&format!("{variable}.hidden = caches.")),
-            "app.js n'écrit pas `{variable}.hidden = caches.…` (la décision de blocsCaches, sans négation)"
-        );
-    }
-    let arites = arites_des_appels(&code, "blocsCaches");
-    assert!(
-        arites == [1],
-        "app.js appelle blocsCaches avec {arites:?} argument(s) au lieu d'un seul appel à 1 argument"
-    );
-    assert!(
-        code_de_lecture_js().contains("export function blocsCaches("),
-        "lecture.js ne déclare pas `export function blocsCaches(`"
-    );
 }
 
-/// forme : le calcul de la courbe se fait un amas à la fois, à la demande (V-D3-30). `app.js` appelle `givre_courbe_pas(` **une seule fois**, dans une fonction déclarée `function nom(…) { … }` qui
-/// appelle `setTimeout(` (la pause entre deux pas) et ne contient aucune boucle (`for`, `while`) ; `givre_courbe_demarrer(` est appelé une seule fois, avec deux arguments `COURBE_TAILLE` et
-/// `COURBE_GRAINES`, dans la fonction installée comme gestionnaire du clic du bouton `calculer-courbe` (`addEventListener("click", nom)`) ; cette fonction n'appelle pas `givre_courbe_pas` (le
-/// premier pas vient après la pause) ; ni l'une ni l'autre n'est appelée directement ailleurs (leur nom suivi d'une parenthèse n'apparaît que dans leur déclaration) ; `COURBE_TAILLE` est une constante entière de 1 à 100 et `COURBE_GRAINES` de 2 à 8 (les bornes du module) ; ni `requestAnimationFrame`, ni `givre_avancer`
-/// n'est dans ces fonctions (le calcul de la courbe ne touche pas à l'animation) ; **chacune des deux appelle `texteAvancement(`** (le texte d'avancement vient de `lecture.js`, que Node
-/// éprouve, et non d'un texte écrit dans `app.js`).
+/// forme : la page demande au module des amas **dans ses bornes** (V-D3-30). **Si** une constante `COURBE_TAILLE` ou `COURBE_GRAINES` est déclarée dans le code de la page (`const COURBE_TAILLE = <entier>`), elle est dans les bornes du module (1 à 100 sites, 2 à 8 graines) ; **si** `givre_courbe_demarrer(` est appelée avec deux entiers écrits (`givre_courbe_demarrer(60, 4)`),
+/// ils y sont aussi (le module refuse sinon par un code d'erreur). **V8 ne lit plus** « un seul `givre_courbe_pas(` dans une fonction qui appelle `setTimeout(` et ne boucle pas, gestionnaire du clic, jamais appelée directement » : c'est l'écriture d'`app.js` ; la page de la session de site calcule hors du fil de la page, où une boucle est permise : qu'un
+/// amas se fasse à la fois et que la page respire ne se voit plus ici (voir `MODELE.md`, étape V8).
 ///
-/// Ne couvre pas : que le gestionnaire soit relié au bon bouton (le DOM n'est pas éprouvé) ; ce que la page fait du résultat.
+/// Ne couvre pas : que la page calcule un amas à la fois ; que le calcul soit lancé par le bouton `calculer-courbe`.
 #[test]
 #[cfg_attr(not(feature = "etape-d3"), ignore)]
-fn app_js_calcule_la_courbe_un_amas_a_la_fois() {
+fn la_page_demande_des_amas_dans_les_bornes_du_module() {
     let code = code_de_app_js();
-    let pas: Vec<usize> = code.match_indices("givre_courbe_pas(").map(|(i, _)| i).collect();
-    assert_eq!(pas.len(), 1, "app.js doit appeler givre_courbe_pas() une seule fois, il l'appelle {} fois", pas.len());
-    let (nom_du_pas, corps_du_pas) =
-        fonction_qui_contient(&code, pas[0]).expect("l'appel de givre_courbe_pas est dans une `function nom(…)`");
-    assert!(
-        corps_du_pas.contains("setTimeout("),
-        "la fonction « {nom_du_pas} » qui fait un pas n'a pas de setTimeout (la page ne respirerait pas)"
-    );
-    for boucle in ["for (", "for(", "while (", "while("] {
-        assert!(
-            !corps_du_pas.contains(boucle),
-            "la fonction « {nom_du_pas} » contient une boucle « {boucle} » : un seul amas par tour"
-        );
+    if let Some(taille) = constante_entiere(&code, "COURBE_TAILLE") {
+        assert!((1..=100).contains(&taille), "COURBE_TAILLE vaut {taille} : le module accepte de 1 à 100 sites");
     }
-    for interdit in ["requestAnimationFrame", "givre_avancer"] {
-        assert!(!corps_du_pas.contains(interdit), "la fonction « {nom_du_pas} » appelle {interdit}");
+    if let Some(graines) = constante_entiere(&code, "COURBE_GRAINES") {
+        assert!((2..=8).contains(&graines), "COURBE_GRAINES vaut {graines} : le module accepte de 2 à 8 graines");
     }
-
-    let demarrages: Vec<usize> = code.match_indices("givre_courbe_demarrer(").map(|(i, _)| i).collect();
-    assert_eq!(demarrages.len(), 1, "app.js doit appeler givre_courbe_demarrer() une seule fois");
-    let (nom_du_demarrage, corps_du_demarrage) = fonction_qui_contient(&code, demarrages[0])
-        .expect("l'appel de givre_courbe_demarrer est dans une `function nom(…)`");
-    assert!(
-        !corps_du_demarrage.contains("givre_courbe_pas("),
-        "« {nom_du_demarrage} » fait un pas : le premier pas vient après la pause"
-    );
-    assert!(corps_du_demarrage.contains("setTimeout("), "« {nom_du_demarrage} » ne programme pas le premier pas");
-    assert!(
-        corps_du_demarrage.contains("givre_courbe_demarrer(COURBE_TAILLE, COURBE_GRAINES)"),
-        "« {nom_du_demarrage} » ne démarre pas avec COURBE_TAILLE et COURBE_GRAINES"
-    );
-    for interdit in ["requestAnimationFrame", "givre_avancer"] {
-        assert!(!corps_du_demarrage.contains(interdit), "la fonction « {nom_du_demarrage} » appelle {interdit}");
+    for (position, _) in code.match_indices("givre_courbe_demarrer(") {
+        let reste = &code[position + "givre_courbe_demarrer(".len()..];
+        let arguments: Vec<&str> = reste[..reste.find(')').unwrap_or(reste.len())].split(',').map(str::trim).collect();
+        if let [taille, graines] = arguments.as_slice()
+            && let (Ok(taille), Ok(graines)) = (taille.parse::<u32>(), graines.parse::<u32>())
+        {
+            assert!((1..=100).contains(&taille), "givre_courbe_demarrer({taille}, {graines}) : la taille");
+            assert!((2..=8).contains(&graines), "givre_courbe_demarrer({taille}, {graines}) : les graines");
+        }
     }
-    for (nom, corps) in [(&nom_du_pas, &corps_du_pas), (&nom_du_demarrage, &corps_du_demarrage)] {
-        assert!(
-            corps.contains("texteAvancement("),
-            "« {nom} » n'écrit pas l'avancement par texteAvancement de lecture.js"
-        );
-    }
-    // Ni le pas ni le démarrage ne sont appelés ailleurs que par la pause ou le clic : leur nom suivi d'une parenthèse n'apparaît que dans leur déclaration.
-    for nom in [&nom_du_pas, &nom_du_demarrage] {
-        assert_eq!(
-            code.matches(&format!("{nom}(")).count(),
-            1,
-            "« {nom} » est appelée directement (hors du clic et de la pause)"
-        );
-    }
-    let bouton =
-        variable_de(&code, "calculer-courbe").expect("app.js garde le bouton calculer-courbe dans une variable");
-    assert!(
-        code.contains(&format!("{bouton}.addEventListener(\"click\", {nom_du_demarrage})")),
-        "« {nom_du_demarrage} » n'est pas installée par {bouton}.addEventListener(\"click\", {nom_du_demarrage})"
-    );
-
-    let taille = constante_entiere(&code, "COURBE_TAILLE").expect("const COURBE_TAILLE = <entier>");
-    let graines = constante_entiere(&code, "COURBE_GRAINES").expect("const COURBE_GRAINES = <entier>");
-    assert!((1..=100).contains(&taille), "COURBE_TAILLE vaut {taille} : le module accepte de 1 à 100 sites");
-    assert!((2..=8).contains(&graines), "COURBE_GRAINES vaut {graines} : le module accepte de 2 à 8 graines");
 }
 
-/// forme : le curseur `η` pilote le modèle (V-D3-37). `app.js` donne à `givre_demarrer` un numéro qui vient de `numeroDuModele(choix, η)` (deuxième argument : **pas un nombre écrit**, le curseur `η` y est lu par
-/// `Number(<curseur>.value)` quelque part dans `app.js`) ; la fonction qui appelle `givre_demarrer` (`relancer`) est installée sur le **`change`** du curseur `η` (son déplacement relance) **et** sur le `change` du choix
-/// du modèle et sur le clic du bouton `relancer` ; le `input` du curseur ne relance pas (il n'écrit que la valeur affichée : un `relancer` à chaque cran du curseur ferait recommencer un calcul coûteux à chaque pixel de glisse).
+/// forme : le numéro de modèle de η vient de `lecture.js` (V-D3-37). **Chaque appel** de `numeroDuModele(` du code de la page a deux arguments, et le second (η) **n'est pas un nombre écrit** (il est lu dans le curseur). **V8 ne lit plus** « la fonction qui appelle `givre_demarrer` est installée sur le `change` du curseur η, du choix du modèle et sur le clic du bouton ;
+/// le `input` du curseur ne relance pas ; `Number(<curseur>.value)` » : l'écriture d'`app.js` (un tiroir, un worker, un autre gestionnaire : voir `MODELE.md`, étape V8).
 ///
-/// Ne couvre pas : que les écouteurs soient installés au bon moment (après le chargement du module) ni que le DOM réagisse (le DOM n'est pas éprouvé).
+/// Ne couvre pas : que le curseur relance le modèle ; que ce soit à `change` plutôt qu'à `input` ; que η soit lu dans le curseur (un `Number(…)` n'est plus exigé).
 #[test]
 #[cfg_attr(not(feature = "etape-d3"), ignore)]
-fn app_js_relie_le_curseur_eta_au_modele() {
+fn le_numero_du_modele_vient_de_lecture_js() {
     let code = code_de_app_js();
-    let appel = code.find("givre_demarrer(").expect("app.js ne démarre jamais un modèle");
-    let (relancer, _) = fonction_qui_contient(&code, appel).expect("l'appel est dans une `function nom(…)`");
-    let curseur = variable_de(&code, "eta").expect("app.js garde le curseur eta dans une variable");
-    let choix = variable_de(&code, "modele").expect("app.js garde le choix du modèle dans une variable");
-    let bouton = variable_de(&code, "relancer").expect("app.js garde le bouton relancer dans une variable");
-    for (element, evenement) in [(&curseur, "change"), (&choix, "change"), (&bouton, "click")] {
-        assert!(
-            code.contains(&format!("{element}.addEventListener(\"{evenement}\", {relancer})")),
-            "« {relancer} » n'est pas installée par {element}.addEventListener(\"{evenement}\", {relancer})"
-        );
+    let arites = arites_des_appels(&code, "numeroDuModele");
+    assert!(arites.iter().all(|a| *a == 2), "la page appelle numeroDuModele avec {arites:?} argument(s) au lieu de 2");
+    for (position, _) in code.match_indices("numeroDuModele(") {
+        let apres = &code[position + "numeroDuModele(".len()..];
+        let fin = apres.find(')').expect("parenthèse fermante");
+        if let Some((_, second)) = apres[..fin].split_once(',') {
+            assert!(
+                !second.trim().starts_with(|c: char| c.is_ascii_digit()),
+                "la page donne un nombre écrit à numeroDuModele comme η : {second}"
+            );
+        }
     }
-    assert!(
-        !code.contains(&format!("{curseur}.addEventListener(\"input\", {relancer})")),
-        "le curseur η relance à chaque cran (`input`) : seul `change` doit relancer"
-    );
-    assert!(
-        code.contains(&format!("Number({curseur}.value)")),
-        "app.js ne lit pas η dans le curseur (`Number({curseur}.value)`)"
-    );
-    // Le deuxième argument de `numeroDuModele` n'est pas un nombre écrit.
-    let debut = code.find("numeroDuModele(").expect("app.js appelle numeroDuModele") + "numeroDuModele(".len();
-    let fin = code[debut..].find(')').expect("parenthèse fermante");
-    let arguments = &code[debut..debut + fin];
-    let (_, second) = arguments.split_once(',').expect("deux arguments");
-    assert!(
-        !second.trim().starts_with(|c: char| c.is_ascii_digit()),
-        "app.js donne un nombre écrit à numeroDuModele comme η : {second}"
-    );
 }
 
-/// forme : les modèles du claquage se jouent unité par unité, sans bloquer la page (V-D3-31). `app.js` appelle `givre_avancer(1)` (une unité) dans une boucle (`while` ou `for`) d'une fonction qui lit
-/// `performance.now()` et s'arrête quand `BUDGET_IMAGE_MS` sont écoulées ; `BUDGET_IMAGE_MS` est une constante entière d'au plus 100 (une image de l'animation ne dure pas plus d'un dixième de seconde à
-/// elle seule) et elle est employée ailleurs que dans sa déclaration ; l'autre appel de `givre_avancer` (les modèles 0 à 3) reste à un argument.
+/// forme : le budget d'une image reste raisonnable (V-D3-31). **Si** une constante `BUDGET_IMAGE_MS` est déclarée dans le code de la page (`const BUDGET_IMAGE_MS = <entier>`), elle vaut de 1 à 100 (une image de l'animation ne dure pas plus d'un dixième de seconde à elle seule) ; chaque appel de `givre_avancer(` a un seul argument. **V8 ne lit plus** « `givre_avancer(1)` dans une boucle
+/// d'une fonction qui lit `performance.now()` et s'arrête à `BUDGET_IMAGE_MS` » : c'est l'écriture d'`app.js` sur le fil de la page ; un worker joue le claquage sans bloquer la page (voir `MODELE.md`, étape V8).
 ///
-/// Ne couvre pas : que la boucle s'arrête vraiment (le DOM et l'horloge ne sont pas éprouvés) ; le temps d'une unité dans le module (voir le rapport de l'étape).
+/// Ne couvre pas : que le claquage soit joué unité par unité ; que la page ne se fige pas.
 #[test]
 #[cfg_attr(not(feature = "etape-d3"), ignore)]
-fn app_js_joue_le_claquage_unite_par_unite() {
+fn le_budget_d_une_image_est_borne() {
     let code = code_de_app_js();
-    let unite = code.find("givre_avancer(1)").expect("app.js ne joue jamais givre_avancer(1)");
-    let (nom, corps) = fonction_qui_contient(&code, unite).expect("l'appel est dans une `function nom(…)`");
-    assert!(corps.contains("while (") || corps.contains("for ("), "« {nom} » ne boucle pas sur les unités");
-    assert!(corps.contains("performance.now()"), "« {nom} » ne lit pas l'horloge");
-    assert!(corps.contains("BUDGET_IMAGE_MS"), "« {nom} » ne s'arrête pas à BUDGET_IMAGE_MS");
-    let budget = constante_entiere(&code, "BUDGET_IMAGE_MS").expect("const BUDGET_IMAGE_MS = <entier>");
-    assert!((1..=100).contains(&budget), "BUDGET_IMAGE_MS vaut {budget}");
-    assert!(code.matches("BUDGET_IMAGE_MS").count() >= 2, "BUDGET_IMAGE_MS n'est pas employée");
+    if let Some(budget) = constante_entiere(&code, "BUDGET_IMAGE_MS") {
+        assert!((1..=100).contains(&budget), "BUDGET_IMAGE_MS vaut {budget}");
+    }
     for arite in arites_des_appels(&code, "givre_avancer") {
         assert_eq!(arite, 1, "givre_avancer est appelée avec {arite} arguments");
     }
 }
 
-/// forme : `app.js` s'appuie sur `lecture.js` pour ce qui se teste sous Node (V-D3-32). `lecture.js` déclare `export function lireCourbe(`, `numeroDuModele(`, `texteAvancement(`, `texteRepereEta(` et `formater(`
-/// et n'emploie ni `document` ni `window` ; `app.js` les importe de `"./lecture.js"` et les appelle avec le bon nombre d'arguments (`lireCourbe` 1, `numeroDuModele` 2, `texteAvancement` 1,
-/// `texteRepereEta` 3, `formater` 1) ; le numéro de modèle que `app.js` donne à `givre_demarrer` vient de `numeroDuModele` (pas d'un calcul à part dans `app.js` : il n'écrit pas `MODELE_CLAQUAGE`).
+/// forme : ce que la page lit passe par `lecture.js`, que Node éprouve (V-D3-32). `lecture.js` déclare `export function lireCourbe(`, `numeroDuModele(`, `texteAvancement(`, `texteRepereEta(` et `formater(` et n'emploie ni `document` ni `window` ; **chaque appel** de ces cinq fonctions dans la page (tous les fichiers JavaScript) a le bon nombre d'arguments
+/// (`lireCourbe` 1, `numeroDuModele` 2, `texteAvancement` 1, `texteRepereEta` 3, `formater` 1) ; aucun fichier de la page **hors `lecture.js`** n'écrit `MODELE_CLAQUAGE` (le numéro du claquage vient de `numeroDuModele`, pas d'un calcul à part). **V8 ne lit plus** : que `app.js` importe ces cinq fonctions et les appelle toutes, ni
+/// que « Mesurer D » écrive le repère de η par `texteRepereEta` (l'écriture d'`app.js` : une page qui calcule dans un worker lit le module ailleurs ; voir `MODELE.md`, étape V8).
 ///
-/// Ne couvre pas : ce que ces fonctions rendent (voir `lecture_pure_dit_ce_que_la_doc_dit` et `etape_d3_module.rs`).
+/// Ne couvre pas : ce que ces fonctions rendent (voir `lecture_pure_dit_ce_que_la_doc_dit` et `etape_d3_module.rs`) ; que la page les emploie.
 #[test]
 #[cfg_attr(not(feature = "etape-d3"), ignore)]
-fn app_js_s_appuie_sur_lecture_js() {
+fn lecture_js_declare_ce_que_la_page_lit() {
     let lecture = code_de_lecture_js();
     let app = code_de_app_js();
     let attendues: [(&str, usize); 5] =
@@ -621,19 +448,10 @@ fn app_js_s_appuie_sur_lecture_js() {
             "lecture.js ne déclare pas `export function {nom}(`"
         );
         let arites = arites_des_appels(&app, nom);
-        assert!(!arites.is_empty(), "app.js n'appelle jamais {nom}(…)");
         assert!(
             arites.iter().all(|a| *a == arite),
-            "app.js appelle {nom} avec {arites:?} argument(s) au lieu de {arite}"
+            "la page appelle {nom} avec {arites:?} argument(s) au lieu de {arite}"
         );
-        let importe = ["\"./lecture.js\"", "'./lecture.js'"].iter().any(|chemin| {
-            app.match_indices(chemin).any(|(debut, _)| {
-                let avant = &app[..debut];
-                // L'instruction `import { … } from "./lecture.js"` : du dernier `import` avant le chemin jusqu'à lui.
-                avant.trim_end().ends_with("from") && avant[avant.rfind("import").unwrap_or(0)..].contains(nom)
-            })
-        });
-        assert!(importe, "app.js n'importe pas {nom} de \"./lecture.js\"");
     }
     for interdit in ["document", "window"] {
         assert!(
@@ -641,44 +459,35 @@ fn app_js_s_appuie_sur_lecture_js() {
             "lecture.js emploie `{interdit}`"
         );
     }
-    assert!(!app.contains("MODELE_CLAQUAGE"), "app.js calcule le numéro du claquage lui-même");
-    // « Mesurer D » écrit le repère de η : la fonction qui appelle `givre_mesurer` appelle celle qui appelle `texteRepereEta`.
-    let repere = app.find("texteRepereEta(").expect("app.js appelle texteRepereEta");
-    let (ecrit_le_repere, _) =
-        fonction_qui_contient(&app, repere).expect("texteRepereEta est appelée dans une `function nom(…)`");
-    let mesure = app.find("givre_mesurer(").expect("app.js appelle givre_mesurer");
-    let (nom_de_la_mesure, corps_de_la_mesure) =
-        fonction_qui_contient(&app, mesure).expect("givre_mesurer est appelée dans une `function nom(…)`");
-    assert!(
-        corps_de_la_mesure.contains(&format!("{ecrit_le_repere}(")),
-        "« {nom_de_la_mesure} » (le gestionnaire de « Mesurer D ») n'appelle pas « {ecrit_le_repere} », qui écrit le repère de η"
-    );
+    assert!(!e5::code_js_hors_lecture().contains("MODELE_CLAQUAGE"), "la page calcule le numéro du claquage elle-même");
 }
 
-/// forme : aucune valeur publiée ni aucune valeur de `D` n'est écrite dans la page (V-D3-33). Ni `index.html`, ni `app.js`, ni `lecture.js` ne contient `1,71`, `1.71`, `1,433`, `1.433`, `1,263` ni
-/// `1.263` (les repères viennent du module : `givre_courbe_repere`) ; le texte visible d'`index.html` n'a aucun « D = » ni « D= » suivi d'un chiffre ; `app.js` appelle `givre_courbe_repere(` pour le repère
-/// de `η` et `lecture.js` pour la courbe ; aucun des trois fichiers ne contient `http://` ni `https://`.
+/// forme : aucune valeur publiée ni aucune valeur de `D` n'est écrite dans la page (V-D3-33). **Aucun fichier de texte du dossier de la page** (HTML, scripts en ligne, CSS, JavaScript, SVG, commentaires compris) ne contient `1,71`, `1.71`, `1,433`, `1.433`, `1,263` ni `1.263` (les repères viennent du module : `givre_courbe_repere`) ; **tout ce que la page écrit**
+/// (le texte visible de chaque fichier HTML, les chaînes de tous les fichiers JavaScript, le texte des SVG) n'a aucun « D = » ni « D= » suivi d'un chiffre ; `lecture.js` appelle `givre_courbe_repere(` pour les repères de la courbe, et la page (un fichier de JavaScript, `lecture.js` compris) lit le repère de `η` dans le module. **V8** : les adresses `http://` et `https://` ne sont
+/// plus refusées ici (un lien `<a href>` et le `xmlns` d'un SVG passent) : `la_page_n_a_aucune_ressource_externe`, dans `etape_5_page.rs`, refuse celles qui chargent quelque chose.
 ///
 /// Ne couvre pas : un nombre mesuré copié dans une constante écrite autrement ; le texte réellement affiché.
 #[test]
 #[cfg_attr(not(feature = "etape-d3"), ignore)]
 fn la_page_ne_fige_aucune_valeur_publiee() {
-    for nom in ["index.html", "app.js", "lecture.js"] {
-        let texte = e5::lire_page(nom);
-        for interdit in ["1,71", "1.71", "1,433", "1.433", "1,263", "1.263", "http://", "https://"] {
+    let fichiers = e5::textes_des_fichiers(&["html", "htm", "js", "mjs", "css", "svg"]);
+    assert!(fichiers.iter().any(|(nom, _)| nom == "index.html"), "index.html n'est pas lu");
+    for (nom, texte) in fichiers {
+        let texte = e5::sans_donnees(&texte);
+        for interdit in ["1,71", "1.71", "1,433", "1.433", "1,263", "1.263"] {
             assert!(!texte.contains(interdit), "docs/{nom} contient « {interdit} »");
         }
     }
-    let visible = texte_visible(&e5::lire_page("index.html"));
+    let ecrit = e5::textes_ecrits_par_la_page();
     for motif in ["D =", "D="] {
-        for (position, _) in visible.match_indices(motif) {
-            let suite = visible[position + motif.len()..].trim_start();
-            assert!(!suite.starts_with(|c: char| c.is_ascii_digit()), "index.html écrit une valeur de D");
+        for (position, _) in ecrit.match_indices(motif) {
+            let suite = ecrit[position + motif.len()..].trim_start();
+            assert!(!suite.starts_with(|c: char| c.is_ascii_digit()), "la page écrit une valeur de D");
         }
     }
     assert!(
         !arites_des_appels(&code_de_app_js(), "givre_courbe_repere").is_empty(),
-        "app.js ne lit pas le repère de η dans le module"
+        "la page ne lit pas le repère de η dans le module"
     );
     assert!(
         !arites_des_appels(&code_de_lecture_js(), "givre_courbe_repere").is_empty(),
@@ -700,7 +509,7 @@ fn lecture_pure_dit_ce_que_la_doc_dit() {
     if !e5::node_est_la() {
         return;
     }
-    let lecture = racine().join("docs").join("lecture.js");
+    let lecture = e5::chemin_de_lecture();
     let lecture = lecture.to_str().expect("chemin en UTF-8");
     let sortie = lancer_le_script("lecture-pure.mjs", &[lecture]);
     let erreur = String::from_utf8_lossy(&sortie.stderr);

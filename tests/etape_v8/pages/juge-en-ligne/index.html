@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang=fr>
+<head>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>Givre Lab : page d’essai « juge-en-ligne »</title>
+<style>
+@font-face { font-family: "JetBrains Mono"; src: url('data:font/woff2;base64,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') format('woff2'); }
+body { margin: 0; background: #0B0D10; color: #F1EEE6; font-family: system-ui, sans-serif; }
+h1 { letter-spacing: -.025em; }
+canvas#vitrine { image-rendering: pixelated; }
+.legende em { font-style: normal; }
+@media (max-width: 640px) { .pied { flex-direction: column; } }
+</style>
+</head>
+<body>
+<main>
+  <canvas id=vitrine width=2 height=2></canvas>
+  <canvas id="vitrine-nette" width=2 height=2></canvas>
+  <h1>Givre Lab</h1>
+  <p id="legende-nette" class=legende>Chaque case est un hexagone, dessiné d’après sa masse.</p>
+  <p class=pied><output id="temps"></output> <output id="empreinte"></output></p>
+  <button id="ouvrir" type=button>Réglages</button>
+</main>
+<div id="reglages" hidden>
+
+  <label for="modele">Modèle</label>
+  <select id="modele">
+    <option value="0">DLA</option>
+    <option value="1">Reiter, plaque</option>
+    <option value="2">Reiter, étoile</option>
+    <option value="3">Reiter, dendrite</option>
+    <option value="claquage">Claquage diélectrique</option>
+    <option value="neige">Neige de Gravner et Griffeath</option>
+  </select>
+  <p id="commande-eta"><input id="eta" type="range" min="0" max="3" value="1" step="1"> <output id="valeur-eta" for="eta">1</output></p>
+  <label for="graine">Graine</label> <input id="graine" type="number" min="0" max="4294967295" step="1" value="1">
+  <button id="relancer" type="button">Recommencer</button>
+  <label for="vitesse">Vitesse</label> <input id="vitesse" type="range" min="1" max="120" value="5" step="1">
+  <fieldset id="commandes-neige">
+    <select id="jeu-neige"></select>
+    <input id="neige-rho" type="range" min="0" max="1000000" step="10000"> <output id="valeur-neige-rho" for="neige-rho"></output>
+    <input id="neige-beta" type="range" min="1000000" max="4000000" step="10000"> <output id="valeur-neige-beta" for="neige-beta"></output>
+    <input id="neige-kappa" type="range" min="0" max="100000" step="100"> <output id="valeur-neige-kappa" for="neige-kappa"></output>
+    <input id="neige-mu" type="range" min="0" max="200000" step="1000"> <output id="valeur-neige-mu" for="neige-mu"></output>
+    <p id="source-neige"></p>
+    <p id="legende-neige">Le cristal s’arrête près du mur du domaine&nbsp;: <em>le mur est à nous</em>, au-delà ce ne serait plus la neige de l’article (<a href="https://doi.org/10.1016/j.physd.2007.09.008"><span class="romain">Physica D</span>, 2008</a>). Ce sont des stades pr&eacute;coces de la croissance.</p>
+  </fieldset>
+  <div id="mesures-neige-bloc"><p id="reglages-neige"></p><p id="mesures-neige"></p><p id="forme-neige"></p></div>
+  <div id="bloc-zinc">
+    <button id="mesurer" type="button">Mesurer D</button>
+    <canvas id="courbe" width="320" height="200"></canvas>
+    <p id="resultat"></p>
+    <div id="barre-zinc"><span id="marque-d"></span></div>
+    <p id="repere-zinc"><strong>zinc</strong>, Matsushita et coll. 1984&nbsp;: 1,66 ± 0,03</p>
+    <p id="compatible" hidden></p>
+    <p id="hors-barre" hidden>hors de la barre du zinc</p>
+    <p id="taille-zinc">taille d’amas du zinc non relevée</p>
+  </div>
+  <div id="bloc-repere-eta" hidden>
+    <p id="repere-eta"></p>
+    <p id="ecart-eta" hidden></p>
+    <p id="pas-un-accord" hidden>Ce n’est pas un accord&nbsp;: le banc et le repère n’ont pas la même méthode.</p>
+  </div>
+  <button id="calculer-courbe" type="button">Calculer la courbe D(η)</button>
+  <p id="avancement-courbe"></p>
+  <canvas id="courbe-eta" width="320" height="200"></canvas>
+  <p id="legende-courbe">Points : le banc ; carrés : les repères publiés (rappel de la DLA, Hastings 2001).</p>
+  <p id="limite-courbe">Des amas petits et peu de graines : la méthode de corrélation et la fenêtre diffèrent de celles de Hastings.</p>
+  <p id="pas-un-accord-courbe">Ce n’est pas un accord&nbsp;: le banc et le repère n’ont pas la même méthode.</p>
+
+</div>
+<script type="module">
+// Tout le code de la page, en ligne : le calcul se fait sur le fil de la page, par tranches de 6 ms.
+import * as lecture from "./lecture.js";
+
+const TRANCHE_MS = 6;
+const adresse = new URL("givre.wasm", import.meta.url);
+const { instance } = await WebAssembly.instantiateStreaming(fetch(adresse), {}).catch(async () => WebAssembly.instantiate(await (await fetch(adresse)).arrayBuffer(), {}));
+const module = instance.exports;
+const $ = (selecteur) => document.querySelector(selecteur);
+
+function lireLEtat() {
+  return {
+    temps: module.givre_temps(), duree: module.givre_duree(), largeur: module.givre_largeur(), hauteur: module.givre_hauteur(), coin: module.givre_pixel(0, 0),
+    sites: module.givre_sites(), rayon: module.givre_rayon(), compacite: module.givre_compacite(), mot: module.givre_empreinte_mot(0),
+    empreinte: lecture.lireEmpreinte(module), image: lecture.lireImage(module),
+  };
+}
+
+function lireLaMesure() {
+  return { code: module.givre_mesurer(), rayon: module.givre_correlation_rayon(0), valeur: module.givre_correlation_valeur(0), dimension: module.givre_dimension(), courbe: lecture.lireCorrelation(module) };
+}
+
+function avancerLaCourbe(taille, graines) {
+  const code = taille === undefined ? module.givre_courbe_code() : module.givre_courbe_demarrer(taille, graines);
+  return {
+    code, pas: module.givre_courbe_pas(), fait: module.givre_courbe_fait(), total: module.givre_courbe_total(),
+    point: [module.givre_courbe_moyenne(0), module.givre_courbe_erreur_type(0), module.givre_courbe_repere(0)], lue: lecture.lireCourbe(module),
+  };
+}
+
+function lireLImageNette(cote, sur) {
+  const pair = cote - (cote % 2);
+  const code = module.givre_nette_preparer(pair, sur);
+  return { code, largeur: module.givre_nette_largeur(), hauteur: module.givre_nette_hauteur(), coin: module.givre_nette_pixel(0, 0), image: lecture.lireImageNette(module, pair, sur) };
+}
+
+function lireLesMasses() {
+  const nombre = module.givre_neige_masses_preparer() >>> 0;
+  const masses = new Uint32Array(nombre);
+  for (let i = 0; i < nombre; i += 1) {
+    masses[i] = module.givre_neige_masse(i) >>> 0;
+  }
+  return masses;
+}
+
+function ecrire(selecteur, texte) {
+  $(selecteur).textContent = texte;
+}
+
+function demarrer() {
+  const choix = $("#modele").value;
+  if (choix === "neige") {
+    const curseurs = ["#neige-rho", "#neige-beta", "#neige-kappa", "#neige-mu"].map((id) => Number($(id).value));
+    const code = module.givre_neige_demarrer(Number($("#jeu-neige").value), curseurs[0], curseurs[1], curseurs[2], curseurs[3]);
+    ecrire("#source-neige", code === 0 ? lecture.texteSourceNeige(lecture.lireReglagesNeige(module), false) : lecture.texteRefusNeige(code));
+  } else {
+    module.givre_demarrer(lecture.numeroDuModele(choix, Number($("#eta").value)), lecture.lireGraine($("#graine").value));
+  }
+  $("#commande-eta").hidden = lecture.blocsCaches(choix).eta;
+}
+
+function tranche() {
+  const debut = performance.now();
+  while (performance.now() - debut < TRANCHE_MS && module.givre_avancer(1) === 1) {
+    // on avance
+  }
+  const masses = lireLesMasses();
+  const toile = $("#vitrine-nette");
+  const trait = toile.getContext("2d");
+  const etat = lireLEtat();
+  trait.clearRect(0, 0, toile.width, toile.height);
+  trait.fillText(String(masses.length / 2), 4, 12);
+  ecrire("#temps", lecture.formater(etat.temps));
+  const mesures = lecture.lireMesuresNeige(module);
+  if (mesures) {
+    ecrire("#forme-neige", lecture.texteDeLaFormeNeige(mesures.forme));
+    ecrire("#mesures-neige", lecture.texteMesuresNeige(mesures) + " " + lecture.texteFinNeige(mesures));
+  }
+  requestAnimationFrame(tranche);
+}
+
+for (const jeu of lecture.lireJeuxNeige(module)) {
+  $("#jeu-neige").append(new Option(lecture.texteDuJeuNeige(jeu)));
+}
+$("#ouvrir").addEventListener("click", () => { $("#reglages").hidden = !$("#reglages").hidden; });
+$("#relancer").addEventListener("click", demarrer);
+$("#mesurer").addEventListener("click", () => {
+  const mesure = lireLaMesure();
+  ecrire("#resultat", mesure.code === 0 ? lecture.formater(mesure.dimension) : "");
+  ecrire("#repere-eta", lecture.texteRepereEta(Number($("#eta").value), mesure.dimension, mesure.dimension));
+  $("#compatible").textContent = "compatible, ce qui ne prouve pas que le zinc suit la DLA";
+});
+$("#calculer-courbe").addEventListener("click", () => {
+  ecrire("#avancement-courbe", lecture.texteAvancement(avancerLaCourbe(60, 4).lue));
+  ecrire("#legende-nette", String(lireLImageNette(256, 2).code) + lecture.imagesCachees(0).pixels + lecture.blocsNeige(null).commandes + lecture.formaterReglage(0));
+});
+demarrer();
+tranche();
+</script>
+</body>
+</html>

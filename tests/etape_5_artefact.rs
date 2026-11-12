@@ -20,8 +20,9 @@ mod etape_5_commun;
 use std::collections::BTreeSet;
 
 use etape_5_commun::{
-    D3_ACTIVE, FONCTIONS, FONCTIONS_D3, FONCTIONS_G3, FONCTIONS_V7, FONCTIONS_Z1, G3_ACTIVE, V7_ACTIVE, Z1_ACTIVE,
-    analyser, chemin_module, lancer_le_script, lire_module, natif, node_est_la, racine, reference,
+    D3_ACTIVE, FONCTIONS, FONCTIONS_D3, FONCTIONS_G3, FONCTIONS_V7, FONCTIONS_V8, FONCTIONS_Z1, G3_ACTIVE, V7_ACTIVE,
+    V8_ACTIVE, Z1_ACTIVE, analyser, chemin_module, lancer_le_script, lire_module, natif, node_est_la, racine,
+    reference,
 };
 use givre_lab::empreinte::sha256_hex;
 
@@ -78,22 +79,37 @@ fn le_module_exporte_exactement_les_fonctions_de_la_vitrine() {
     // Étape G3 : avec `etape-g3` les trente-deux seulement ; sans elle, ce que les fonctionnalités d'avant disent ou les trente-deux.
     let etendues_g3: BTreeSet<&str> =
         etendues_v7.iter().copied().chain(FONCTIONS_G3.iter().map(|(nom, _, _)| *nom)).collect();
-    if G3_ACTIVE {
-        assert_eq!(fonctions, etendues_g3, "les fonctions exportées ne sont pas les trente-deux de la liste");
+    // Étape V8 : avec `etape-v8` les trente-quatre seulement ; sans elle, ce que les fonctionnalités d'avant disent ou les trente-quatre.
+    let etendues_v8: BTreeSet<&str> =
+        etendues_g3.iter().copied().chain(FONCTIONS_V8.iter().map(|(nom, _, _)| *nom)).collect();
+    if V8_ACTIVE {
+        assert_eq!(fonctions, etendues_v8, "les fonctions exportées ne sont pas les trente-quatre de la liste");
+    } else if G3_ACTIVE {
+        assert!(
+            fonctions == etendues_g3 || fonctions == etendues_v8,
+            "les fonctions exportées ne sont ni les trente-deux ni les trente-quatre de la liste"
+        );
     } else if V7_ACTIVE {
         assert!(
-            fonctions == etendues_v7 || fonctions == etendues_g3,
-            "les fonctions exportées ne sont ni les vingt-sept ni les trente-deux de la liste"
+            fonctions == etendues_v7 || fonctions == etendues_g3 || fonctions == etendues_v8,
+            "les fonctions exportées ne sont ni les vingt-sept ni les trente-deux ni les trente-quatre de la liste"
         );
     } else if D3_ACTIVE {
         assert!(
-            fonctions == etendues_d3 || fonctions == etendues_v7 || fonctions == etendues_g3,
-            "les fonctions exportées ne sont ni les vingt-trois ni les vingt-sept ni les trente-deux de la liste"
+            fonctions == etendues_d3
+                || fonctions == etendues_v7
+                || fonctions == etendues_g3
+                || fonctions == etendues_v8,
+            "les fonctions exportées ne sont ni les vingt-trois ni les vingt-sept ni les trente-deux ni les trente-quatre de la liste"
         );
     } else if Z1_ACTIVE {
         assert!(
-            fonctions == etendues || fonctions == etendues_d3 || fonctions == etendues_v7 || fonctions == etendues_g3,
-            "les fonctions exportées ne sont ni les quinze ni les vingt-trois ni les vingt-sept ni les trente-deux de la liste"
+            fonctions == etendues
+                || fonctions == etendues_d3
+                || fonctions == etendues_v7
+                || fonctions == etendues_g3
+                || fonctions == etendues_v8,
+            "les fonctions exportées ne sont ni les quinze ni les vingt-trois ni les vingt-sept ni les trente-deux ni les trente-quatre de la liste"
         );
     } else {
         assert!(
@@ -101,7 +117,8 @@ fn le_module_exporte_exactement_les_fonctions_de_la_vitrine() {
                 || fonctions == etendues
                 || fonctions == etendues_d3
                 || fonctions == etendues_v7
-                || fonctions == etendues_g3,
+                || fonctions == etendues_g3
+                || fonctions == etendues_v8,
             "les fonctions exportées ne sont pas celles de la liste"
         );
     }
@@ -133,13 +150,15 @@ fn chaque_fonction_a_la_bonne_signature() {
     // Étape D3 : les huit fonctions de la courbe sont exigées avec `etape-d3`, vérifiées si elles sont là sans elle.
     // Étape V7 : les quatre fonctions de l'image nette sont exigées avec `etape-v7`, vérifiées si elles sont là sans elle.
     // Étape G3 : les cinq fonctions de la neige sont exigées avec `etape-g3`, vérifiées si elles sont là sans elle.
+    // Étape V8 : les deux fonctions des masses sont exigées avec `etape-v8`, vérifiées si elles sont là sans elle.
     let toutes = FONCTIONS
         .iter()
         .map(|f| (f, true))
         .chain(FONCTIONS_Z1.iter().map(|f| (f, Z1_ACTIVE)))
         .chain(FONCTIONS_D3.iter().map(|f| (f, D3_ACTIVE)))
         .chain(FONCTIONS_V7.iter().map(|f| (f, V7_ACTIVE)))
-        .chain(FONCTIONS_G3.iter().map(|f| (f, G3_ACTIVE)));
+        .chain(FONCTIONS_G3.iter().map(|f| (f, G3_ACTIVE)))
+        .chain(FONCTIONS_V8.iter().map(|f| (f, V8_ACTIVE)));
     for (&(nom, parametres, resultats), exigee) in toutes {
         let Some(exportation) = module.exportations.iter().find(|e| e.genre == 0 && e.nom == nom) else {
             assert!(!exigee, "la fonction {nom} n'est pas exportée");

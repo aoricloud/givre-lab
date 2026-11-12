@@ -39,8 +39,9 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 use etape_5_commun::{
-    D3_ACTIVE, FONCTIONS, FONCTIONS_D3, FONCTIONS_G3, FONCTIONS_V7, FONCTIONS_Z1, G3_ACTIVE, TABLE, V7_ACTIVE,
-    Z1_ACTIVE, chemin_module, lire_page, node_est_la, racine,
+    D3_ACTIVE, FONCTIONS, FONCTIONS_D3, FONCTIONS_G3, FONCTIONS_V7, FONCTIONS_V8, FONCTIONS_Z1, G3_ACTIVE, TABLE,
+    V7_ACTIVE, Z1_ACTIVE, chaines_du_code, chemin_de_lecture, chemin_module, code_js_de_la_page, lire_page,
+    node_est_la, racine, textes_des_fichiers, textes_ecrits_par_la_page, tout_le_code_js,
 };
 use givre_lab::correlation::mesure;
 use givre_lab::dla::Amas;
@@ -95,8 +96,9 @@ fn sans_commentaires(script: &str) -> String {
     sortie
 }
 
+/// Tout le code JavaScript de la page (tous les fichiers `.js`, `.mjs` et les scripts en ligne), sans ses commentaires (V8).
 fn code_de_app_js() -> String {
-    sans_commentaires(&lire_page("app.js"))
+    tout_le_code_js()
 }
 
 fn code_de_lecture_js() -> String {
@@ -167,17 +169,7 @@ fn balises(html: &str) -> Vec<&str> {
 
 /// La valeur de l'attribut `nom` d'une balise (entre guillemets ou apostrophes, précédé d'une espace).
 fn attribut(balise: &str, nom: &str) -> Option<String> {
-    let motif = format!("{nom}=");
-    for (position, _) in balise.match_indices(&motif) {
-        if !balise[..position].ends_with(char::is_whitespace) {
-            continue;
-        }
-        let apres = &balise[position + motif.len()..];
-        let guillemet = apres.chars().next().filter(|c| *c == '"' || *c == '\'')?;
-        let valeur = &apres[1..];
-        return Some(valeur[..valeur.find(guillemet)?].to_string());
-    }
-    None
+    etape_5_commun::attribut(balise, nom)
 }
 
 fn nom_de_balise(balise: &str) -> String {
@@ -191,32 +183,7 @@ fn balise_d_id<'a>(html: &'a str, id: &str) -> Option<&'a str> {
 
 /// Le texte qui suit la balise d'`id` donné, jusqu'au `<` suivant, sans espaces de début et de fin.
 fn texte_de(html: &str, id: &str) -> Option<String> {
-    for morceau in html.split('<').skip(1) {
-        let (balise, texte) = morceau.split_once('>')?;
-        if attribut(balise, "id").as_deref() == Some(id) {
-            return Some(texte.trim().to_string());
-        }
-    }
-    None
-}
-
-/// Le texte visible de la page : tout ce qui n'est pas dans une balise, ni dans `<style>` ni dans `<script>`.
-fn texte_visible(html: &str) -> String {
-    let mut sortie = String::new();
-    let mut ignore = false;
-    for morceau in html.split('<').skip(1) {
-        let (balise, texte) = morceau.split_once('>').unwrap_or((morceau, ""));
-        let ferme = balise.starts_with('/');
-        match nom_de_balise(balise.trim_start_matches('/')).as_str() {
-            "style" | "script" => ignore = !ferme,
-            _ => {}
-        }
-        if !ignore {
-            sortie.push_str(texte);
-            sortie.push(' ');
-        }
-    }
-    sortie
+    etape_5_commun::texte_de_l_element(html, id)
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -243,57 +210,67 @@ fn la_page_a_les_elements_de_la_mesure() {
     assert!(bouton.contains("Mesurer D"), "le texte du bouton est « {bouton} »");
 }
 
-/// forme : les phrases (V-Z1-28). `repere-zinc` dit `zinc`, `Matsushita`, `1984`, `1,66` et `0,03` ; `compatible` est exactement « compatible, ce
-/// qui ne prouve pas que le zinc suit la DLA » ; `taille-zinc` est exactement « taille d'amas du zinc non relevée » (la taille d'amas des feuilles de
-/// zinc n'a pas pu être lue, et la page ne l'invente pas) ; et le mot « zinc » ne figure dans la page qu'avec ces mots de repère, jamais comme un test
-/// (aucune phrase « dans la barre » n'est écrite à la place de `compatible`).
+/// forme : les phrases (V-Z1-28). `repere-zinc` dit `zinc`, `Matsushita`, `1984`, `1,66` et `0,03` ; `compatible` est exactement « compatible, ce qui ne prouve pas que le zinc suit la DLA » ; `taille-zinc` est exactement « taille d'amas du zinc non relevée » (la taille d'amas des feuilles de
+/// zinc n'a pas pu être lue, et la page ne l'invente pas) ; et le mot « zinc » ne figure dans la page qu'avec ces mots de repère, jamais comme un test (aucune phrase « dans la barre » n'est écrite à la place de `compatible`). **V8 : la phrase peut être écrite par un script** : si l'élément est vide dans
+/// `index.html`, la phrase exacte (ou, pour `repere-zinc`, une même chaîne qui dit les cinq mots) doit être une chaîne de caractères de l'un des fichiers JavaScript de la page ; si l'élément a un texte, c'est lui qui est jugé (il est exactement la phrase).
 ///
-/// Ne couvre pas : l'affichage de l'une ou l'autre phrase selon la mesure (le DOM n'est pas éprouvé).
+/// Ne couvre pas : l'affichage de l'une ou l'autre phrase selon la mesure (le DOM n'est pas éprouvé) ; que le script écrive la phrase dans le bon élément.
 #[test]
 #[cfg_attr(not(feature = "etape-z1"), ignore)]
 fn la_page_dit_le_repere_du_zinc_comme_un_repere() {
     let html = lire_page("index.html");
+    let chaines = chaines_du_code(&code_de_app_js());
     let repere = texte_de(&html, "repere-zinc").expect("repere-zinc");
-    for mot in ["zinc", "Matsushita", "1984", "1,66", "0,03"] {
-        assert!(repere.contains(mot), "le repère du zinc « {repere} » ne dit pas « {mot} »");
+    let mots = ["zinc", "Matsushita", "1984", "1,66", "0,03"];
+    if repere.is_empty() {
+        assert!(
+            chaines.iter().any(|chaine| mots.iter().all(|mot| chaine.contains(mot))),
+            "repere-zinc est vide dans index.html et aucune chaîne d'un script ne dit zinc, Matsushita, 1984, 1,66 et 0,03"
+        );
+    } else {
+        for mot in mots {
+            assert!(repere.contains(mot), "le repère du zinc « {repere} » ne dit pas « {mot} »");
+        }
     }
-    assert_eq!(
-        texte_de(&html, "compatible").expect("compatible"),
-        "compatible, ce qui ne prouve pas que le zinc suit la DLA"
-    );
-    assert_eq!(texte_de(&html, "taille-zinc").expect("taille-zinc"), "taille d'amas du zinc non relevée");
+    for (id, phrase) in [
+        ("compatible", "compatible, ce qui ne prouve pas que le zinc suit la DLA"),
+        ("taille-zinc", "taille d'amas du zinc non relevée"),
+    ] {
+        let texte = texte_de(&html, id).unwrap_or_else(|| panic!("pas d'élément d'id « {id} »"));
+        if texte.is_empty() {
+            assert!(
+                chaines.iter().any(|chaine| chaine.contains(phrase)),
+                "« {id} » est vide dans index.html et aucun script n'écrit « {phrase} »"
+            );
+        } else {
+            assert_eq!(texte, phrase, "le texte de « {id} »");
+        }
+    }
 }
 
-/// forme : aucune valeur de D n'est écrite dans la page (V-Z1-29). `index.html` (son texte visible) n'a aucun « D = » ni « D= » suivi d'un chiffre ;
-/// `app.js` contient « mesuré par le banc : D = » suivi de `${` (une valeur calculée) et plus loin « sites » ; ni `index.html`, ni `app.js`, ni
-/// `lecture.js` ne contient « 1,71 » ni « 1.71 ».
+/// forme : aucune valeur de D n'est écrite dans la page (V-Z1-29). **Tout ce que la page écrit à l'écran** (le texte visible de chaque fichier HTML, les chaînes de tous les fichiers JavaScript, le texte des SVG) n'a aucun « D = » ni « D= » suivi d'un chiffre ; **aucun fichier de texte du dossier de la page**
+/// (HTML, scripts en ligne, CSS, JavaScript, SVG, commentaires compris) ne contient « 1,71 » ni « 1.71 » (le repère publié de la DLA n'est pas une mesure du banc). V8 ne lit plus le gabarit `mesuré par le banc : D = ${…}` d'`app.js` (le texte d'un fichier précis) : qu'une valeur écrite soit calculée se voit ici par l'absence de tout chiffre.
 ///
 /// Ne couvre pas : le texte réellement affiché (le DOM n'est pas éprouvé) ni qu'un nombre mesuré ne soit pas copié dans une constante autrement écrite.
 #[test]
 #[cfg_attr(not(feature = "etape-z1"), ignore)]
 fn la_page_ne_fige_aucune_valeur_de_d() {
-    let visible = texte_visible(&lire_page("index.html"));
+    let ecrit = textes_ecrits_par_la_page();
+    assert!(!ecrit.trim().is_empty(), "la page n'écrit aucun texte");
     for motif in ["D =", "D="] {
-        for (position, _) in visible.match_indices(motif) {
-            let suite = visible[position + motif.len()..].trim_start();
+        for (position, _) in ecrit.match_indices(motif) {
+            let suite = ecrit[position + motif.len()..].trim_start();
             assert!(
                 !suite.starts_with(|c: char| c.is_ascii_digit()),
-                "index.html écrit une valeur de D : « {} »",
-                &visible[position..(position + 20).min(visible.len())]
+                "la page écrit une valeur de D : « {} »",
+                &ecrit[position..(position + 20).min(ecrit.len())]
             );
         }
     }
-    let code = code_de_app_js();
-    let debut = code.find("mesuré par le banc : D = ").expect("app.js ne contient pas « mesuré par le banc : D = »");
-    let suite = &code[debut + "mesuré par le banc : D = ".len()..];
-    assert!(
-        suite.starts_with("${"),
-        "après « mesuré par le banc : D = », app.js n'écrit pas une valeur calculée : {}",
-        &suite[..suite.len().min(20)]
-    );
-    assert!(suite[..suite.len().min(200)].contains(" sites"), "app.js ne dit pas « à N sites »");
-    for nom in ["index.html", "app.js", "lecture.js"] {
-        let texte = lire_page(nom);
+    let fichiers = textes_des_fichiers(&["html", "htm", "js", "mjs", "css", "svg"]);
+    assert!(fichiers.iter().any(|(nom, _)| nom == "index.html"), "index.html n'est pas lu");
+    for (nom, texte) in fichiers {
+        let texte = etape_5_commun::sans_donnees(&texte);
         for interdit in ["1,71", "1.71"] {
             assert!(!texte.contains(interdit), "docs/{nom} contient « {interdit} »");
         }
@@ -308,13 +285,10 @@ fn a_l_attribut(balise: &str, nom: &str) -> bool {
         .any(|mot| mot == nom || mot.starts_with(&format!("{nom}=")) || mot == format!("{nom}/"))
 }
 
-/// forme : les deux phrases du repère ne sont pas affichées d'office (V-Z1-39). Dans `index.html`, l'élément `compatible` et l'élément `hors-barre`
-/// portent l'attribut `hidden` (aucune des deux n'est visible avant une mesure), et `app.js` demande les deux éléments par
-/// `getElementById("compatible")` et `getElementById("hors-barre")` (guillemets doubles ou simples) et écrit leur `.hidden`. Une page qui
-/// laisserait « compatible » toujours visible, quel que soit le D mesuré, échoue ici.
+/// forme : les deux phrases du repère ne sont pas affichées d'office (V-Z1-39). Dans `index.html`, l'élément `compatible` et l'élément `hors-barre` portent l'attribut `hidden` (aucune des deux n'est visible avant une mesure). Une page qui laisserait « compatible » toujours visible, quel que soit le D mesuré, échoue ici.
+/// **V8 : le script n'est plus lu** (`app.js` demandait les deux éléments par `getElementById` et écrivait leur `.hidden` : une écriture, pas une promesse) : « compatible si et seulement si `|D − 1,66| <= 0,03` » ne se prouve que sous un navigateur, voir `MODELE.md`, étape V8.
 ///
-/// Ne couvre pas : la condition elle-même (`|D - 1,66| <= 0,03`, voir l'en-tête) ni l'affichage réel : le DOM n'est pas éprouvé, seul un navigateur le
-/// montre.
+/// Ne couvre pas : la condition elle-même (`|D - 1,66| <= 0,03`) ni l'affichage réel : le DOM n'est pas éprouvé, seul un navigateur le montre.
 #[test]
 #[cfg_attr(not(feature = "etape-z1"), ignore)]
 fn les_phrases_du_repere_attendent_la_mesure() {
@@ -323,102 +297,30 @@ fn les_phrases_du_repere_attendent_la_mesure() {
         let balise = balise_d_id(&html, id).unwrap_or_else(|| panic!("pas d'élément d'id « {id} »"));
         assert!(a_l_attribut(balise, "hidden"), "l'élément « {id} » n'a pas l'attribut hidden : <{balise}>");
     }
-    let code = code_de_app_js();
-    for id in ["compatible", "hors-barre"] {
-        assert!(
-            code.contains(&format!("getElementById(\"{id}\")")) || code.contains(&format!("getElementById('{id}')")),
-            "app.js ne demande pas l'élément « {id} »"
-        );
-    }
-    assert!(code.contains(".hidden"), "app.js n'écrit jamais `.hidden`");
 }
 
-/// L'indice du caractère `}` qui ferme l'accolade ouvrante à `ouvrante` dans `code` (les chaînes de caractères sont sautées).
-fn fermeture(code: &str, ouvrante: usize) -> usize {
-    let c: Vec<(usize, char)> = code.char_indices().collect();
-    let depart = c.iter().position(|&(i, _)| i == ouvrante).expect("accolade ouvrante");
-    let (mut profondeur, mut guillemet, mut echappe) = (0_i32, None, false);
-    for &(i, ch) in &c[depart..] {
-        if let Some(g) = guillemet {
-            if echappe {
-                echappe = false;
-            } else if ch == '\\' {
-                echappe = true;
-            } else if ch == g {
-                guillemet = None;
-            }
-            continue;
-        }
-        match ch {
-            '"' | '\'' | '`' => guillemet = Some(ch),
-            '{' => profondeur += 1,
-            '}' => {
-                profondeur -= 1;
-                if profondeur == 0 {
-                    return i;
-                }
-            }
-            _ => {}
-        }
-    }
-    panic!("accolade non fermée");
-}
-
-/// La fonction déclarée (`function nom(…) { … }`) qui contient la position `position` de `code` : son nom et son corps.
-fn fonction_qui_contient(code: &str, position: usize) -> Option<(String, String)> {
-    let mut candidate = None;
-    for (debut, _) in code.match_indices("function ") {
-        if debut > position {
-            break;
-        }
-        let nom: String =
-            code[debut + 9..].chars().take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$').collect();
-        let ouvrante = debut + code[debut..].find('{')?;
-        let fin = fermeture(code, ouvrante);
-        if fin > position {
-            candidate = Some((nom, code[ouvrante..=fin].to_string()));
-        }
-    }
-    candidate
-}
-
-/// forme : la mesure se fait à la demande (V-Z1-30). `app.js` appelle `givre_mesurer(` une seule fois ; l'appel est dans une fonction déclarée
-/// `function nom(…) { … }` qui n'appelle ni `requestAnimationFrame` ni `givre_avancer` (donc pas dans l'image de l'animation) ; `nom` est le
-/// gestionnaire du clic du bouton `mesurer` : `app.js` demande l'élément `getElementById("mesurer")` et contient `addEventListener("click", nom)`
-/// (guillemets doubles ou simples).
+/// forme : la page appelle la mesure (V-Z1-30). Le code de la page (tous les fichiers JavaScript : `app.js`, un worker, un script en ligne) appelle `givre_mesurer(` au moins une fois, et **toujours sans argument**.
+/// **V8 ne lit plus dans quelle fonction** est l'appel : le test d'avant refusait une fonction déclarée qui appelle à la fois `givre_mesurer` et `givre_avancer` ou `requestAnimationFrame` ; or le gestionnaire de messages d'un worker (`function surMessage(e) { switch (e.data.type) { case "avancer": … case "mesurer": … } }`)
+/// est exactement cela, et la même chose écrite dans une fonction fléchée passait : le test figeait une écriture sans rien prouver. Que la mesure (en `O(n²)`) ne soit lancée qu'à la demande, jamais à chaque image, ne se voit que sous un navigateur (voir `MODELE.md`, étape V8, « Ce que cette étape n'établit plus »).
 ///
-/// Ne couvre pas : que le gestionnaire soit bien relié au bon bouton (le DOM n'est pas éprouvé), ce que la fonction fait du résultat.
+/// Ne couvre pas : que la mesure soit lancée par le bouton, ni qu'elle ne le soit pas à chaque image.
+/// Fiche : V-V8-41 (`references/etape-v8-valeurs.md`).
 #[test]
 #[cfg_attr(not(feature = "etape-z1"), ignore)]
-fn app_js_mesure_a_la_demande() {
+fn la_page_appelle_la_mesure_sans_argument() {
     let code = code_de_app_js();
-    let appels: Vec<usize> = code.match_indices("givre_mesurer(").map(|(i, _)| i).collect();
-    assert_eq!(
-        appels.len(),
-        1,
-        "app.js doit appeler givre_mesurer() une seule fois, il l'appelle {} fois",
-        appels.len()
-    );
-    let (nom, corps) = fonction_qui_contient(&code, appels[0])
-        .expect("l'appel de givre_mesurer est dans une `function nom(…)` déclarée");
-    for interdit in ["requestAnimationFrame", "givre_avancer"] {
-        assert!(!corps.contains(interdit), "la fonction « {nom} » qui mesure appelle {interdit}");
-    }
-    assert!(
-        code.contains("getElementById(\"mesurer\")") || code.contains("getElementById('mesurer')"),
-        "app.js ne demande pas le bouton « mesurer »"
-    );
-    let gestionnaire = ["\"", "'"].iter().any(|g| code.contains(&format!("addEventListener({g}click{g}, {nom})")));
-    assert!(gestionnaire, "« {nom} » n'est pas installée par addEventListener(\"click\", {nom})");
+    let arites = arites_des_appels(&code, "givre_mesurer");
+    assert!(!arites.is_empty(), "la page n'appelle jamais givre_mesurer()");
+    assert!(arites.iter().all(|a| *a == 0), "givre_mesurer est appelée avec des arguments : {arites:?}");
+    // Le détecteur voit ce qu'il doit voir (un compte vide n'est pas un compte vert).
+    assert_eq!(arites_des_appels("m.givre_mesurer(); x.givre_mesurer(1)", "givre_mesurer"), [0, 1]);
 }
 
-/// forme : `lecture.js` déclare `export function lireCorrelation(` et n'emploie ni `document` ni `window` ; `app.js` l'importe de `"./lecture.js"`
-/// et l'appelle avec un argument ; à eux deux `app.js` et `lecture.js` emploient exactement les quinze noms `givre_…` du module (les onze de l'étape 5
-/// et les quatre de l'étape Z1) quand la fonctionnalité `etape-z1` est active ; **sans elle**, ils peuvent encore n'employer que les onze (la page
-/// d'avant l'étape), de façon que l'ordre des tâches de la vague du code ne compte pas. Chaque nom employé est appelé avec le bon nombre
-/// d'arguments (V-Z1-32).
+/// forme : `lecture.js` déclare `export function lireCorrelation(` et n'emploie ni `document` ni `window` ; **un fichier de la page autre que `lecture.js`** importe `lireCorrelation` (`import { … } from "…/lecture.js"`) et chaque appel de `lireCorrelation(` de la page a un seul argument ; tous les fichiers JavaScript de
+/// la page, mis bout à bout, emploient les noms `givre_…` du module avec le bon nombre d'arguments : **jamais un nom inconnu**, et toutes les exportations d'avant l'étape V8 quand la fonctionnalité de leur étape est active (**les deux de V8 sont permises, jamais exigées**) ; **sans** `etape-z1`, ils peuvent encore n'employer que les onze (la page d'avant
+/// l'étape), de façon que l'ordre des tâches de la vague du code ne compte pas (V-Z1-32).
 ///
-/// Ne couvre pas : ce que `app.js` fait de la courbe (la dessiner, écrire le résultat) : seul un navigateur le montre.
+/// Ne couvre pas : ce que la page fait de la courbe (la dessiner, écrire le résultat) : seul un navigateur le montre ; quel fichier emploie quoi.
 #[test]
 #[cfg_attr(not(feature = "etape-z1"), ignore)]
 fn la_page_emploie_les_quinze_exportations_et_lire_correlation() {
@@ -433,18 +335,32 @@ fn la_page_emploie_les_quinze_exportations_et_lire_correlation() {
             "lecture.js emploie `{interdit}`"
         );
     }
-    let app = code_de_app_js();
-    let importe = ["\"./lecture.js\"", "'./lecture.js'"]
-        .iter()
-        .any(|nom| app.match_indices(nom).any(|(debut, _)| app[..debut].trim_end().ends_with("from")));
-    assert!(importe, "app.js n'importe rien de \"./lecture.js\"");
-    let arites = arites_des_appels(&app, "lireCorrelation");
+    let code_autre: String = code_js_de_la_page()
+        .into_iter()
+        .filter(|(nom, _)| nom != "lecture.js" && !nom.ends_with("/lecture.js"))
+        .map(|(_, code)| code)
+        .collect::<Vec<_>>()
+        .join("\n");
+    // V8 (juge) : l'import peut être nommé (`import { lireCorrelation } from "./lecture.js"`), d'espace de noms (`import * as lecture from "./lecture.js"`) ou dynamique (`await import("./lecture.js")`) : un fichier hors `lecture.js` importe de `lecture.js`, et `lireCorrelation(` y est appelée.
+    let importe = ["lecture.js\"", "lecture.js'", "lecture.js`"].iter().any(|fin| {
+        code_autre.match_indices(fin).any(|(debut, _)| {
+            let avant = &code_autre[..debut];
+            avant.rfind(['"', '\'', '`']).is_some_and(|guillemet| {
+                let chemin = &avant[guillemet + 1..];
+                let devant = code_autre[..guillemet].trim_end();
+                !etape_5_commun::adresse_externe(chemin) && (devant.ends_with("from") || devant.ends_with("import("))
+            })
+        })
+    });
+    assert!(importe, "aucun fichier de la page, hors lecture.js, n'importe de lecture.js");
     assert!(
-        !arites.is_empty() && arites.iter().all(|a| *a == 1),
-        "app.js appelle lireCorrelation avec {arites:?} argument(s) au lieu de 1"
+        !arites_des_appels(&code_autre, "lireCorrelation").is_empty(),
+        "aucun fichier de la page, hors lecture.js, n'appelle lireCorrelation(…)"
     );
+    let code = code_de_app_js();
+    let arites = arites_des_appels(&code, "lireCorrelation");
+    assert!(arites.iter().all(|a| *a == 1), "la page appelle lireCorrelation avec {arites:?} argument(s) au lieu de 1");
 
-    let code = format!("{app}\n{lecture}");
     let base: BTreeSet<String> = FONCTIONS.iter().map(|(nom, _, _)| nom.to_string()).collect();
     let etendu: BTreeSet<String> =
         base.iter().cloned().chain(FONCTIONS_Z1.iter().map(|(nom, _, _)| nom.to_string())).collect();
@@ -458,9 +374,15 @@ fn la_page_emploie_les_quinze_exportations_et_lire_correlation() {
     // Étape G3 : la page emploie en plus les cinq fonctions de la neige. Avec `etape-g3` les trente-deux seulement ; sans elle, ce que les fonctionnalités d'avant disent ou les trente-deux.
     let etendu_g3: BTreeSet<String> =
         etendu_v7.iter().cloned().chain(FONCTIONS_G3.iter().map(|(nom, _, _)| nom.to_string())).collect();
-    let employes = noms_employes(&code);
+    // Étape V8 : les deux fonctions des masses sont permises (jamais exigées) : on les retire de ce que la page emploie avant de comparer.
+    let masses: BTreeSet<String> = FONCTIONS_V8.iter().map(|(nom, _, _)| nom.to_string()).collect();
+    let employes_avec_v8 = noms_employes(&format!("{code}\n{lecture}"));
+    let permis: BTreeSet<String> = etendu_g3.union(&masses).cloned().collect();
+    let inconnus: Vec<&String> = employes_avec_v8.difference(&permis).collect();
+    assert!(inconnus.is_empty(), "la page emploie des noms que le module n'exporte pas : {inconnus:?}");
+    let employes: BTreeSet<String> = employes_avec_v8.difference(&masses).cloned().collect();
     if G3_ACTIVE {
-        assert_eq!(employes, etendu_g3, "la page n'emploie pas exactement les trente-deux exportations");
+        assert_eq!(employes, etendu_g3, "la page n'emploie pas exactement les trente-deux exportations d'avant V8");
     } else if V7_ACTIVE {
         assert!(
             employes == etendu_v7 || employes == etendu_g3,
@@ -486,12 +408,14 @@ fn la_page_emploie_les_quinze_exportations_et_lire_correlation() {
             "la page n'emploie ni les onze ni les quinze ni les vingt-trois ni les vingt-sept ni les trente-deux exportations : {employes:?}"
         );
     }
+    let code = format!("{code}\n{lecture}");
     for (nom, parametres, _) in FONCTIONS
         .iter()
         .chain(FONCTIONS_Z1.iter())
         .chain(FONCTIONS_D3.iter())
         .chain(FONCTIONS_V7.iter())
         .chain(FONCTIONS_G3.iter())
+        .chain(FONCTIONS_V8.iter())
     {
         for arite in arites_des_appels(&code, nom) {
             assert_eq!(
@@ -591,7 +515,7 @@ fn lecture_js_lit_la_courbe_comme_le_natif() {
     }
     let module = chemin_module();
     let module = module.to_str().expect("chemin en UTF-8");
-    let lecture = racine().join("docs").join("lecture.js");
+    let lecture = chemin_de_lecture();
     let lecture = lecture.to_str().expect("chemin en UTF-8");
     let cas: [(u32, u32, u32); 11] = [
         (0, 1, 2999),
@@ -632,7 +556,7 @@ fn le_script_refuse_des_arguments_faux() {
     }
     let module = chemin_module();
     let module = module.to_str().expect("chemin en UTF-8");
-    let lecture = racine().join("docs").join("lecture.js");
+    let lecture = chemin_de_lecture();
     let lecture = lecture.to_str().expect("chemin en UTF-8");
     let absent = racine().join("docs").join("n-existe-pas.wasm");
     let absent = absent.to_str().expect("chemin en UTF-8");

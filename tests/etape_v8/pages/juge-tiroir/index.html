@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Givre Lab : page d'essai « juge-tiroir »</title>
+<meta property="og:title" content="Givre Lab">
+<meta property="og:description" content="Un cristal de neige calculé en direct, dans ce navigateur.">
+<meta property="og:image" content="https://aoricloud.github.io/givre-lab/apercu.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="canonical" href="https://aoricloud.github.io/givre-lab/">
+<link rel="icon" href="apercu.png">
+<link rel="stylesheet" href="css/page.css">
+</head>
+<body>
+<!-- Un commentaire qui cite une ancienne balise ne compte pas : <canvas id="vitrine"></canvas> <script src="https://exemple.org/ancien.js"></script> -->
+<section class="scene">
+  <canvas id="vitrine" width="2" height="2"></canvas>
+  <canvas id="vitrine-nette" width="2" height="2"></canvas>
+  <header>
+    <p class="numero"><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><path d="M7.5 1 13 14H2Z" fill="#8FD0FF"/></svg> Planche III · Givre Lab</p>
+    <h1>La neige, case par case</h1>
+    <a href="https://github.com/aoricloud/givre-lab">aoricloud/givre-lab ↗</a>
+  </header>
+  <footer>
+    <p id="legende-nette" class="legende"></p>
+    <p class="compteur"><span id="temps"></span> · <span id="empreinte"></span></p>
+    <p><span class="trait"></span> Calculé en direct, dans ce navigateur, par le module du dépôt · <a href="#comment">Comment on le sait</a> · <a href="https://github.com/aoricloud/givre-lab/pulls?q=is%3Amerged">Built under Lydite ↗</a></p>
+    <button id="ouvrir" type="button">Réglages</button>
+  </footer>
+</section>
+<section id="comment">
+  <h2>La figure 10, refaite</h2>
+  <p class="legende">La figure 10 de Gravner et Griffeath (<span class="romain">Physica D</span>, 2008), refaite en direct. Six cristaux dans la même vapeur (ρ = 0,8) ; seul le seuil d'attachement β change, de 1,9 (a) à 2,8 (f).</p>
+  <p><a href="https://github.com/aoricloud/givre-lab/blob/main/MODELE.md">Ce n'est pas un certificat ↗</a></p>
+</section>
+<dialog id="tiroir">
+  <h2>Réglages</h2>
+
+  <label for="modele">Modèle</label>
+  <select id="modele">
+    <option value="0">DLA</option>
+    <option value="1">Reiter, plaque</option>
+    <option value="2">Reiter, étoile</option>
+    <option value="3">Reiter, dendrite</option>
+    <option value="claquage">Claquage diélectrique</option>
+    <option value="neige">Neige de Gravner et Griffeath</option>
+  </select>
+  <p id="commande-eta"><input id="eta" type="range" min="0" max="3" value="1" step="1"> <output id="valeur-eta" for="eta">1</output></p>
+  <label for="graine">Graine</label> <input id="graine" type="number" min="0" max="4294967295" step="1" value="1">
+  <button id="relancer" type="button">Recommencer</button>
+  <label for="vitesse">Vitesse</label> <input id="vitesse" type="range" min="1" max="120" value="5" step="1">
+  <fieldset id="commandes-neige">
+    <select id="jeu-neige"></select>
+    <input id="neige-rho" type="range" min="0" max="1000000" step="10000"> <output id="valeur-neige-rho" for="neige-rho"></output>
+    <input id="neige-beta" type="range" min="1000000" max="4000000" step="10000"> <output id="valeur-neige-beta" for="neige-beta"></output>
+    <input id="neige-kappa" type="range" min="0" max="100000" step="100"> <output id="valeur-neige-kappa" for="neige-kappa"></output>
+    <input id="neige-mu" type="range" min="0" max="200000" step="1000"> <output id="valeur-neige-mu" for="neige-mu"></output>
+    <p id="source-neige"></p>
+    <p id="legende-neige">Le cristal s'arrête près du mur du domaine : le mur est à nous, au-delà ce ne serait plus la neige de l'article. Ce sont des stades précoces de la croissance.</p>
+  </fieldset>
+  <div id="mesures-neige-bloc"><p id="reglages-neige"></p><p id="mesures-neige"></p><p id="forme-neige"></p></div>
+  <div id="bloc-zinc">
+    <button id="mesurer" type="button">Mesurer D</button>
+    <canvas id="courbe" width="320" height="200"></canvas>
+    <p id="resultat"></p>
+    <div id="barre-zinc"><span id="marque-d"></span></div>
+    <p id="repere-zinc">zinc, Matsushita et coll. 1984 : 1,66 ± 0,03</p>
+    <p id="compatible" hidden></p>
+    <p id="hors-barre" hidden>hors de la barre du zinc</p>
+    <p id="taille-zinc">taille d'amas du zinc non relevée</p>
+  </div>
+  <div id="bloc-repere-eta" hidden>
+    <p id="repere-eta"></p>
+    <p id="ecart-eta" hidden></p>
+    <p id="pas-un-accord" hidden>Ce n'est pas un accord.</p>
+  </div>
+  <button id="calculer-courbe" type="button">Calculer la courbe D(η)</button>
+  <p id="avancement-courbe"></p>
+  <canvas id="courbe-eta" width="320" height="200"></canvas>
+  <p id="legende-courbe">Points : le banc ; carrés : les repères publiés (rappel de la DLA, Hastings 2001).</p>
+  <p id="limite-courbe">Des amas petits et peu de graines : la méthode de corrélation et la fenêtre diffèrent de celles de Hastings.</p>
+  <p id="pas-un-accord-courbe">Ce n'est pas un accord.</p>
+
+</dialog>
+<script type="module" src="./js/page.js"></script>
+</body>
+</html>

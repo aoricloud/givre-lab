@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Givre Lab : une page rhabillée (page d'essai des tests)</title>
+<meta property="og:title" content="Givre Lab">
+<meta property="og:image" content="https://aoricloud.github.io/givre-lab/apercu.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="canonical" href="https://aoricloud.github.io/givre-lab/">
+<link rel="stylesheet" href="style.css">
+<style>
+:root { --pierre: #0B0D10; --craie: #F1EEE6; --glace: #8FD0FF; }
+@font-face { font-family: "Inter"; font-weight: 400; src: url(data:font/woff2;base64,d09GMgABAAAAAAQ4AA4AAAAABgwAAAPlAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGhYbHBwcBmAAhDwKgUyBZAsMAAE2AiQDDAQgBYQcB2AbxwQRlJNUtX1Es7FvxZ4tRDiQZXk0A1J9JEoQVnQmbWaQe4ZeSZ0mQq8fG4WuLFEY6Q1QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA) format("woff2"); }
+body { background: var(--pierre); color: var(--craie); font-family: "Inter", system-ui, sans-serif; margin: 0; }
+.scene { position: relative; min-height: 100svh; }
+.scene canvas { display: block; width: 100%; image-rendering: auto; }
+.tiroir { position: fixed; right: 0; top: 0; width: 380px; max-width: 100%; height: 100%; overflow: auto; background: #14171C; border-left: 1px solid #262B32; border-radius: 4px 0 0 4px;
+  & canvas { image-rendering: auto; }
+}
+.sceau { color: #E8B931; }
+</style>
+</head>
+<body>
+<section class="scene">
+  <canvas id="vitrine" width="640" height="400"></canvas>
+  <canvas id="vitrine-nette" width="640" height="640"></canvas>
+  <header>
+    <p><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><path d="M7.5 1 L13 14 L2 14 Z" fill="#8FD0FF"/></svg> PLANCHE I · GIVRE LAB</p>
+    <h1>Un cristal qui pousse, calculé dans ce navigateur</h1>
+    <p id="legende-nette">Chaque case est dessinée à la résolution de l'écran, d'après la masse cristalline lue dans le module.</p>
+    <p><a href="https://github.com/aoricloud/givre-lab">Le dépôt ↗</a> · <a class="sceau" href="https://github.com/aoricloud/givre-lab/pulls">Built under Lydite ↗</a></p>
+  </header>
+  <footer>
+    <p id="temps"></p>
+    <p id="empreinte"></p>
+    <p id="mesures"></p>
+    <p id="etat"></p>
+    <button id="ouvrir-reglages" type="button">Réglages</button>
+  </footer>
+</section>
+
+<aside id="reglages" class="tiroir" hidden>
+  <h2>Réglages</h2>
+  <label for="modele">Modèle</label>
+  <select id="modele">
+    <option value="0">DLA</option>
+    <option value="1">Reiter, plaque</option>
+    <option value="2">Reiter, étoile</option>
+    <option value="3">Reiter, dendrite</option>
+    <option value="claquage">Claquage diélectrique</option>
+    <option value="neige">Neige de Gravner</option>
+  </select>
+  <div id="commande-eta" hidden>
+    <input id="eta" type="range" min="0" max="3" value="2" step="1">
+    <output id="valeur-eta" for="eta">2</output>
+  </div>
+  <label for="graine">Graine</label>
+  <input id="graine" type="number" min="0" max="4294967295" step="1" value="1">
+  <button id="relancer" type="button">Recommencer</button>
+  <label for="vitesse">Vitesse</label>
+  <input id="vitesse" type="range" min="1" max="120" value="5" step="1">
+  <output id="valeur-vitesse" for="vitesse">5</output>
+
+  <div id="commandes-neige">
+    <label for="jeu-neige">Jeu</label>
+    <select id="jeu-neige"></select>
+    <label for="neige-rho">Vapeur ρ</label>
+    <input id="neige-rho" type="range" min="0" max="1000000" step="10000"><output id="valeur-neige-rho" for="neige-rho"></output>
+    <label for="neige-beta">Seuil β</label>
+    <input id="neige-beta" type="range" min="1000000" max="4000000" step="10000"><output id="valeur-neige-beta" for="neige-beta"></output>
+    <label for="neige-kappa">Gel d'un coup κ</label>
+    <input id="neige-kappa" type="range" min="0" max="100000" step="100"><output id="valeur-neige-kappa" for="neige-kappa"></output>
+    <label for="neige-mu">Fonte μ</label>
+    <input id="neige-mu" type="range" min="0" max="200000" step="1000"><output id="valeur-neige-mu" for="neige-mu"></output>
+    <p id="source-neige"></p>
+    <p id="legende-neige">Quatre réglages sont libres ; les autres restent ceux du jeu choisi. Le cristal s'arrête près du mur du domaine : le mur est à nous, au-delà ce ne serait plus la neige de l'article. Ce sont des stades précoces de la croissance, bien plus petits que les cristaux de l'article.</p>
+  </div>
+  <section id="mesures-neige-bloc">
+    <p id="reglages-neige"></p>
+    <p id="mesures-neige"></p>
+    <p id="forme-neige"></p>
+  </section>
+
+  <section id="bloc-zinc">
+    <button id="mesurer" type="button">Mesurer D</button>
+    <canvas id="courbe" width="320" height="200"></canvas>
+    <p id="resultat"></p>
+    <div id="barre-zinc"><span id="marque-d"></span></div>
+    <p id="repere-zinc">zinc, Matsushita et coll. 1984 : 1,66 ± 0,03</p>
+    <p id="compatible" hidden></p>
+    <p id="hors-barre" hidden>hors de la barre du zinc : ce n'est pas une mesure du zinc.</p>
+    <p id="taille-zinc">taille d'amas du zinc non relevée</p>
+  </section>
+  <div id="bloc-repere-eta" hidden>
+    <p id="repere-eta"></p>
+    <p id="ecart-eta" hidden></p>
+    <p id="pas-un-accord" hidden>Ce n'est pas un accord.</p>
+  </div>
+  <section>
+    <button id="calculer-courbe" type="button">Calculer la courbe D(η)</button>
+    <p id="avancement-courbe"></p>
+    <canvas id="courbe-eta" width="320" height="200"></canvas>
+    <p id="legende-courbe">Points bleus : le banc ; carrés rouges : les repères publiés (rappel de la DLA, Hastings 2001).</p>
+    <p id="limite-courbe">Des amas petits et peu de graines : la méthode de corrélation et la fenêtre diffèrent de celles de Hastings.</p>
+    <p id="pas-un-accord-courbe"></p>
+  </section>
+</aside>
+<script type="module" src="app.js"></script>
+</body>
+</html>

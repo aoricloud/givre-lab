@@ -1,0 +1,6 @@
+/* La feuille de style de la page d'essai : un fichier à part (les tests lisent aussi les .css), une police en data:, un lien relatif. */
+@font-face { font-family: "JetBrains Mono"; font-weight: 400; src: url(data:font/woff2;base64,d09GMgABAAAAAAQ4AA4AAAAABgwAAAPlAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGhYbHBwcBmAAhDwKgUyBZAsMAAE2AiQDDAQgBYQcB2AbxwQRlJNUtX1Es7FvxZ4tRDiQZXk0A1J9JEoQVnQmbWaQe4ZeSZ0mQq8fG4WuLFEY6Q1QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA) format("woff2"); }
+.compteur { font-family: "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.trait { width: 22px; height: 3px; border-radius: 2px; background: linear-gradient(90deg, #8FD0FF 50%, transparent); animation: respire 2.4s infinite; }
+@keyframes respire { 0% { opacity: 1; } 50% { opacity: .4; } 100% { opacity: 1; } }
+@media (max-width: 640px) { .tiroir { top: auto; bottom: 0; width: 100%; height: 74%; } }

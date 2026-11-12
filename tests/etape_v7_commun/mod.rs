@@ -128,7 +128,7 @@ pub fn chemin_du_module() -> String {
 }
 
 pub fn chemin_de_lecture() -> String {
-    racine().join("docs").join("lecture.js").to_str().expect("chemin en UTF-8").to_string()
+    e5::chemin_de_lecture().to_str().expect("chemin en UTF-8").to_string()
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -255,8 +255,9 @@ pub fn sans_commentaires(script: &str) -> String {
     sortie
 }
 
+/// Tout le code JavaScript de la page (tous les fichiers `.js`, `.mjs` et les scripts en ligne), sans ses commentaires (V8 : la page n'est plus `app.js` seul).
 pub fn code_de_app_js() -> String {
-    sans_commentaires(&e5::lire_page("app.js"))
+    e5::tout_le_code_js()
 }
 
 pub fn code_de_lecture_js() -> String {
@@ -313,17 +314,7 @@ pub fn balises(html: &str) -> Vec<&str> {
 
 /// La valeur de l'attribut `nom` d'une balise (entre guillemets ou apostrophes, précédé d'une espace).
 pub fn attribut(balise: &str, nom: &str) -> Option<String> {
-    let motif = format!("{nom}=");
-    for (position, _) in balise.match_indices(&motif) {
-        if !balise[..position].ends_with(char::is_whitespace) {
-            continue;
-        }
-        let apres = &balise[position + motif.len()..];
-        let guillemet = apres.chars().next().filter(|c| *c == '"' || *c == '\'')?;
-        let valeur = &apres[1..];
-        return Some(valeur[..valeur.find(guillemet)?].to_string());
-    }
-    None
+    e5::attribut(balise, nom)
 }
 
 pub fn nom_de_balise(balise: &str) -> String {
@@ -337,13 +328,7 @@ pub fn balise_d_id<'a>(html: &'a str, id: &str) -> Option<&'a str> {
 
 /// Le texte qui suit la balise d'`id` donné, jusqu'au `<` suivant, sans espaces de début et de fin.
 pub fn texte_de(html: &str, id: &str) -> Option<String> {
-    for morceau in html.split('<').skip(1) {
-        let (balise, texte) = morceau.split_once('>')?;
-        if attribut(balise, "id").as_deref() == Some(id) {
-            return Some(texte.trim().to_string());
-        }
-    }
-    None
+    e5::texte_de_l_element(html, id)
 }
 
 /// Le texte visible de la page : tout ce qui n'est pas dans une balise, ni dans `<style>` ni dans `<script>`.
@@ -506,16 +491,71 @@ pub fn css_de_la_page(html: &str) -> String {
     sortie
 }
 
-/// Les règles d'un texte CSS : les règles de premier niveau et celles des blocs `@media`, `@supports`, `@layer` et `@container` ; les autres `@` (`@font-face`, `@keyframes`…) sont sautés. Une règle dont le corps
-/// contient un bloc (l'imbrication CSS) n'est pas prise en charge : `panic!`, la page n'en a pas.
+/// **Tout le CSS de la page** (V8) : les `<style>` de chaque fichier HTML et SVG et chaque fichier `.css` du dossier, sans leurs commentaires, leurs contenus `data:` (une police) rendus vides.
+pub fn css_de_toute_la_page() -> String {
+    let mut css = String::new();
+    for (_, texte) in e5::textes_des_fichiers(&["html", "htm", "svg"]) {
+        css.push_str(&css_de_la_page(&e5::sans_donnees(&texte)));
+        css.push('\n');
+    }
+    for (_, texte) in e5::textes_des_fichiers(&["css"]) {
+        css.push_str(&e5::sans_donnees_css(&texte));
+        css.push('\n');
+    }
+    css
+}
+
+/// Les règles d'un texte CSS : les règles de premier niveau et celles des blocs `@media`, `@supports`, `@layer` et `@container` ; les autres `@` (`@font-face`, `@keyframes`…) sont sautés. **V8 : l'imbrication CSS est prise en charge** (une règle
+/// dont le corps contient des blocs) : le sélecteur d'une règle imbriquée est celui du parent suivi du sien (ou le sien où `&` est remplacé par celui du parent). Une déclaration écrite dans un `@media` imbriqué dans une règle n'est pas lue.
 pub fn regles_css(css: &str) -> Vec<RegleCss> {
     let c: Vec<char> = css.chars().collect();
     let mut regles = Vec::new();
-    lire_les_regles(&c, &mut regles);
+    lire_les_regles(&c, &mut regles, &[]);
     regles
 }
 
-fn lire_les_regles(c: &[char], regles: &mut Vec<RegleCss>) {
+/// Sépare le corps d'une règle en ses déclarations (les `propriété: valeur` de premier niveau) et ses blocs imbriqués (`sélecteur { … }`, en entier).
+fn separer_le_corps(corps: &[char]) -> (Vec<String>, Vec<Vec<char>>) {
+    let (mut declarations, mut blocs) = (Vec::new(), Vec::new());
+    let mut courant = String::new();
+    let mut i = 0;
+    while i < corps.len() {
+        match corps[i] {
+            ';' => {
+                declarations.push(std::mem::take(&mut courant));
+                i += 1;
+            }
+            '{' => {
+                let debut = i;
+                let mut profondeur = 0;
+                while i < corps.len() {
+                    match corps[i] {
+                        '{' => profondeur += 1,
+                        '}' => profondeur -= 1,
+                        _ => {}
+                    }
+                    i += 1;
+                    if profondeur == 0 {
+                        break;
+                    }
+                }
+                let mut bloc: Vec<char> = std::mem::take(&mut courant).chars().collect();
+                bloc.extend_from_slice(&corps[debut..i]);
+                blocs.push(bloc);
+            }
+            c => {
+                courant.push(c);
+                i += 1;
+            }
+        }
+    }
+    if !courant.trim().is_empty() {
+        declarations.push(courant);
+    }
+    (declarations, blocs)
+}
+
+fn lire_les_regles(c: &[char], regles: &mut Vec<RegleCss>, parents: &[String]) {
     let mut i = 0;
     while i < c.len() {
         let debut = i;
@@ -544,20 +584,35 @@ fn lire_les_regles(c: &[char], regles: &mut Vec<RegleCss>) {
         let corps = &c[debut_du_corps..i.saturating_sub(1).max(debut_du_corps)];
         if prelude.starts_with('@') {
             if ["@media", "@supports", "@layer", "@container"].iter().any(|nom| prelude.starts_with(nom)) {
-                lire_les_regles(corps, regles);
+                lire_les_regles(corps, regles, parents);
             }
             continue;
         }
-        assert!(!corps.contains(&'{'), "l'imbrication CSS n'est pas prise en charge par le test : {prelude}");
-        let corps: String = corps.iter().collect();
-        let declarations = corps
-            .split(';')
+        let selecteurs: Vec<String> = prelude
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .flat_map(|s| {
+                if parents.is_empty() {
+                    vec![s]
+                } else if s.contains('&') {
+                    parents.iter().map(|p| s.replace('&', p)).collect()
+                } else {
+                    parents.iter().map(|p| format!("{p} {s}")).collect()
+                }
+            })
+            .collect();
+        let (textes, imbriques) = separer_le_corps(corps);
+        let declarations = textes
+            .iter()
             .filter_map(|declaration| {
                 let (propriete, valeur) = declaration.split_once(':')?;
                 let valeur = valeur.to_lowercase().replace("!important", "");
                 Some((propriete.trim().to_lowercase(), valeur.trim().to_string()))
             })
             .collect();
-        regles.push(RegleCss { selecteurs: prelude.split(',').map(|s| s.trim().to_string()).collect(), declarations });
+        regles.push(RegleCss { selecteurs: selecteurs.clone(), declarations });
+        for bloc in imbriques {
+            lire_les_regles(&bloc, regles, &selecteurs);
+        }
     }
 }

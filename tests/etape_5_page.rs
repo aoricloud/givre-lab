@@ -7,7 +7,12 @@
 //!
 //! Ce test-là lit `docs/givre.wasm` : il ne passe qu'une fois le module construit et commité.
 //!
-//! # Ce que fait la page (la consigne des mains qui l'écrivent)
+//! **Étape V8 : la page est tous les fichiers de son dossier.** Ces tests ne lisent plus trois fichiers à la virgule près : ils lisent **tout** ce que le dossier de la page contient (`docs/`, ou le dossier que désigne la variable d'environnement `GIVRE_DOCS`, que
+//! seuls les tests de `tests/etape_v8/` posent) : `index.html` et ses scripts en ligne, les feuilles de style, **tous** les fichiers JavaScript (`app.js`, `lecture.js`, un ou plusieurs workers), les polices et les images. La page peut donc être réécrite (un tiroir de réglages,
+//! des polices en `data:`, des liens `https://`, un SVG, des workers) tant qu'elle tient ses promesses : les identifiants, les phrases d'honnêteté, `lecture.js` pur et éprouvé sous Node, le canvas de la neige non pixélisé, les exportations du module, aucune ressource chargée du
+//! dehors, un poids borné. Ce que ces tests ne prouvent plus (parce que seul le texte d'un fichier précis le montrait) est dit dans `MODELE.md`, étape V8, « Ce que les tests de la page figent, et ce qu'ils ne figent plus ».
+//!
+//! # Ce que fait la page (la consigne des mains qui l'écrivent : celle de l'étape 5 ; les étapes suivantes la complètent)
 //!
 //! Une page web **sans bibliothèque ni adresse extérieure** (aucun `http://`, `https://`, aucune police ni script distant), qui
 //! charge `givre.wasm` (relatif à la page, qui est servie depuis `docs/`) par `WebAssembly.instantiate`, avec des importations
@@ -58,75 +63,26 @@ mod etape_5_commun;
 
 use std::collections::BTreeSet;
 use std::io::Write;
-use std::path::Path;
 use std::process::{Command, Stdio};
 
 use etape_5_commun::{
-    D3_ACTIVE, FONCTIONS, FONCTIONS_D3, FONCTIONS_G3, FONCTIONS_V7, FONCTIONS_Z1, G3_ACTIVE, V7_ACTIVE, Z1_ACTIVE,
-    chemin_module, lancer_le_script, lire_page, natif, node_est_la, racine,
+    CODE_MAX, D3_ACTIVE, FONCTIONS, FONCTIONS_D3, FONCTIONS_G3, FONCTIONS_V7, FONCTIONS_V8, FONCTIONS_Z1, G3_ACTIVE,
+    IDENTIFIANTS_DE_LA_PAGE, IMAGE_MAX, IMAGES_MAX, V7_ACTIVE, Z1_ACTIVE, adresse_externe, chaines_du_code,
+    chemin_de_lecture, chemin_module, code_js_de_la_page, est_une_image, fichiers_de_la_page, lancer_le_script,
+    lire_page, natif, node_est_la, racine, ressources_externes, sans_commentaires, scripts_en_ligne,
+    textes_des_fichiers, tout_le_code_js,
 };
 use givre_lab::empreinte::sha256_hex;
 
-/// Le plafond de la page, tous fichiers de `docs/` confondus sauf le module : 200 Ko.
-const TAILLE_MAX_PAGE: u64 = 200 * 1024;
-
-/// Les éléments que la page doit avoir, chacun par son `id` ; `app.js` les demande tous.
+/// Les éléments que la page de l'étape 5 doit avoir, chacun par son `id` (la liste de toute la page est `IDENTIFIANTS_DE_LA_PAGE`).
 const IDENTIFIANTS: [&str; 7] = ["vitrine", "modele", "graine", "relancer", "vitesse", "temps", "empreinte"];
 
-/// Le code de `app.js` sans ses commentaires : sans les blocs `/* … */` et sans les `//` jusqu'à la fin de la ligne, partout
-/// où ils ne sont pas dans une chaîne de caractères (`"…"`, `'…'` ou `` `…` ``, avec leurs échappements). Les chaînes sont
-/// gardées telles quelles.
-fn sans_commentaires(script: &str) -> String {
-    let c: Vec<char> = script.chars().collect();
-    let mut sortie = String::new();
-    let mut i = 0;
-    while i < c.len() {
-        match c[i] {
-            '"' | '\'' | '`' => {
-                let guillemet = c[i];
-                sortie.push(guillemet);
-                i += 1;
-                while i < c.len() && c[i] != guillemet {
-                    if c[i] == '\\' && i + 1 < c.len() {
-                        sortie.push(c[i]);
-                        i += 1;
-                    }
-                    sortie.push(c[i]);
-                    i += 1;
-                }
-                if i < c.len() {
-                    sortie.push(guillemet);
-                    i += 1;
-                }
-            }
-            '/' if c.get(i + 1) == Some(&'/') => {
-                while i < c.len() && c[i] != '\n' {
-                    i += 1;
-                }
-            }
-            '/' if c.get(i + 1) == Some(&'*') => {
-                i += 2;
-                while i + 1 < c.len() && !(c[i] == '*' && c[i + 1] == '/') {
-                    i += 1;
-                }
-                i += 2;
-                sortie.push(' ');
-            }
-            autre => {
-                sortie.push(autre);
-                i += 1;
-            }
-        }
-    }
-    sortie
+/// Tout le code JavaScript de la page (chaque fichier `.js` ou `.mjs` du dossier et chaque script en ligne), sans ses commentaires : voir `etape_5_commun::tout_le_code_js`.
+fn lire_le_code_de_la_page() -> String {
+    tout_le_code_js()
 }
 
-/// Le code de `docs/app.js`, sans ses commentaires.
-fn lire_le_code_de_app_js() -> String {
-    sans_commentaires(&lire_page("app.js"))
-}
-
-/// Le code de `docs/lecture.js`, sans ses commentaires.
+/// Le code de `lecture.js` (le fichier que Node charge seul), sans ses commentaires.
 fn lire_le_code_de_lecture_js() -> String {
     sans_commentaires(&lire_page("lecture.js"))
 }
@@ -192,23 +148,6 @@ fn arites_des_appels(code: &str, nom: &str) -> Vec<usize> {
     arites
 }
 
-/// Les identifiants que le script demande par `getElementById("…")` (ou avec des apostrophes).
-fn identifiants_demandes(script: &str) -> Vec<String> {
-    let mut identifiants = Vec::new();
-    let mut reste = script;
-    while let Some(debut) = reste.find("getElementById(") {
-        let apres = reste[debut + "getElementById(".len()..].trim_start();
-        let Some(guillemet) = apres.chars().next().filter(|c| *c == '"' || *c == '\'') else {
-            panic!("getElementById doit recevoir un texte littéral : {}", &apres[..apres.len().min(30)]);
-        };
-        let nom = &apres[1..];
-        let fin = nom.find(guillemet).expect("guillemet fermant de getElementById");
-        identifiants.push(nom[..fin].to_string());
-        reste = &nom[fin..];
-    }
-    identifiants
-}
-
 /// Les balises du HTML, chacune réduite à son contenu entre `<` et `>` (le nom, puis les attributs).
 fn balises(html: &str) -> Vec<&str> {
     html.split('<').skip(1).filter_map(|morceau| morceau.split('>').next()).collect()
@@ -216,17 +155,7 @@ fn balises(html: &str) -> Vec<&str> {
 
 /// La valeur de l'attribut `nom` d'une balise (écrit entre guillemets ou entre apostrophes, précédé d'une espace).
 fn attribut(balise: &str, nom: &str) -> Option<String> {
-    let motif = format!("{nom}=");
-    for (position, _) in balise.match_indices(&motif) {
-        if !balise[..position].ends_with(char::is_whitespace) {
-            continue;
-        }
-        let apres = &balise[position + motif.len()..];
-        let guillemet = apres.chars().next().filter(|c| *c == '"' || *c == '\'')?;
-        let valeur = &apres[1..];
-        return Some(valeur[..valeur.find(guillemet)?].to_string());
-    }
-    None
+    etape_5_commun::attribut(balise, nom)
 }
 
 /// Le nom d'une balise, en minuscules (`canvas` pour `<canvas id="x">`).
@@ -239,13 +168,13 @@ fn balise_d_id<'a>(html: &'a str, id: &str) -> Option<&'a str> {
     balises(html).into_iter().find(|balise| attribut(balise, "id").as_deref() == Some(id))
 }
 
-/// forme : `docs/index.html` contient un `<canvas` d'`id` `vitrine`, une balise `<meta name="viewport"` dont le contenu dit
-/// `width=device-width` (lisible sur un téléphone), un `<title>`, et un `<script type="module"` qui charge `app.js`.
+/// forme : `docs/index.html` contient un `<canvas` d'`id` `vitrine`, une balise `<meta name="viewport"` dont le contenu dit `width=device-width` (lisible sur un téléphone), un `<title>`, et **au moins un `<script type="module"`** : en ligne (non vide), ou avec un `src` **relatif** qui désigne un fichier du
+/// dossier de la page (`app.js`, ou un autre : un script dont le fichier manque est une page cassée).
 ///
 /// Ne couvre pas : ce que la page montre ; que le script se charge ; la lisibilité réelle sur un téléphone.
 #[test]
 #[cfg_attr(not(feature = "etape-5"), ignore)]
-fn la_page_a_un_canvas_un_viewport_et_charge_app_js() {
+fn la_page_a_un_canvas_un_viewport_et_charge_un_script() {
     let html = lire_page("index.html");
     let minuscules = html.to_lowercase();
     let canvas = balise_d_id(&html, "vitrine").expect("pas d'élément d'id « vitrine »");
@@ -259,13 +188,24 @@ fn la_page_a_un_canvas_un_viewport_et_charge_app_js() {
     let contenu = attribut(viewport, "content").unwrap_or_default().replace(' ', "");
     assert!(contenu.contains("width=device-width"), "le viewport ne dit pas width=device-width : {viewport}");
 
-    let debut = minuscules.find("<script type=\"module\"").expect("pas de <script type=\"module\" dans index.html");
-    let fin = minuscules[debut..].find('>').expect("balise <script> non fermée");
-    let balise = &minuscules[debut..debut + fin];
-    assert!(
-        balise.contains("src=") && balise.contains("app.js"),
-        "le script de type module ne charge pas app.js : {balise}"
-    );
+    let modules: Vec<(String, String)> = scripts_en_ligne(&html)
+        .into_iter()
+        .filter(|(ouvrante, _)| attribut(ouvrante, "type").as_deref() == Some("module"))
+        .collect();
+    assert!(!modules.is_empty(), "pas de <script type=\"module\"> dans index.html");
+    for (ouvrante, corps) in &modules {
+        match attribut(ouvrante, "src") {
+            Some(src) => {
+                assert!(!adresse_externe(&src), "le script de type module charge une adresse externe : {src}");
+                let fichier = src.split(['?', '#']).next().unwrap_or("").trim_start_matches("./");
+                assert!(
+                    etape_5_commun::dossier_des_pages().join(fichier).is_file(),
+                    "le script de type module « {src} » n'est pas un fichier du dossier de la page"
+                );
+            }
+            None => assert!(!corps.trim().is_empty(), "un <script type=\"module\"> en ligne est vide"),
+        }
+    }
 }
 
 /// forme : `index.html` a les commandes et les affichages demandés, chacun avec son `id` et sa sorte d'élément : un
@@ -326,54 +266,46 @@ fn la_page_a_ses_commandes_et_ses_affichages() {
     }
 }
 
-/// forme : `docs/app.js` désigne le module par le texte littéral `"givre.wasm"` (ou `"./givre.wasm"`), c'est-à-dire par un
-/// chemin relatif à la page, qui est servie depuis `docs/` (jamais `/docs/givre.wasm`), et l'instancie par
-/// `WebAssembly.instantiate` (ou `new WebAssembly.Instance`).
+/// forme : le code de la page (un fichier `.js` ou un script en ligne : `app.js`, un worker, n'importe lequel) désigne le module par un **texte littéral qui finit par `givre.wasm`**, relatif à la page (ni `http`, ni `//`, ni `/` en tête : la page est servie depuis `docs/`, jamais `/docs/givre.wasm`), et
+/// l'instancie par `WebAssembly.instantiate` (`instantiateStreaming` compris) ou `new WebAssembly.Instance`.
 ///
-/// Ne couvre pas : que le chargement réussisse dans un navigateur.
+/// Ne couvre pas : que le chargement réussisse dans un navigateur ; quel fichier charge le module (un worker le charge souvent à la place de la page).
+/// Fiche : V-V8-39 (`references/etape-v8-valeurs.md`).
 #[test]
 #[cfg_attr(not(feature = "etape-5"), ignore)]
-fn app_js_charge_le_module() {
-    let code = lire_le_code_de_app_js();
-    let litteral =
-        |forme: &str| ["\"", "'", "`"].iter().any(|guillemet| code.contains(&format!("{guillemet}{forme}{guillemet}")));
-    assert!(
-        litteral("givre.wasm") || litteral("./givre.wasm"),
-        "app.js ne désigne pas le module par le texte \"givre.wasm\""
-    );
+fn la_page_charge_le_module() {
+    let code = lire_le_code_de_la_page();
+    let relatif = chaines_du_code(&code)
+        .into_iter()
+        .any(|chaine| chaine.ends_with("givre.wasm") && !chaine.starts_with('/') && !chaine.contains("://"));
+    assert!(relatif, "le code de la page ne désigne pas le module par un texte relatif qui finit par givre.wasm");
     assert!(
         code.contains("WebAssembly.instantiate") || code.contains("new WebAssembly.Instance"),
-        "app.js n'instancie pas le module"
+        "le code de la page n'instancie pas le module"
     );
 }
 
-/// forme : `app.js` avance la simulation par `requestAnimationFrame` et dessine sur le canvas par son contexte 2D
-/// (`getContext("2d")`).
+/// forme : le code de la page (tous les fichiers) anime par `requestAnimationFrame` et dessine sur un canvas par un contexte (`getContext(`, de n'importe quelle sorte : `"2d"`, `"bitmaprenderer"`…).
 ///
-/// Ne couvre pas : ce qui est dessiné.
+/// Ne couvre pas : ce qui est dessiné ; que ce soit le fil de la page ou un worker qui dessine.
 #[test]
 #[cfg_attr(not(feature = "etape-5"), ignore)]
-fn app_js_anime_et_dessine_sur_le_canvas() {
-    let code = lire_le_code_de_app_js();
-    assert!(code.contains("requestAnimationFrame"), "app.js n'emploie pas requestAnimationFrame");
-    assert!(
-        code.contains("getContext(\"2d\")") || code.contains("getContext('2d')"),
-        "app.js n'emploie pas le contexte 2D du canvas"
-    );
+fn la_page_anime_et_dessine_sur_un_canvas() {
+    let code = lire_le_code_de_la_page();
+    assert!(code.contains("requestAnimationFrame"), "le code de la page n'emploie pas requestAnimationFrame");
+    assert!(code.contains("getContext("), "le code de la page n'emploie aucun contexte de canvas (getContext)");
 }
 
-/// forme : chaque nom `givre_…` qu'emploient `app.js` et `lecture.js` (leurs deux codes mis bout à bout) est l'une des onze
-/// fonctions de la vitrine, et chacune est employée ; chaque fonction est **appelée** (`nom(…)`) au moins une fois et **tous**
-/// ses appels ont le bon nombre d'arguments (`givre_pixel(x)` sans `y`, ou `givre_demarrer(modele)` sans graine, sont vus).
-/// Les noms s'écrivent en entier dans le script, jamais composés. (Ce test relit la liste des fonctions dans
-/// `etape_5_commun::FONCTIONS`, que `etape_5_artefact.rs` compare aux exportations du module.)
+/// forme : **tous les fichiers JavaScript de la page** (`app.js`, `lecture.js`, un ou plusieurs workers, les scripts en ligne de `index.html` : leurs codes mis bout à bout) n'emploient **que** des exportations du module (chaque nom `givre_…` qu'ils emploient est l'une des trente-quatre fonctions de la
+/// vitrine : aucune inconnue) et **toutes** celles d'avant l'étape V8 (les trente-deux) ; **les deux de V8 (`givre_neige_masses_preparer`, `givre_neige_masse`) peuvent être employées ou non**, dans les deux régimes ; chaque fonction employée est **appelée** (`nom(…)`) et **tous** ses appels ont le bon
+/// nombre d'arguments (`givre_pixel(x)` sans `y`, ou `givre_demarrer(modele)` sans graine, sont vus). Les noms s'écrivent en entier dans le script, jamais composés. (Ce test relit la liste des fonctions dans `etape_5_commun::FONCTIONS` et ses suites, que `etape_5_artefact.rs` compare aux exportations du module.)
 ///
-/// Ne couvre pas : que les arguments soient les bons (un `x` pour un `y` dans `app.js` : ceux de `lecture.js` sont éprouvés
-/// par `lecture_js_lit_le_module_comme_le_natif`) ; que l'appel soit atteint.
+/// Ne couvre pas : que les arguments soient les bons (un `x` pour un `y` : ceux de `lecture.js` sont éprouvés par `lecture_js_lit_le_module_comme_le_natif`) ; que l'appel soit atteint ; quel fichier emploie quoi (un worker peut tout employer).
+/// Fiche : V-V8-33 (`references/etape-v8-valeurs.md`).
 #[test]
 #[cfg_attr(not(feature = "etape-5"), ignore)]
-fn app_js_emploie_exactement_les_exportations_du_module() {
-    let code = format!("{}\n{}", lire_le_code_de_app_js(), lire_le_code_de_lecture_js());
+fn la_page_emploie_les_exportations_du_module_et_rien_d_autre() {
+    let code = lire_le_code_de_la_page();
     let onze: BTreeSet<String> = FONCTIONS.iter().map(|(nom, _, _)| nom.to_string()).collect();
     // Étape Z1 : avec `etape-z1` la page emploie les quinze fonctions ; sans elle, les onze ou les quinze.
     let quinze: BTreeSet<String> =
@@ -387,23 +319,27 @@ fn app_js_emploie_exactement_les_exportations_du_module() {
     // Étape G3 : avec `etape-g3` la page emploie les trente-deux fonctions ; sans elle, ce que les fonctionnalités d'avant disent ou les trente-deux.
     let trente_deux: BTreeSet<String> =
         vingt_sept.iter().cloned().chain(FONCTIONS_G3.iter().map(|(nom, _, _)| nom.to_string())).collect();
+    // Étape V8 : les deux fonctions des masses sont **permises** (la page de la session de site les emploie dans un worker) mais jamais exigées : ni l'une ni l'autre régime ne les demande.
+    let masses: BTreeSet<String> = FONCTIONS_V8.iter().map(|(nom, _, _)| nom.to_string()).collect();
+    let permises: BTreeSet<String> = trente_deux.union(&masses).cloned().collect();
     let employes = noms_employes(&code);
-    let exportees = if G3_ACTIVE || employes == trente_deux {
+    let employes_d_avant: BTreeSet<String> = employes.difference(&masses).cloned().collect();
+    let exportees = if G3_ACTIVE || employes_d_avant == trente_deux {
         trente_deux
-    } else if V7_ACTIVE || employes == vingt_sept {
+    } else if V7_ACTIVE || employes_d_avant == vingt_sept {
         vingt_sept
-    } else if D3_ACTIVE || employes == vingt_trois {
+    } else if D3_ACTIVE || employes_d_avant == vingt_trois {
         vingt_trois
-    } else if Z1_ACTIVE || employes == quinze {
+    } else if Z1_ACTIVE || employes_d_avant == quinze {
         quinze
     } else {
         onze
     };
 
-    let inconnus: Vec<&String> = employes.difference(&exportees).collect();
-    assert!(inconnus.is_empty(), "app.js emploie des noms que le module n'exporte pas : {inconnus:?}");
+    let inconnus: Vec<&String> = employes.difference(&permises).collect();
+    assert!(inconnus.is_empty(), "la page emploie des noms que le module n'exporte pas : {inconnus:?}");
     let oublies: Vec<&String> = exportees.difference(&employes).collect();
-    assert!(oublies.is_empty(), "app.js n'emploie pas ces exportations du module : {oublies:?}");
+    assert!(oublies.is_empty(), "la page n'emploie pas ces exportations du module : {oublies:?}");
 
     for (nom, parametres, _) in FONCTIONS
         .iter()
@@ -411,58 +347,95 @@ fn app_js_emploie_exactement_les_exportations_du_module() {
         .chain(FONCTIONS_D3.iter())
         .chain(FONCTIONS_V7.iter())
         .chain(FONCTIONS_G3.iter())
-        .filter(|(nom, _, _)| exportees.contains(*nom))
+        .chain(FONCTIONS_V8.iter())
+        .filter(|(nom, _, _)| employes.contains(*nom))
     {
         let arites = arites_des_appels(&code, nom);
-        assert!(!arites.is_empty(), "app.js n'appelle jamais {nom}(…)");
+        assert!(!arites.is_empty(), "la page n'appelle jamais {nom}(…)");
         for arite in arites {
             assert_eq!(
                 arite,
                 parametres.len(),
-                "app.js appelle {nom} avec {arite} argument(s) au lieu de {}",
+                "la page appelle {nom} avec {arite} argument(s) au lieu de {}",
                 parametres.len()
             );
         }
     }
 }
 
-/// forme : `app.js` demande chaque élément de la liste (`vitrine`, `modele`, `graine`, `relancer`, `vitesse`, `temps`,
-/// `empreinte`) par `document.getElementById("…")`, et tous les identifiants qu'il demande existent dans la page ; le canvas
-/// de la page est celui qu'il demande (`vitrine`).
+/// forme : **les identifiants** (V8). Les quarante-huit `id` que les tests de la page exigent (`IDENTIFIANTS_DE_LA_PAGE`) sont **chacun une seule fois dans `index.html`** (aucun doublon, aucun absent : à n'importe quelle place, dans n'importe quel élément, dans un tiroir, un `<aside>`, un `<dialog>`
+/// ou un élément `hidden`) et **aucun autre fichier HTML du dossier** n'en reprend un ; les sept de l'étape 5 (`IDENTIFIANTS`) y sont ; et **tout identifiant que le code de la page demande par un texte littéral** (`getElementById("…")`, `querySelector("#…")`, `$("#…")`) **existe** dans `index.html`
+/// (un script ne demande pas un élément absent). Aucun test n'exige la **place** d'un élément.
 ///
-/// Ne couvre pas : l'usage qu'`app.js` fait de ces éléments.
+/// Ne couvre pas : que le script demande chaque élément (un script peut les garder autrement, ou n'en lire qu'une partie) ; un identifiant demandé par un texte composé.
+/// Fiche : V-V8-30 (`references/etape-v8-valeurs.md`).
 #[test]
 #[cfg_attr(not(feature = "etape-5"), ignore)]
-fn app_js_ne_demande_que_des_elements_de_la_page_et_tous_ceux_de_la_liste() {
+fn les_identifiants_sont_dans_index_html_une_seule_fois() {
     let html = lire_page("index.html");
-    let demandes: BTreeSet<String> = identifiants_demandes(&lire_le_code_de_app_js()).into_iter().collect();
-    assert!(!demandes.is_empty(), "app.js ne demande aucun élément par getElementById");
-
-    let existants: BTreeSet<String> = balises(&html).iter().filter_map(|balise| attribut(balise, "id")).collect();
-    for identifiant in &demandes {
-        assert!(existants.contains(identifiant), "index.html n'a pas d'élément d'id « {identifiant} »");
+    let tous: Vec<String> = balises(&html).iter().filter_map(|balise| attribut(balise, "id")).collect();
+    for id in IDENTIFIANTS_DE_LA_PAGE {
+        let fois = tous.iter().filter(|autre| autre.as_str() == id).count();
+        assert_eq!(fois, 1, "l'identifiant « {id} » est écrit {fois} fois dans index.html (une seule, exactement)");
     }
-    for identifiant in IDENTIFIANTS {
-        assert!(demandes.contains(identifiant), "app.js ne demande pas l'élément d'id « {identifiant} »");
-        assert!(existants.contains(identifiant), "index.html n'a pas d'élément d'id « {identifiant} »");
+    for id in IDENTIFIANTS {
+        assert!(IDENTIFIANTS_DE_LA_PAGE.contains(&id), "{id} manque dans la liste de la page");
+    }
+    for (nom, autre) in textes_des_fichiers(&["html", "htm"]) {
+        if nom == "index.html" {
+            continue;
+        }
+        for balise in balises(&autre) {
+            if let Some(id) = attribut(balise, "id") {
+                assert!(
+                    !IDENTIFIANTS_DE_LA_PAGE.contains(&id.as_str()),
+                    "{nom} reprend l'identifiant « {id} » : ils sont tous dans index.html"
+                );
+            }
+        }
+    }
+    // Les identifiants demandés par un texte littéral existent.
+    let code = lire_le_code_de_la_page();
+    let mut demandes: BTreeSet<String> = BTreeSet::new();
+    for debut in ["getElementById(", "querySelector(", "$("] {
+        for (position, _) in code.match_indices(debut) {
+            let apres = code[position + debut.len()..].trim_start();
+            let Some(guillemet) = apres.chars().next().filter(|c| matches!(c, '"' | '\'' | '`')) else { continue };
+            let Some(fin) = apres[1..].find(guillemet) else { continue };
+            let texte = &apres[1..1 + fin];
+            let id = if debut == "getElementById(" { Some(texte) } else { texte.strip_prefix('#') };
+            if let Some(id) =
+                id.filter(|id| !id.is_empty() && id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_'))
+            {
+                demandes.insert(id.to_string());
+            }
+        }
+    }
+    for id in &demandes {
+        assert!(
+            tous.iter().any(|autre| autre == id),
+            "le code de la page demande l'élément « {id} » : index.html n'en a pas"
+        );
     }
 }
 
-/// forme : `lecture.js` relit les mots du module non signés (`>>> 0` : JavaScript lit un `i32`), et `app.js` lit l'empreinte
-/// au plus toutes les 400 ms : une constante `INTERVALLE_EMPREINTE_MS` d'au moins 400, écrite `INTERVALLE_EMPREINTE_MS =
-/// <nombre>` (avec `const`, un entier en chiffres décimaux), et employée ailleurs que dans sa déclaration (huit appels de
-/// `givre_empreinte_mot` hachent huit fois tout l'état).
+/// forme : `lecture.js` relit les mots du module non signés (`>>> 0` : JavaScript lit un `i32`) ; **si** une constante `INTERVALLE_EMPREINTE_MS` est déclarée dans le code de la page (`const INTERVALLE_EMPREINTE_MS = <nombre>`), elle vaut au moins 400 et est employée ailleurs que dans sa déclaration (huit appels de `givre_empreinte_mot`
+/// hachent huit fois tout l'état) ; et le code de la page, **hors `lecture.js`**, lit l'empreinte (`lireEmpreinte(`).
 ///
-/// Ne couvre pas : que la lecture respecte vraiment cet intervalle.
+/// Ne couvre pas : que la lecture respecte vraiment un intervalle (le nom de la constante n'est plus exigé : une page qui lit l'empreinte autrement, par exemple à l'arrêt seulement, n'est pas vue ici : voir `MODELE.md`, étape V8).
 #[test]
 #[cfg_attr(not(feature = "etape-5"), ignore)]
-fn app_js_lit_l_empreinte_non_signee_et_rarement() {
+fn lecture_js_lit_l_empreinte_non_signee_et_l_intervalle_est_borne() {
     let lecture = lire_le_code_de_lecture_js();
     assert!(
         lecture.contains(">>> 0") || lecture.contains(">>>0"),
         "lecture.js ne relit pas les mots de 32 bits non signés (>>> 0)"
     );
-    let code = lire_le_code_de_app_js();
+    let code = lire_le_code_de_la_page();
+    assert!(
+        code_js_de_la_page().iter().any(|(nom, c)| !nom.ends_with("lecture.js") && c.contains("lireEmpreinte(")),
+        "la page ne lit l'empreinte nulle part hors de lecture.js"
+    );
 
     let nom = "INTERVALLE_EMPREINTE_MS";
     // La déclaration : `const INTERVALLE_EMPREINTE_MS = <nombre>` (la première occurrence n'est pas forcément elle).
@@ -471,25 +444,26 @@ fn app_js_lit_l_empreinte_non_signee_et_rarement() {
         let valeur = apres.strip_prefix('=').filter(|reste| !reste.starts_with('='))?;
         code[..debut].trim_end().ends_with("const").then_some(valeur.trim_start())
     });
-    let valeur = declaration.expect("app.js n'a pas de `const INTERVALLE_EMPREINTE_MS = <nombre>`");
-    let chiffres: String = valeur.chars().take_while(char::is_ascii_digit).collect();
-    let intervalle: u64 = chiffres.parse().expect("INTERVALLE_EMPREINTE_MS = <un entier>");
-    assert!(intervalle >= 400, "INTERVALLE_EMPREINTE_MS vaut {intervalle} : il faut au moins 400");
-    assert!(code.matches(nom).count() >= 2, "INTERVALLE_EMPREINTE_MS n'est pas employée");
+    if let Some(valeur) = declaration {
+        let chiffres: String = valeur.chars().take_while(char::is_ascii_digit).collect();
+        let intervalle: u64 = chiffres.parse().expect("INTERVALLE_EMPREINTE_MS = <un entier>");
+        assert!(intervalle >= 400, "INTERVALLE_EMPREINTE_MS vaut {intervalle} : il faut au moins 400");
+        assert!(code.matches(nom).count() >= 2, "INTERVALLE_EMPREINTE_MS n'est pas employée");
+    }
 }
 
-/// forme : `app.js` et `lecture.js` sont du JavaScript valide (modules) : `node --check`, le texte lui étant passé sur l'entrée
-/// standard. Le contrôle est sauté, comme les autres, quand Node est absent hors de la CI.
+/// forme : **chaque fichier `.js` ou `.mjs` de la page** (`app.js`, `lecture.js`, un worker…) est du JavaScript valide (modules) : `node --check`, le texte lui étant passé sur l'entrée standard. Le contrôle est sauté, comme les autres, quand Node est absent hors de la CI.
 ///
-/// Ne couvre pas : l'exécution de `app.js` (celle de `lecture.js` : voir `lecture_js_lit_le_module_comme_le_natif`).
+/// Ne couvre pas : l'exécution des scripts (celle de `lecture.js` : voir `lecture_js_lit_le_module_comme_le_natif`) ; les scripts en ligne.
 #[test]
 #[cfg_attr(not(feature = "etape-5"), ignore)]
-fn app_js_est_du_javascript_valide() {
+fn les_scripts_de_la_page_sont_du_javascript_valide() {
+    let scripts = textes_des_fichiers(&["js", "mjs"]);
+    assert!(scripts.iter().any(|(nom, _)| nom == "lecture.js"), "lecture.js n'est pas dans la page");
     if !node_est_la() {
         return;
     }
-    for nom in ["app.js", "lecture.js"] {
-        let script = lire_page(nom);
+    for (nom, script) in scripts {
         let mut node = Command::new("node")
             .args(["--input-type=module", "--check"])
             .stdin(Stdio::piped())
@@ -503,28 +477,39 @@ fn app_js_est_du_javascript_valide() {
     }
 }
 
-/// forme : `app.js` importe de `"./lecture.js"` (un `import { … } from "./lecture.js"`, chemin relatif à la page) les trois
-/// fonctions `lireEmpreinte`, `lireImage` et `lireGraine`, et appelle chacune, chaque fois avec un argument ; `lecture.js`
-/// les déclare chacune par `export function <nom>(` et n'emploie ni `document`, ni `window` (Node le charge sans navigateur).
+/// forme : `lecture.js` déclare chacune des trois fonctions `lireEmpreinte`, `lireImage` et `lireGraine` par `export function <nom>(` et n'emploie ni `document`, ni `window` (Node le charge sans navigateur) ; **un fichier de la page autre que `lecture.js`** (`app.js`, un worker…) importe de
+/// `lecture.js` (`import { … } from "…/lecture.js"`, un chemin relatif) ; chaque appel de ces trois fonctions, où qu'il soit dans la page, a un seul argument.
 ///
-/// Ne couvre pas : ce qu'`app.js` fait de ce qu'elles rendent (l'afficher, le dessiner) ; voir « Ce que cela n'établit pas ».
+/// Ne couvre pas : ce que la page fait de ce qu'elles rendent (l'afficher, le dessiner) ; que chacune soit appelée (une page qui ne lit plus l'image d'un pixel par case n'appelle plus `lireImage`).
+/// Fiche : V-V8-37 (`references/etape-v8-valeurs.md`).
 #[test]
 #[cfg_attr(not(feature = "etape-5"), ignore)]
-fn app_js_emploie_lecture_js() {
-    let code = lire_le_code_de_app_js();
-    let importe = ["\"./lecture.js\"", "'./lecture.js'"]
-        .iter()
-        .any(|nom| code.match_indices(nom).any(|(debut, _)| code[..debut].trim_end().ends_with("from")));
-    assert!(importe, "app.js n'importe rien de \"./lecture.js\" (import {{ … }} from \"./lecture.js\")");
-    assert!(code.contains("import"), "app.js n'a pas d'import");
+fn la_page_emploie_lecture_js() {
+    let importe = code_js_de_la_page().iter().any(|(nom, code)| {
+        !nom.ends_with("lecture.js")
+            && ["lecture.js\"", "lecture.js'", "lecture.js`"].iter().any(|fin| {
+                code.match_indices(fin).any(|(debut, _)| {
+                    let avant = &code[..debut];
+                    avant.rfind(['"', '\'', '`']).is_some_and(|guillemet| {
+                        let chemin = &avant[guillemet + 1..];
+                        let devant = code[..guillemet].trim_end();
+                        !adresse_externe(chemin) && (devant.ends_with("from") || devant.ends_with("import("))
+                    })
+                })
+            })
+    });
+    assert!(
+        importe,
+        "aucun fichier de la page, hors lecture.js, n'importe de lecture.js (import {{ … }} from \"./lecture.js\")"
+    );
 
+    let code = lire_le_code_de_la_page();
     let lecture = lire_le_code_de_lecture_js();
     for nom in FONCTIONS_DE_LECTURE {
         let arites = arites_des_appels(&code, nom);
-        assert!(!arites.is_empty(), "app.js n'appelle jamais {nom}(…)");
         assert!(
             arites.iter().all(|arite| *arite == 1),
-            "app.js appelle {nom} avec {arites:?} argument(s) au lieu de 1"
+            "la page appelle {nom} avec {arites:?} argument(s) au lieu de 1"
         );
         assert!(
             lecture.contains(&format!("export function {nom}(")),
@@ -608,7 +593,7 @@ fn lecture_js_lit_le_module_comme_le_natif() {
     }
     let module = chemin_module();
     let module = module.to_str().expect("chemin en UTF-8");
-    let lecture = racine().join("docs").join("lecture.js");
+    let lecture = chemin_de_lecture();
     let lecture = lecture.to_str().expect("chemin en UTF-8");
     let graines: Vec<&str> = GRAINES_ATTENDUES.iter().map(|(_, attendu)| *attendu).collect();
 
@@ -652,58 +637,49 @@ fn lecture_js_lit_le_module_comme_le_natif() {
     }
 }
 
-/// forme : ni `index.html`, ni `app.js`, ni `lecture.js` ne contiennent `http://`, `https://` ni `//cdn` : aucune ressource externe, ni script,
-/// ni police, ni image. Sont aussi refusés les adresses sans protocole (`"//…"`, `(//…)`, `=//…`) et les noms des hébergeurs
-/// de bibliothèques et de polices les plus courants. (Le texte entier est lu, commentaires compris.)
+/// forme : **la page ne charge rien du dehors** (V8). Ni un `src` (script, image, iframe, source…), ni le `href` d'un `<link>` (feuille de style, police, icône, préchargement, manifeste) ou d'un élément SVG autre qu'un lien, ni un `url(…)` ou un `@import` d'un CSS (une feuille, un `<style>`, un attribut `style`), ni une adresse
+/// que le JavaScript charge (`fetch(`, `new Worker(`, `importScripts(`, `import(`, `import … from`, `.src =`, `EventSource`, `WebSocket`, `sendBeacon`, le second argument de `.open(`) ne désigne une adresse **externe** (un protocole `http`, `https`, `ws`, `wss`, `ftp`, `file`, ou `//…`), dans **aucun fichier** du dossier de la page
+/// (HTML, scripts en ligne, CSS, JavaScript, SVG ; un contenu `data:` n'est pas lu comme un texte). **Passent** : une adresse relative, `data:`, `blob:`, un **lien** `<a href="https://…">`, l'attribut `xmlns="http://www.w3.org/2000/svg"` d'un SVG en ligne, une balise `<meta>` (`og:image`) et un `<link rel="canonical">`.
+/// Les noms des hébergeurs (`unpkg`, `jsdelivr`, `cdnjs`, `googleapis`, `gstatic`) ne sont plus cherchés comme du texte : une adresse qui les contiendrait est externe et se voit par son protocole.
 ///
-/// Ne couvre pas : une ressource externe écrite autrement (un nom d'hôte sans protocole ni barres).
+/// Ne couvre pas : une ressource chargée par une adresse composée (`"https:" + "//…"`) ; une adresse écrite dans une chaîne que le script passe plus tard à `fetch` ; ce que le navigateur charge sans qu'une adresse soit écrite.
+/// Fiche : V-V8-31 (`references/etape-v8-valeurs.md`).
 #[test]
 #[cfg_attr(not(feature = "etape-5"), ignore)]
 fn la_page_n_a_aucune_ressource_externe() {
-    let interdits = [
-        "http://",
-        "https://",
-        "//cdn",
-        "\"//",
-        "'//",
-        "`//",
-        "(//",
-        "=//",
-        "unpkg",
-        "jsdelivr",
-        "cdnjs",
-        "googleapis",
-        "gstatic",
-    ];
-    for nom in ["index.html", "app.js", "lecture.js"] {
-        let texte = lire_page(nom).to_lowercase();
-        for interdit in interdits {
-            assert!(!texte.contains(interdit), "docs/{nom} contient « {interdit} » : une ressource externe ?");
-        }
-    }
+    let externes = ressources_externes();
+    assert!(externes.is_empty(), "la page charge des ressources externes :\n{}", externes.join("\n"));
+    // Le détecteur voit ce qu'il doit voir (un compte vide n'est pas un compte vert) : une adresse externe, et seulement elle.
+    assert!(
+        adresse_externe("https://exemple.org/x.js")
+            && adresse_externe("//cdn.exemple.org/x.js")
+            && adresse_externe("HTTP://exemple.org")
+    );
+    assert!(
+        !adresse_externe("./calcul.js")
+            && !adresse_externe("polices/inter.woff2")
+            && !adresse_externe("data:font/woff2;base64,AAAA")
+            && !adresse_externe("blob:abc")
+            && !adresse_externe("/docs/x")
+    );
 }
 
-/// Ajoute à `total` la taille des fichiers de `dossier`, sous-dossiers compris, sauf le module.
-fn taille_sans_le_module(dossier: &Path, total: &mut u64) {
-    let entrees = std::fs::read_dir(dossier).unwrap_or_else(|erreur| panic!("{} se lit : {erreur}", dossier.display()));
-    for entree in entrees {
-        let chemin = entree.expect("entrée de dossier").path();
-        if chemin.is_dir() {
-            taille_sans_le_module(&chemin, total);
-        } else if chemin != chemin_module() {
-            *total += std::fs::metadata(&chemin).expect("métadonnées").len();
-        }
-    }
-}
-
-/// forme : la page ne dépasse pas 200 Ko en tout : tous les fichiers de `docs/`, hors le module.
+/// forme : **la page tient dans son budget** (V8) : tout le **code** du dossier de la page (HTML, CSS, JavaScript, SVG, polices, données : tout fichier qui n'est ni une image ni le module, les polices en `data:` comprises puisqu'elles sont dans le CSS) pèse au plus `CODE_MAX` octets (384 Kio) ; **une image**
+/// (`png`, `jpg`, `jpeg`, `webp`, `avif`, `gif`, `ico`) au plus `IMAGE_MAX` (300 000 octets) et **toutes les images ensemble** au plus `IMAGES_MAX` (600 000) ; chaque nombre est un seul `const` de `etape_5_commun`. Le module a son plafond dans `etape_5_artefact.rs` (1 Mio). Un dossier vide est un échec.
 ///
-/// Ne couvre pas : le poids du module (voir `etape_5_artefact.rs`).
+/// Ne couvre pas : le poids transféré (compression) ; le poids d'une police ou d'une image hors du dossier de la page.
+/// Fiche : V-V8-32 (`references/etape-v8-valeurs.md`).
 #[test]
 #[cfg_attr(not(feature = "etape-5"), ignore)]
-fn la_page_ne_depasse_pas_200_ko() {
-    let mut total = 0;
-    taille_sans_le_module(&racine().join("docs"), &mut total);
-    assert!(total > 0, "docs/ est vide");
-    assert!(total <= TAILLE_MAX_PAGE, "la page pèse {total} octets");
+fn la_page_ne_depasse_pas_son_budget() {
+    let fichiers = fichiers_de_la_page();
+    let code: u64 = fichiers.iter().filter(|f| !est_une_image(&f.nom)).map(|f| f.taille).sum();
+    assert!(code > 0, "la page n'a aucun fichier de code");
+    assert!(code <= CODE_MAX, "le code de la page pèse {code} octets : {CODE_MAX} au plus");
+    let images: Vec<&etape_5_commun::FichierDePage> = fichiers.iter().filter(|f| est_une_image(&f.nom)).collect();
+    for image in &images {
+        assert!(image.taille <= IMAGE_MAX, "l'image {} pèse {} octets : {IMAGE_MAX} au plus", image.nom, image.taille);
+    }
+    let total: u64 = images.iter().map(|f| f.taille).sum();
+    assert!(total <= IMAGES_MAX, "les images de la page pèsent {total} octets : {IMAGES_MAX} au plus");
 }
