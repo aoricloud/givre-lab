@@ -1,13 +1,13 @@
 //! La vitrine (étape 5) : la DLA, les flocons de Reiter et (étape D3) le claquage diélectrique pilotés par des nombres seulement, pour une page web ; depuis l'étape V7 elle donne
 //! aussi, pour les modèles sur la grille hexagonale, une image nette (chaque case dessinée comme un hexagone lisse) ; depuis l'étape G3 elle fait aussi croître la neige de
-//! Gravner et Griffeath (étapes G1 et G2), réglée par quatre nombres ou par un jeu de réglages nommé d'après une figure de l'article.
+//! Gravner et Griffeath (étapes G1 et G2), réglée par quatre nombres ou par un jeu de réglages nommé d'après une figure de l'article ; depuis l'étape V8 elle donne enfin la masse cristalline de chaque case de la neige, en nombres (voir « La masse de chaque case »).
 //!
 //! Ce module est compilé deux fois : en natif (les tests appellent ses fonctions comme n'importe quelle fonction Rust) et en
 //! WebAssembly (`wasm32-unknown-unknown`, module sans importation). Chaque fonction `givre_*` est exportée sous son nom
 //! (`#[unsafe(no_mangle)] pub extern "C" fn`) et ne prend et ne rend que des nombres : un `u32` devient un `i32` côté
 //! WebAssembly (JavaScript le lit signé : `>>> 0` le relit non signé), un `f64` reste un `f64`. Il n'y a ni pointeur ni
-//! mémoire à manipuler côté JavaScript. **Trente-deux fonctions, ni plus ni moins** (les onze de l'étape 5, les quatre de l'étape Z1, voir
-//! « La mesure de la corrélation », les huit de l'étape D3, voir « La courbe D(η) à la demande », les quatre de l'étape V7, voir « L'image nette », et les cinq de l'étape G3, voir « La neige »), toutes de ce
+//! mémoire à manipuler côté JavaScript. **Trente-quatre fonctions, ni plus ni moins** (les onze de l'étape 5, les quatre de l'étape Z1, voir
+//! « La mesure de la corrélation », les huit de l'étape D3, voir « La courbe D(η) à la demande », les quatre de l'étape V7, voir « L'image nette », les cinq de l'étape G3, voir « La neige », et les deux de l'étape V8, voir « La masse de chaque case »), toutes de ce
 //! fichier ; aucune autre n'est exportée (le module exporte aussi `memory`, que la cible ajoute, et rien d'autre).
 //!
 //! **Aucune de ces fonctions ne panique, jamais** : une panique dans une `extern "C" fn` fait avorter le processus (le
@@ -79,7 +79,7 @@
 //! # Avant tout démarrage
 //!
 //! Tant que [`givre_demarrer`] n'a pas réussi une fois (ni [`givre_neige_demarrer`]), les fonctions qui rendent un entier rendent 0 (sauf [`givre_pixel`] et [`givre_nette_pixel`] :
-//! `u32::MAX`, [`givre_nette_preparer`] : le code 2, et [`givre_neige_reglage`] et [`givre_neige_mesure`] : `u32::MAX`), [`givre_compacite`] rend `NaN` et [`givre_avancer`] ne fait rien (rend 0). Ce contrat n'est éprouvé que par
+//! `u32::MAX`, [`givre_nette_preparer`] : le code 2, [`givre_neige_reglage`] et [`givre_neige_mesure`] : `u32::MAX`, [`givre_neige_masses_preparer`] : 0 et [`givre_neige_masse`] : `u32::MAX`), [`givre_compacite`] rend `NaN` et [`givre_avancer`] ne fait rien (rend 0). Ce contrat n'est éprouvé que par
 //! Node (`tests/etape_5/etat-wasm.mjs`, sur un module neuf) : en natif l'état global est déjà posé par les autres tests du
 //! processus. Pour l'image nette il l'est aussi en natif : `tests/etape_v7_neuf.rs` est un fichier d'**un seul test**, donc un processus neuf (le code 2, le tampon vide) ; pour la neige de même : `tests/etape_g3_neuf.rs` (les lecteurs à `u32::MAX`, un démarrage refusé qui ne démarre rien).
 //!
@@ -341,13 +341,93 @@
 //!
 //! **Ce que la neige de la vitrine n'est pas.** Ce n'est pas la neige de l'article à sa taille (400 à 600 cases de diamètre, 10 000 à 100 000 pas) : des stades précoces (25 à 62 de rayon) ; le mur est à nous ; ni le bruit `σ`, ni la 3D, ni la forme selon la température ; l'étiquette est notre classement. Aucun nombre publié n'est testé (l'article ne donne que des images et des réglages).
 //!
+//! # La masse de chaque case (étape V8)
+//!
+//! Deux fonctions de plus donnent à la page **la masse cristalline de chaque case de la neige**, en nombres : de quoi dessiner le cristal à la résolution de l'écran, avec une caméra libre, sans que le module rende l'image (l'image nette de V7 coûte, sous Node,
+//! de 20 à 180 ms selon sa taille). Elles ne calculent rien de neuf : c'est une lecture de `Neige::valeurs_du_cristal` (étape G1), rangée dans un tampon de l'état.
+//!
+//! - [`givre_neige_masses_preparer`]`()` prend un **instantané** des masses cristallines de la neige en cours, dans un tampon de l'état, et rend le **nombre de cases** : `3 R (R + 1) + 1`, soit 30 301 pour `R = 100`. Sans neige en cours (rien de démarré, ou le modèle
+//!   en cours n'est pas la neige : 0 à 7) elle rend 0 et **efface** le tampon. Elle seule calcule : `Neige::valeurs_du_cristal` recalcule un vecteur de 30 301 entiers, et le rappeler à chaque case rendrait la lecture quadratique.
+//! - [`givre_neige_masse`]`(i)` rend la **masse de la case `i`** de l'instantané (de 0 à `nombre − 1`), ou `u32::MAX` si `i` est hors du tampon (`i >= nombre`, `u32::MAX` compris) ou s'il n'y a pas d'instantané (aucune préparation depuis le dernier démarrage, ou la dernière a
+//!   rendu 0). **Une lecture ne recalcule rien et n'efface rien.** Aucune masse n'est `u32::MAX` (voir « L'unité »).
+//!
+//! **Quand l'instantané change.** Il garde l'état de la neige **tel qu'il était à sa préparation** : il n'en suit pas l'évolution.
+//!
+//! | appel | l'instantané |
+//! |---|---|
+//! | [`givre_neige_masses_preparer`] | est **remplacé** (la neige en cours, au temps où l'on est) ; **effacé** si elle rend 0 |
+//! | [`givre_neige_demarrer`] ou [`givre_demarrer`] qui réussit | est **effacé** (l'état est remplacé entièrement : [`givre_neige_masse`] rend `u32::MAX` jusqu'à la préparation suivante) |
+//! | [`givre_neige_demarrer`] ou [`givre_demarrer`] refusé | ne change pas (un refus ne change rien) |
+//! | [`givre_avancer`], même s'il joue des pas | **ne change pas** : l'instantané reste celui de la dernière préparation (la page qui veut les masses du temps où elle est rappelle [`givre_neige_masses_preparer`]) |
+//! | [`givre_nette_preparer`], [`givre_mesurer`], toutes les lectures | ne changent pas |
+//!
+//! **Ce que ces deux fonctions ne changent pas** : ni l'état de la neige, ni le temps, ni l'empreinte, ni l'image d'un pixel par case ([`givre_pixel`]), ni le tampon de l'image nette ([`givre_nette_pixel`]), ni les réglages et les mesures : octet pour octet. Les trente-deux fonctions
+//! d'avant rendent ce qu'elles rendaient (l'état, l'empreinte et l'image des modèles 0 à 7 et de la neige).
+//!
+//! **L'ordre canonique des cases** (celui de [`crate::reseau::Hexagone`], que `Neige::valeurs_du_cristal` suit). `R` est le rayon du domaine (100 pour toute neige de la vitrine). Les cases sont numérotées de 0 à `3 R (R + 1)` **rangée par rangée, `r` croissant de `−R` à `R`, et dans chaque
+//! rangée `q` croissant** ; la rangée `r` contient les `q` de `max(−R, −R − r)` à `min(R, R − r)` inclus, soit `2 R + 1 − |r|` cases. Autrement dit, l'indice `i` de la case `(q, r)` est le nombre de cases qui la précèdent dans cet ordre :
+//!
+//! ```text
+//! i = 0
+//! pour r de -R à R :
+//!     pour q de max(-R, -R - r) à min(R, R - r) :        la case d'indice i est (q, r)
+//!         i = i + 1
+//! ```
+//!
+//! La rangée `r = −R` a `R + 1` cases (de `q = 0` à `q = R`) ; la case d'indice 0 est `(0, −R)` ; la case `(0, 0)` (le germe, au centre) est celle d'indice `3 R (R + 1) / 2` (15 150 pour `R = 100`) ; la dernière, d'indice `3 R (R + 1)`, est `(0, R)` (la rangée `r = R` a ses `q` de `−R` à `0`). Pour `R = 1`, l'ordre est
+//! `(0, −1)`, `(1, −1)`, `(−1, 0)`, `(0, 0)`, `(1, 0)`, `(−1, 1)`, `(0, 1)`. Une case est dans le domaine si `max(|q|, |r|, |q + r|) <= R`. Les formules fermées : avec `debut = max(−R, −R − r)`, `i = avant(r) + (q − debut)` où `avant(r)`, le nombre de cases des rangées `−R` à `r − 1`, vaut
+//! `(R + r) (2 R + 1) − (R − r + 1) (R + r) / 2` pour `r < 0` et `R (3 R + 1) / 2 + r (2 R + 1) − r (r − 1) / 2` pour `r >= 0` (divisions exactes).
+//!
+//! **L'unité.** Soit `brut` le champ `.0` (un `i64 >= 0`) de la masse cristalline `c` d'une case **rattachée** (le `Fixe` Q31.32 : `c = brut / 2^32`) ; la masse d'une case **non rattachée** vaut 0. L'instantané contient, pour la case `i` :
+//!
+//! ```text
+//! masse(i) = brut >> 21      (le décalage arithmétique, c'est-à-dire floor(brut / 2^21) : on jette les 21 bits de poids faible)
+//!          = floor(c × 2048)
+//! ```
+//!
+//! L'unité est donc `2^-11 = 1/2048` de la masse d'une case de glace pleine (`c = 1` s'écrit 2048) : constante [`NEIGE_MASSE_DECALAGE`] = 21. Un `brut` négatif (il n'y en a pas : `c >= 0`) compterait pour 0, et une masse qui atteindrait ou dépasserait `u32::MAX` serait ramenée à `u32::MAX − 1` (la fonction est totale, et `u32::MAX` reste réservé à « pas de valeur ») : cela n'arrive jamais
+//! pour une neige de la vitrine, dont la masse totale reste sous `ρ × 30 301 + 1 < 31 000`, donc chaque masse sous `31 000 × 2048 < 2^27` ; sur les dix-neuf jeux nommés la plus grande masse mesurée est de l'ordre de 3 (soit 6 300 environ).
+//!
+//! **Le rapport au dégradé (pourquoi cette unité).** Le dégradé de [`crate::rendu_hex`] fait `t = min(valeur, plein) × 1024 / plein` (division entière) avec `valeur = brut` et `plein = `[`NEIGE_PLEIN`]` = 6 442 450 944 = 3 × 2^31` pour la neige, soit `t = floor(min(brut, 3 × 2^31) / (3 × 2^21))`. Comme `a = brut >> 21` et
+//! `3 × 2^31 = 3072 × 2^21`, **`t = floor(min(a, `[`NEIGE_MASSE_PLEIN`]`) / 3)` exactement** (`a = masse(i)`, [`NEIGE_MASSE_PLEIN`] = 3072 ; la division est entière, `t` va de 0 à 1024) : la couleur de l'image nette est une **fonction de la masse exportée**, sans arrondi à part. `2^-11` est la **plus grossière** des unités qui le permettent (une unité plus fine, `2^-12`, le permettrait aussi, avec des nombres deux fois plus grands ; une plus grossière, `2^-10`, ou des millionièmes ne le permettent pas : la frontière entre deux couleurs, `3/2048`, tombe au milieu d'une unité). La couleur est ensuite l'interpolation entière
+//! entre les cinq arrêts `t = 0, 256, 512, 768, 1024` : `(255, 255, 255)`, `(198, 219, 239)`, `(107, 174, 214)`, `(33, 113, 181)`, `(8, 48, 107)` ; pour `t < 1024`, `s = t / 256`, `f = t % 256` et `canal = (arret_s × (256 − f) + arret_(s+1) × f + 128) >> 8` ; pour `t = 1024` le dernier arrêt (voir `rendu_hex`, « Le dégradé »).
+//!
+//! **La géométrie** (celle de `rendu_hex`, « La géométrie »). Une case est un **hexagone à plat en haut** (côtés haut et bas horizontaux, sommets à gauche et à droite), de côtés à la distance 1/2 de son centre : l'écart entre deux cases voisines vaut 1 (l'unité de la vue). Dans l'image, `X` croît vers la droite et `Y` vers le **bas**, l'origine
+//! est le centre de la case `(0, 0)`, et le centre de la case `(q, r)` est
+//!
+//! ```text
+//! X = -(√3 / 2) · r          Y = -(q + r / 2)          (un bras vers le haut : la direction (1, 0) est vers le haut)
+//! ```
+//!
+//! `√3` n'est **jamais calculé** : on lit l'inverse rationnel `1 / √3 ≈ A / B` avec `A = 1 239 850 262` et `B = 2 147 483 647` (`B = 2^31 − 1`), ce qui rend tout le calcul exact en entiers.
+//!
+//! **De la masse à l'image nette** (de quoi retrouver, pixel pour pixel, `givre_nette_pixel` à partir des seules masses ; la page le fait à la résolution et avec la caméra qu'elle veut, en changeant `cote`, `V` et le centre). L'image nette de la neige est celle de `rendre` (V7, G3) avec le rayon du domaine `R`, la vue `V` = `R · 65 / 100 + 4` (69),
+//! `cote` pair et `sur` : `N = cote × sur` ; pour le pixel `(px, py)` (colonne, ligne, de haut en bas, à partir de 0) et chaque échantillon `(i, j)` de `0` à `sur − 1`, `a = px × sur + i`, `b = py × sur + j`, `xs = 2 a + 1 − N`, `ys = 2 b + 1 − N`, `nx = xs (2 V + 1)`, `ny = ys (2 V + 1)` ; puis, en entiers
+//! (des `i64` suffisent : `|nx|` et `|ny|` sont sous `2^20` pour `V = 69` et `N <= 4096`, et `A`, `B < 2^31`),
+//!
+//! ```text
+//! Qn = -ny × B + nx × A     Rn = -2 × nx × A     Sn = ny × B + nx × A     M = 2 × N × B
+//! arrondi(Z) = floor((2 Z + M) / (2 M))                         (la division est euclidienne : le quotient est arrondi vers moins l'infini)
+//! rq, rr, rs = arrondi(Qn), arrondi(Rn), arrondi(Sn)           dq, dr, ds = |rq M − Qn|, |rr M − Rn|, |rs M − Sn|
+//! si dq > dr et dq > ds : rq = −rr − rs ;  sinon si dr > ds : rr = −rq − rs                  la case de l'échantillon est (rq, rr)
+//! ```
+//!
+//! L'échantillon est **blanc** `(255, 255, 255)` si `max(|rq|, |rr|, |rq + rr|) > R` ; sinon sa couleur est celle du dégradé de `t` calculé sur la masse de la case `(rq, rr)` (d'indice `i` ci-dessus). Le pixel est, **pour chaque canal**, `(somme des échantillons + sur² / 2) / sur²` (division entière) : les octets R, V, B de `givre_nette_pixel`.
+//! Les nombres `Qn`, `Rn`, `Sn` et `M` dépassent `2^53` pour une vue ou une image plus grandes (un calcul en `f64` de JavaScript y perd des bits : `BigInt`) ; pour `V = 69` et `N <= 4096` `Qn`, `Rn`, `Sn`, `M` et `2 Z + M` restent sous `2^52`.
+//!
+//! **Hors de portée et cas.** Avant tout démarrage : [`givre_neige_masses_preparer`] rend 0 et [`givre_neige_masse`] rend `u32::MAX`. Pour un modèle de 0 à 7 : la préparation rend 0 et efface, la lecture rend `u32::MAX`. Pour une neige jamais préparée : `u32::MAX`. Après la fin du scénario (la durée ou le mur) : la préparation rend encore le nombre de cases
+//! et l'instantané est l'état final. `i >= nombre`, jusqu'à `u32::MAX` : `u32::MAX`. **Aucune panique, jamais**, pour aucun `i`.
+//!
+//! **Le coût** (natif, `release`, médiane de 21 mesures sur le jeu 6 à 412 pas : `MODELE.md`, étape V8 ; le module sous Node : voir la fin du paragraphe) : une préparation recalcule 30 301 entiers et coûte 0,14 ms ; 30 301 lectures de [`givre_neige_masse`] (chacune un accès au tampon sous le verrou de l'état) coûtent 0,35 ms ; pour comparer, l'image nette `(384, 2)` préparée et lue pixel par pixel coûte 13,7 ms.
+//! Le module WebAssembly, sous Node 20 (mesuré par le pilote sur la VM de preuve, Linux, le module reconstruit avec le prototype) : une préparation 0,07 ms, 30 301 lectures 0,27 ms, l'image nette `(384, 2)` préparée et lue 28,6 ms : lire toutes les masses coûte cent fois moins que faire rendre l'image par le module.
+//!
 //! # Hors de portée
 //!
 //! [`givre_pixel`] rend `u32::MAX` hors de l'image ; [`givre_empreinte_mot`] rend 0 pour `i >= 8` ; [`givre_demarrer`] rend 0
 //! pour un modèle qui n'existe pas (et ne change rien : tout modèle au-delà de 7) ; [`givre_avancer`] ne joue rien au-delà de la durée ; les
 //! fonctions de la courbe sont dites plus haut (`NaN` hors de `η` de 0 à 3, code 5 sans travail) ; [`givre_nette_pixel`] rend `u32::MAX` hors du tampon, et
 //! [`givre_nette_preparer`] rend un code (jamais une panique) pour un `cote` ou un `sur` absurde, `u32::MAX` compris ; les cinq fonctions de la neige rendent un code ou `u32::MAX` (jamais une panique) pour un
-//! jeu, un réglage ou un champ absurde, `u32::MAX` compris (voir « La neige »).
+//! jeu, un réglage ou un champ absurde, `u32::MAX` compris (voir « La neige ») ; [`givre_neige_masse`] rend `u32::MAX` pour un `i` hors du tampon, `u32::MAX` compris (voir « La masse de chaque case »).
 //!
 //! # La page
 //!
@@ -355,7 +435,8 @@
 //! en tête de `tests/etape_5_page.rs` et, pour l'image nette (le canvas des modèles sur la grille hexagonale, qui n'a **pas** `image-rendering: pixelated`, et celui des modèles carrés, qui
 //! l'a), de `tests/etape_v7_page.rs` et, pour la neige (le panneau, les quatre curseurs, le menu des jeux nommés, les textes), de `tests/etape_g3_page.rs`. `lecture.js` (l'empreinte, l'image, l'image nette et la graine que la page lit, sans DOM) est éprouvé
 //! sous Node contre le code natif ; le reste de la page ne l'est que par sa forme : voir « Ce que cela n'établit pas » dans
-//! `MODELE.md`.
+//! `MODELE.md`. **Depuis l'étape V8, ces tests lisent tous les fichiers de `docs/`** (HTML et scripts en ligne, feuilles de style, scripts, workers, polices et images) et ne figent plus l'écriture de la page : elle peut être réécrite (un tiroir de réglages, des polices en `data:`,
+//! des liens, un SVG, des workers qui calculent hors du fil de la page) tant qu'elle tient ses promesses (voir `MODELE.md`, étape V8, « Ce que les tests de la page figent, et ce qu'ils ne figent plus »).
 //!
 //! # Un conseil d'écriture (pas une règle : seule la description ci-dessus est imposée)
 //!
@@ -373,6 +454,9 @@
 //! Pour la neige : une variante de plus de l'`enum` (la neige et le numéro de son jeu), donc un bras de plus dans chaque `match` sur le modèle (l'image, le temps, `givre_avancer`, les sites, le rayon, la compacité, l'empreinte, `givre_mesurer`, la préparation de l'image nette) ; rien d'autre ne change dans ces fonctions
 //! (`givre_mesurer` rend 0 pour une neige et n'efface pas le tampon ; le tampon et l'image d'un pixel par case se refont aux mêmes endroits que pour un flocon). Deux `Parametres` existent (celui du flocon, celui de la neige) : en renommer un à l'importation. Clippy refuse un type écrit trop long
 //! (`type_complexity` : un `match` plutôt qu'un tableau de fonctions) et une comparaison de bornes à la main (`manual_range_contains`).
+//!
+//! Pour les masses (étape V8) : un champ de plus de l'état, `masses: Option<Vec<u32>>`, rempli par [`givre_neige_masses_preparer`] (`neige.valeurs_du_cristal()` puis, pour chaque `brut`, `u32::try_from(brut.max(0) >> NEIGE_MASSE_DECALAGE)` ramené à `u32::MAX - 1` s'il ne tient pas), **à `None` à la construction de tout état** (donc à tout démarrage réussi : `Etat { …, masses: None }` dans [`givre_demarrer`] et [`givre_neige_demarrer`]) et **nulle part ailleurs**
+//! (ni [`givre_avancer`], ni la préparation de l'image nette, ni `givre_mesurer` ne le touchent : le tampon des masses n'est pas celui de l'image nette, qui s'efface quand l'état avance). Ces deux fonctions ne prennent pas d'autre verrou que celui de l'état ; [`givre_neige_masse`] est un `Option::get` sur le tampon.
 
 use std::sync::{Mutex, MutexGuard};
 
@@ -453,6 +537,12 @@ pub const NEIGE_MARGE_VUE: u32 = 4;
 
 /// La masse cristalline qui donne le bleu le plus foncé de l'image nette de la neige : 1,5, soit `6 442 450 944` en `brut` (voir « Le champ dessiné de la neige »).
 pub const NEIGE_PLEIN: i64 = 6_442_450_944;
+
+/// Le nombre de bits que [`givre_neige_masse`] jette du `brut` de la masse cristalline : 21, soit l'unité `2^-11 = 1/2048` (voir « La masse de chaque case »).
+pub const NEIGE_MASSE_DECALAGE: u32 = 21;
+
+/// La masse (en unités de `2^-11`) qui donne le bleu le plus foncé de l'image nette de la neige : `NEIGE_PLEIN >> 21 = 3072` (soit 1,5 ; voir « La masse de chaque case »).
+pub const NEIGE_MASSE_PLEIN: u32 = 3072;
 
 /// Le seul état de la vitrine ; `None` avant tout démarrage réussi.
 static ETAT: Mutex<Option<Etat>> = Mutex::new(None);
@@ -1221,4 +1311,19 @@ pub extern "C" fn givre_neige_mesure(champ: u32) -> u32 {
             Forme::Fougere => 4,
         },
     }
+}
+
+/// Prend un instantané des masses cristallines de la neige en cours (`Neige::valeurs_du_cristal`, dans l'ordre canonique, chacune ramenée à `brut >> 21`) dans le tampon de l'état et rend le nombre de cases (`3 R (R + 1) + 1` : 30 301 pour `R = 100`) ; sans neige en cours (rien de démarré, ou un autre
+/// modèle) rend 0 et efface le tampon. Ne change ni l'état, ni le temps, ni l'empreinte, ni l'image d'un pixel par case, ni l'image nette. Ne panique jamais (voir « La masse de chaque case »).
+#[allow(unused_variables)]
+#[unsafe(no_mangle)]
+pub extern "C" fn givre_neige_masses_preparer() -> u32 {
+    todo!("étape V8 : givre_neige_masses_preparer")
+}
+
+/// La masse de la case `i` de l'instantané des masses (`valeurs_du_cristal()[i] >> 21`, en unités de `2^-11`), ou `u32::MAX` si `i` est hors du tampon ou s'il n'y a pas d'instantané. Ne recalcule rien et n'efface rien. Ne panique jamais (voir « La masse de chaque case »).
+#[allow(unused_variables)]
+#[unsafe(no_mangle)]
+pub extern "C" fn givre_neige_masse(i: u32) -> u32 {
+    todo!("étape V8 : givre_neige_masse")
 }
