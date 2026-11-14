@@ -20,7 +20,7 @@ toute main. Le plan est dans `FEUILLE-DE-ROUTE.md` ; chaque modèle, ses équati
      peut différer d'un système à l'autre : ni `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `exp2`,
      `ln`, `log`, `log2`, `log10`, `powf`, `powi`, `hypot`, `cbrt`, `mul_add`, `sinh`, `cosh`, `tanh`. Ce qu'il faut de
      plus s'écrit dans le module `math` : des tables, ou des versions écrites avec `+ - * /` seulement ;
-   - là où une symétrie doit être exacte, des entiers ou de la virgule fixe, jamais des flottants ;
+   - là où une symétrie doit être exacte, des entiers ou de la virgule fixe ; ou des `f64`, à deux conditions : chaque somme ou produit de termes qu'une symétrie échange s'écrit par paires, pour que la symétrie n'échange que les deux opérandes d'un même `+` ou `*` (`a + b` et `b + a` sont le même flottant), par exemple `(e + o) + (n + s)` et jamais `((e + o) + n) + s` ; et un test montre la symétrie au bit près ;
    - aucune `HashMap` ni aucun `HashSet` parcourus : des `Vec` ou des `BTreeMap` ;
    - un ordre de mise à jour fixe, sans horloge ni fil d'exécution dans la simulation.
 3. **La preuve, c'est l'état et les nombres** : l'empreinte de l'état simulé, par scénario et par graine
