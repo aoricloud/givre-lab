@@ -17,6 +17,7 @@ pub mod lancer;
 pub mod math;
 pub mod mesures;
 pub mod neige;
+pub mod phase;
 pub mod rendu;
 pub mod rendu_hex;
 pub mod reseau;
