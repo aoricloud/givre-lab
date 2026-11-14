@@ -169,7 +169,9 @@ impl Parametres {
     /// `a = (dx * dx) / (2.0 * d)`, `b = (tau * (dx * dx)) / (2.0 * (w * w) + dx * dx)`, `a.min(b)` (le `min` de `f64` : si
     /// l'un des deux est NaN, l'autre est rendu). Les réglages sont supposés valides.
     pub fn dt_max(&self) -> f64 {
-        todo!()
+        let a = (self.dx * self.dx) / (2.0 * self.d);
+        let b = (self.tau * (self.dx * self.dx)) / (2.0 * (self.w * self.w) + self.dx * self.dx);
+        a.min(b)
     }
 
     /// Vérifie les réglages, en trois temps, dans cet ordre :
@@ -183,8 +185,28 @@ impl Parametres {
     ///
     /// Le pas `dt = dt_max()` est accepté : la borne est nécessaire, pas suffisante (voir « La stabilité » dans la doc du
     /// module).
+    #[allow(clippy::neg_cmp_op_on_partial_ord)] // `!(v <= borne)` refuse NaN, là où `v > borne` l'accepterait
     pub fn verifier(&self) -> Result<(), ErreurPhase> {
-        todo!()
+        for (nom, v) in
+            [("w", self.w), ("tau", self.tau), ("lambda", self.lambda), ("d", self.d), ("dx", self.dx), ("dt", self.dt)]
+        {
+            if !(v.is_finite() && v > 0.0) {
+                return Err(ErreurPhase::ParametreInvalide(nom));
+            }
+        }
+        let r = self.dt / self.tau;
+        let c_phi = (self.w * self.w) / (self.dx * self.dx);
+        let c_u = (self.d * self.dt) / (self.dx * self.dx);
+        for (nom, v) in [("c_phi", c_phi), ("c_u", c_u), ("r", r), ("lambda", self.lambda)] {
+            if !(v <= 1_048_576.0) {
+                return Err(ErreurPhase::ParametreInvalide(nom));
+            }
+        }
+        let m = self.dt_max();
+        if !(self.dt <= m) {
+            return Err(ErreurPhase::PasInstable { dt: self.dt, dt_max: m });
+        }
+        Ok(())
     }
 }
 
