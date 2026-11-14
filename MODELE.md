@@ -1413,3 +1413,98 @@ Aucune valeur publiée n'est testée (la masse de chaque case n'est pas dans l'a
 - **Qu'un réglage écrit sous une autre forme (une fraction, `4e-1`, un produit) soit vu**, ni qu'un réglage commun avec une constante de dessin (`0.5`, `0.05`, `0.1`) le soit hors d'un nom de réglage devant un `:` ou un `=` ; **qu'une adresse composée** (`"https:" + "//…"`) **soit vue** ; un `${…}` d'un gabarit n'est pas analysé (le gabarit va jusqu'à l'accent grave suivant) ; **qu'un canvas reçoive l'`id` `vitrine` par une valeur calculée** (`el.id = nom`) ; **que `#vitrine`, qui peut rester pixélisé, ne montre pas une neige** (aucun test ne sait quel canvas montre quoi) ; qu'un mot interdit affiché par une image, ou composé par morceaux, soit vu ; qu'une ressource chargée par `setAttribute("src", …)` ou par une adresse tenue dans une variable le soit.
 - **Que le budget soit juste** : 384 Kio pour le code est un choix (le brief disait 320 Kio ; le guide liste huit fontes (Inter 400/500/600/700, JetBrains Mono 400/500, EB Garamond italique 400/500) d'environ 25 Ko, en `data:` : en base64, quatre pèsent 133 000 octets et huit 267 000 ; avec les 55 606 octets de la page d'aujourd'hui et des workers, huit fontes font de l'ordre de 350 000 octets, plus que 320 Kio = 327 680 octets : 384 Kio = 393 216 octets laisse de la marge ; **mesuré à part : rien**, les fontes ne sont pas dans le dépôt, ces chiffres sont ceux du guide) ; 300 000 octets par image et 600 000 en tout sont ceux du brief.
 - **Les trois identifiants que la page garde sans que les tests les exigent** (`valeur-vitesse`, `mesures`, `etat`) : ils ne sont pas dans la liste (aucun test ne les demandait).
+
+## Étape P1 : le front droit du champ de phase, en 1D (le flottant contre la virgule fixe, et la règle des nombres)
+
+P1 ouvre le métal par champ de phase (P1 à P4). Avant la dendrite (P2), elle répond à une question : dans le cas le plus simple, un front
+de solidification droit en 1D, le calcul en `f64` retrouve-t-il les solutions exactes aussi bien que la virgule fixe, sans perdre le
+déterminisme ni la symétrie ? Le module `src/phase.rs` calcule le même schéma deux fois (`Front1d` en `f64`, `Front1dFixe` en `Fixe`
+Q31.32) et une diffusion 2D (`Diffusion2d`) qui sert de preuve à la règle des nombres.
+
+### Le modèle
+
+Karma et Rappel, Phys. Rev. E 57, 4323 (1998), dans la forme sans anisotropie : `τ ∂φ/∂t = W² ∂²φ/∂x² + φ - φ³ - λ u (1 - φ²)²`,
+`∂u/∂t = D ∂²u/∂x² + ½ ∂φ/∂t`, `φ = +1` solide, `-1` liquide, `u` la température sans dimension (`u < 0` : surfondu). Profil au repos :
+`φ0 = -tanh(x / (W√2))`. Interface mince : `d0 = a1 W / λ`, `β = a1 (τ / (λ W) - a2 W / D)`, `a1 = 5√2/8`, `a2 = 47/75`. L'article de 1998
+n'a pas pu être ouvert ; les équations ont été lues dans Karma et Rappel 1999 (arXiv cond-mat/9902017, éq. 41 et 42), les formules de
+l'interface mince dans Karma 2001 (arXiv cond-mat/0103289, éq. 5 et 6, « identiques à celles de Karma et Rappel ») et dans Kim, Provatas,
+Goldenfeld et Dantzig (arXiv cond-mat/9810189, table 1 : `a1 = 5/(4√2)`, `a2 = 47/75`) ; `a1` et `a2` ont été recalculés par leurs
+intégrales. Le schéma est explicite : laplacien à trois points, Euler, bords sans flux, **tout l'ordre des opérations est dans la doc de
+`src/phase.rs`** (un simulateur naïf dans les tests et un second prototype écrit d'après la seule doc donnent les mêmes bits).
+
+### Les trois cas exacts, et ce qu'on mesure (valeurs : `references/etape-p1-valeurs.md`)
+
+| Cas | Ce qu'on compare | Écart observé (`f64` ; `Fixe` le suit à 6e-6 près au pire) |
+|---|---|---|
+| 1. front au repos (`u = 0`, `W = 1,25`) | `max |φ - φ0|` | `dx` 1 ; 0,5 ; 0,25 ; 0,125 : 1,668e-2 ; 4,375e-3 ; 1,119e-3 ; 2,815e-4 (ordre 2 : rapports 3,8 ; 3,9 ; 4,0) |
+| 2. front poussé (`u = -Δ` gelé) | `v / v_exacte - 1`, `v_exacte` la vitesse de l'onde progressive du modèle, calculée à part à tout ordre en `λΔ` | `dx` 0,5 ; 0,25 ; 0,125 : -8,2e-3 ; -2,0e-3 ; -5,1e-4 (`λΔ = 0,1`) et -1,86e-2 ; -4,7e-3 ; -1,16e-3 (`λΔ = 1`) : ordre 2 (rapports 3,8 à 4,1) |
+| 3. front de Neumann (`β = 0`, `λ = D τ / (a2 W²) = 4,787`, `τ = 2 W²`) | `X / (2k√(D t)) - 1` | `Δ` = 0,25 ; 0,5 ; 0,75 (`k` = 0,168 999 042 462 ; 0,432 751 599 366 ; 0,971 850 282 583) : -1,9e-4 ; +2,9e-4 ; +1,19e-2 à `W` = 1, `dx` = 0,25 ; +1,4e-3 à `Δ` = 0,75, `W` = 0,5 |
+
+Le cas 2 : la formule de l'article, `v = λ Δ W / (a1 τ)`, est le premier ordre en `λΔ` ; la vitesse exacte s'en écarte de `-0,144 (λΔ)²`
+aux petits `λΔ` (-0,14 % à 0,1 ; -1,2 % à 0,3 ; -9,8 % à 1). Le cas 3 n'est exact que dans la limite de l'interface mince : son écart ne
+vient ni de `dx` ni de `dt`, il grandit avec `λ` et avec la vitesse du front (`τ V / W`), et diminue avec `W` à `λ` fixé (à `Δ` = 0,75 :
++2,8 % à `W` = 2, +0,9 % à `W` = 1, +0,14 % à `W` = 0,5). À `τ` fixé, diviser `W` par 2 multiplie `λ` par 4 et l'écart par 6 (+5,9 % à
+`W` = 0,5, `τ` = 2) : c'est le piège à éviter en P2 (`τ` suit `W²`). Ce n'est pas un défaut du flottant ni de la virgule fixe : ils donnent
+la même chose.
+
+### Flottant contre virgule fixe (la mesure qui décide, sans que le banc ait décidé)
+
+- **Précision** : sur ces trois cas, à `dt/τ` de 1e-2 à 1e-3, `Fixe` et `f64` s'accordent à 1e-9 – 3e-8 (repos, front poussé) et à 6e-6
+  (Neumann), loin sous l'erreur de discrétisation (3e-4 à 2e-2). L'écart `Fixe` - `f64` croît **comme `1/dt`** : au repos, `dx = 0,25`, il
+  vaut 8,3e-9 (`dt/τ` = 9,8e-3), 9,6e-8 (9,8e-4), 9,7e-7 (9,8e-5) et 9,8e-6 (9,8e-6), soit 1 % de l'erreur de discrétisation (1,12e-3) au
+  pas le plus fin : l'arrondi de chaque incrément (au pas de `2^-32` ≈ 2,3e-10) s'accumule.
+- **Symétrie** : `f64` écrit par paires garde le miroir (pair et impair) au bit près sur 2000 pas ; `Fixe` garde le miroir pair mais
+  **pas le miroir impair** (`φ → -φ`) dès que `u` est joué : son produit arrondit les demi-cas vers +∞. La symétrie d'une dendrite (un
+  miroir sans changement de signe) n'est pas touchée.
+- **Division** : `Fixe` n'a pas de division de deux `Fixe` (seulement `rapport(i64, i64)` et `div_entier`) : il faudrait l'écrire en
+  `i128` pour la `1/|∇φ|⁴` de l'anisotropie de P2. Ce schéma n'en a pas besoin : `W²/dx²`, `D dt/dx²`, `dt/τ` sont calculées une fois en
+  `f64` puis converties.
+- **Débordement** : `Fixe` déborde hors de `[-2^31, 2^31[` ; la bibliothèque rend `Err(Debordement)` au lieu de paniquer. `W²/dx²` et `λ`
+  sont limités à `2^20`.
+- **Coût** : le même schéma, profil de test (`opt-level = 3`, débordements vérifiés), un PC Windows, une exécution : `Fixe` coûte 2,8 à
+  4,3 fois `f64` (repos `dx` = 0,125 : 35 ms contre 116 ms ; Neumann `dx` = 0,25 : 0,16 s contre 0,68 s).
+
+### La règle des nombres, et l'essai 2D (la preuve du changement d'`AGENTS.md`)
+
+La diffusion `∂c/∂t = ∇²c`, cinq points, `f64`, bord sans flux, depuis des graines aux huit symétries du carré (des flottants aux
+mantisses pleines) : écrite par paires, `(e + o) + (n + s)`, l'état garde les huit symétries **au bit près** à chaque pas (tests : cinq
+tailles, six graines, 300 pas ; mesure du juge : 2200 couples de graine, taille et pas de diffusion, aucun défaut). Écrite sans paires :
+`((e + o) + n) + s` perd dès le pas 1 six symétries sur sept (elle garde le miroir est-ouest, qui n'échange que les deux opérandes du
+premier `+`) ; `(e + n) + (o + s)` (des paires qui ne sont pas des opposées) en perd quatre ; `((e + n) + o) + s` les perd toutes. Pour
+information (pas un test gelé) : le pas isotrope complet `(φ, u)` en 2D, écrit par paires, garde les huit symétries au bit près (40
+germes, 600 pas) ; écrit sans paires, il les perd au pas 1. Trois limites de la règle, mesurées :
+
+- une **constante** commune à deux directions doit être calculée une seule fois : `k (e + o - 2c) + k' (n + s - 2c)` avec `k'` égal à `k`
+  à un arrondi près perd les rotations dès le pas 1, bien que chaque somme soit « par paires » ; c'est le test au bit près, seconde
+  condition de la règle, qui l'attrape ;
+- un terme placé **entre** deux paires les défait : `((e + o) - 4c) + (n + s)` perd les rotations (la règle l'interdit déjà : `e + o` et
+  `n + s` ne sont plus les deux opérandes d'un même `+`) ;
+- une symétrie qui **change le signe** a ses points fixes à zéro : `+0.0` et son image `-0.0` sont égaux mais n'ont pas les mêmes bits
+  (le miroir impair en 1D avec un nombre impair de cases). Une dendrite n'a pas de symétrie de ce genre.
+
+### La stabilité
+
+`verifier` refuse `dt > dt_max = min(dx²/(2D), τ dx²/(2W² + dx²))` : la borne linéaire de chaque équation prise seule. **Elle est
+nécessaire, pas suffisante.** Mesuré sur 3000 réglages tirés : à `dt = dt_max`, 28 % explosent (5 % même pour `λ max|u| < 0,5`) ; à
+`dt_max / 2`, aucun pour `λ max|u| < 2`, 19 % au-delà ; à la moitié de la borne couplée
+`min(dt_max, 2τ / (4W²/dx² + 2 + 1,54 λ max|u|), 1 / (2D/dx² + λ/(4τ)))`, aucun. Le modèle lui-même borne `λ|u|` : pour `u < 0`, le
+solide `φ = 1` n'est stable que jusqu'à `φ ≈ 1 + 1/(2 λ|u|)`. Une explosion rend `Err(Debordement)`, jamais une panique.
+
+### Ce que cela n'établit pas
+
+- Rien sur la 2D de `(φ, u)` au-delà de l'essai d'information (non gelé) : la dendrite et l'anisotropie (P2, P3), la vitesse de pointe
+  de Kim et coll. (P2) ; la page (P4) ; un maillage qui s'affine.
+- L'accord avec l'article de 1998 lui-même (non ouvert : ses formules sont lues dans trois articles qui le reprennent) ; le résultat de
+  Carslaw et Jaeger (non ouvert : la solution de Neumann est dérivée à la main et vérifiée par ses résidus).
+- Le cas 3 hors de sa zone : un `λ` plus grand, un `Δ` plus proche de 1, la limite `W → 0` (deux valeurs de `W` seulement) ; sa
+  tolérance à `Δ` = 0,75 est le reste de l'interface mince, mesuré, pas une borne démontrée.
+- Une borne de stabilité suffisante : la zone sûre est mesurée (3000 réglages), pas démontrée ; `verifier` accepte des pas qui explosent.
+- La convergence en `dt` (aucun test ne fait varier `dt` pour un même `dx` ; mesuré une fois : l'erreur en `dt` est un tiers de l'écart
+  du cas 2 à `λΔ = 1`).
+- La symétrie de `Fixe` pour un changement de signe : perdue (mesuré, et montré à la main sur un demi-cas).
+- Le déterminisme hors de Linux et Windows sur x86-64 : les empreintes viennent d'un calcul en rationnels exacts (la définition de
+  l'IEEE 754) et le code n'emploie que `+ - * /` ; wasm suit la même norme mais n'a pas été rejoué pour ce module (il n'est pas dans la
+  page), et une cible sans SSE2 (x87) arrondirait autrement.
+- Que le flottant « suffit » pour P2 : rien ne dit ce qui arrive avec l'anisotropie (une division par `|∇φ|⁴`, des dérivées croisées,
+  leur écriture par paires) ; P1 dit seulement qu'en 1D il retrouve les solutions exactes aussi bien que `Fixe`, plus vite, et que
+  l'écriture par paires garde les symétries d'un pas isotrope.
