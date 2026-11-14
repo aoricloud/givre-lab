@@ -545,16 +545,41 @@ impl Diffusion2d {
     /// `depart.len() != n * n` (aussi quand `n * n` déborde un `usize` : jamais de panique, `n.checked_mul(n)`) ;
     /// `ParametreInvalide("k")` ; `ValeurDeDepart`. Dans cet ordre.
     pub fn new(n: usize, k: f64, depart: &[f64]) -> Result<Diffusion2d, ErreurPhase> {
-        todo!()
+        if n < 2 {
+            return Err(ErreurPhase::GrilleTropPetite(n));
+        }
+        if n.checked_mul(n) != Some(depart.len()) {
+            return Err(ErreurPhase::LongueursDifferentes);
+        }
+        if !(k.is_finite() && k > 0.0 && k <= 0.25) {
+            return Err(ErreurPhase::ParametreInvalide("k"));
+        }
+        if depart.iter().any(|v| !v.is_finite()) {
+            return Err(ErreurPhase::ValeurDeDepart);
+        }
+        Ok(Diffusion2d { n, k, c: depart.to_vec() })
     }
 
     /// Fait un pas (la doc du type).
     pub fn pas(&mut self) {
-        todo!()
+        let n = self.n;
+        let mut c2: Vec<f64> = Vec::with_capacity(n * n);
+        for i in 0..n {
+            for j in 0..n {
+                let x = self.c[i * n + j];
+                let est = if j + 1 < n { self.c[i * n + j + 1] } else { x };
+                let ouest = if j > 0 { self.c[i * n + j - 1] } else { x };
+                let nord = if i > 0 { self.c[(i - 1) * n + j] } else { x };
+                let sud = if i + 1 < n { self.c[(i + 1) * n + j] } else { x };
+                let somme = (est + ouest) + (nord + sud);
+                c2.push(x + self.k * (somme - 4.0 * x));
+            }
+        }
+        self.c = c2;
     }
 
     /// Les valeurs, ligne par ligne.
     pub fn cellules(&self) -> &[f64] {
-        todo!()
+        &self.c
     }
 }
