@@ -236,48 +236,116 @@ impl Front1d {
     /// celles de [`Parametres::verifier`] ; `GrilleTropPetite(n)` si `phi.len() < 3` ; `LongueursDifferentes` ;
     /// `ValeurDeDepart` si une valeur n'est pas finie. Zéro pas fait.
     pub fn new(p: Parametres, phi: &[f64], u: &[f64], mode: ModeU) -> Result<Front1d, ErreurPhase> {
-        todo!()
+        p.verifier()?;
+        if phi.len() < 3 {
+            return Err(ErreurPhase::GrilleTropPetite(phi.len()));
+        }
+        if phi.len() != u.len() {
+            return Err(ErreurPhase::LongueursDifferentes);
+        }
+        if phi.iter().chain(u.iter()).any(|v| !v.is_finite()) {
+            return Err(ErreurPhase::ValeurDeDepart);
+        }
+        Ok(Front1d { p, phi: phi.to_vec(), u: u.to_vec(), pas: 0, mode })
     }
 
     /// Fait `pas` pas de temps (le schéma de la doc du module) ; `Err(Debordement)` si une valeur n'est plus finie (voir la
     /// doc du module : l'état est celui d'avant le pas fautif).
     pub fn avancer(&mut self, pas: u64) -> Result<(), ErreurPhase> {
-        todo!()
+        let r = self.p.dt / self.p.tau;
+        let c_phi = (self.p.w * self.p.w) / (self.p.dx * self.p.dx);
+        let c_u = (self.p.d * self.p.dt) / (self.p.dx * self.p.dx);
+        let n = self.phi.len();
+        for _ in 0..pas {
+            let mut phi2: Vec<f64> = Vec::new();
+            let mut u2: Vec<f64> = Vec::new();
+            for i in 0..n {
+                let gauche = if i == 0 { self.phi[0] } else { self.phi[i - 1] };
+                let droite = if i + 1 == n { self.phi[n - 1] } else { self.phi[i + 1] };
+                let lap_phi = (gauche + droite) - 2.0 * self.phi[i];
+                let f = self.phi[i] - (self.phi[i] * self.phi[i]) * self.phi[i];
+                let q = 1.0 - self.phi[i] * self.phi[i];
+                let g = (self.p.lambda * self.u[i]) * (q * q);
+                let vitesse = c_phi * lap_phi + (f - g);
+                let dphi = r * vitesse;
+                phi2.push(self.phi[i] + dphi);
+                if self.mode == ModeU::Joue {
+                    let ug = if i == 0 { self.u[0] } else { self.u[i - 1] };
+                    let ud = if i + 1 == n { self.u[n - 1] } else { self.u[i + 1] };
+                    let lap_u = (ug + ud) - 2.0 * self.u[i];
+                    u2.push(self.u[i] + (c_u * lap_u + 0.5 * dphi));
+                } else {
+                    u2.push(self.u[i]);
+                }
+            }
+            if phi2.iter().chain(u2.iter()).any(|v| !v.is_finite()) {
+                return Err(ErreurPhase::Debordement);
+            }
+            self.phi = phi2;
+            self.u = u2;
+            self.pas = self.pas.saturating_add(1);
+        }
+        Ok(())
     }
 
     /// Le nombre de pas faits depuis le départ.
     pub fn pas_faits(&self) -> u64 {
-        todo!()
+        self.pas
     }
 
     /// Le temps écoulé : `pas_faits() as f64 * dt` (un produit, dans cet ordre).
     pub fn temps(&self) -> f64 {
-        todo!()
+        self.pas as f64 * self.p.dt
     }
 
     /// La phase `φ`, case 0 à `n - 1`.
     pub fn phi(&self) -> &[f64] {
-        todo!()
+        &self.phi
     }
 
     /// La température `u`, case 0 à `n - 1`.
     pub fn u(&self) -> &[f64] {
-        todo!()
+        &self.u
     }
 
     /// La position du front (voir la doc du module), ou `None`.
     pub fn position_front(&self) -> Option<f64> {
-        todo!()
+        let n = self.phi.len();
+        if n < 2 {
+            return None;
+        }
+        for i in 0..n - 1 {
+            if self.phi[i] > 0.0 && self.phi[i + 1] <= 0.0 {
+                return Some(
+                    ((i as f64 + 0.5) * self.p.dx) + self.p.dx * (self.phi[i] / (self.phi[i] - self.phi[i + 1])),
+                );
+            }
+        }
+        None
     }
 
     /// L'écriture canonique (voir la doc du module).
     pub fn ecriture_canonique(&self) -> Vec<u8> {
-        todo!()
+        let mut octets: Vec<u8> = Vec::new();
+        octets.extend_from_slice(b"P1F64\n");
+        octets.extend_from_slice(&(self.phi.len() as u64).to_le_bytes());
+        octets.extend_from_slice(&self.pas.to_le_bytes());
+        octets.push(match self.mode {
+            ModeU::Gele => 0,
+            ModeU::Joue => 1,
+        });
+        for x in &self.phi {
+            octets.extend_from_slice(&x.to_bits().to_le_bytes());
+        }
+        for x in &self.u {
+            octets.extend_from_slice(&x.to_bits().to_le_bytes());
+        }
+        octets
     }
 
     /// `sha256_hex(ecriture_canonique())`.
     pub fn empreinte(&self) -> String {
-        todo!()
+        crate::empreinte::sha256_hex(&self.ecriture_canonique())
     }
 }
 
