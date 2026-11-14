@@ -372,50 +372,146 @@ pub struct Front1dFixe {
     mode: ModeU,
 }
 
+/// Le produit arrondi de la virgule fixe, sans panique : `Some(brut)` si le résultat tient dans un `i64`.
+fn fois(a: i64, b: i64) -> Option<i64> {
+    i64::try_from((i128::from(a) * i128::from(b) + (1_i128 << 31)) >> 32).ok()
+}
+
+/// La somme de deux champs bruts, ou `Debordement`.
+fn somme(a: i64, b: i64) -> Result<i64, ErreurPhase> {
+    a.checked_add(b).ok_or(ErreurPhase::Debordement)
+}
+
+/// La différence de deux champs bruts, ou `Debordement`.
+fn difference(a: i64, b: i64) -> Result<i64, ErreurPhase> {
+    a.checked_sub(b).ok_or(ErreurPhase::Debordement)
+}
+
+/// Le produit arrondi de deux champs bruts, ou `Debordement`.
+fn produit(a: i64, b: i64) -> Result<i64, ErreurPhase> {
+    fois(a, b).ok_or(ErreurPhase::Debordement)
+}
+
 impl Front1dFixe {
     /// Comme [`Front1d::new`] ; en plus, `ValeurDeDepart` si une valeur de départ est de valeur absolue `>= 2^31`.
     pub fn new(p: Parametres, phi: &[f64], u: &[f64], mode: ModeU) -> Result<Front1dFixe, ErreurPhase> {
-        todo!()
+        p.verifier()?;
+        if phi.len() < 3 {
+            return Err(ErreurPhase::GrilleTropPetite(phi.len()));
+        }
+        if phi.len() != u.len() {
+            return Err(ErreurPhase::LongueursDifferentes);
+        }
+        if phi.iter().chain(u.iter()).any(|v| !v.is_finite() || v.abs() >= 2_147_483_648.0) {
+            return Err(ErreurPhase::ValeurDeDepart);
+        }
+        Ok(Front1dFixe {
+            p,
+            phi: phi.iter().map(|&v| Fixe::depuis_f64(v)).collect(),
+            u: u.iter().map(|&v| Fixe::depuis_f64(v)).collect(),
+            pas: 0,
+            mode,
+        })
     }
 
     /// Fait `pas` pas de temps ; `Err(Debordement)` si une opération sort de `[-2^31, 2^31[` (voir la doc du module).
     pub fn avancer(&mut self, pas: u64) -> Result<(), ErreurPhase> {
-        todo!()
+        let r = Fixe::depuis_f64(self.p.dt / self.p.tau).0;
+        let c_phi = Fixe::depuis_f64((self.p.w * self.p.w) / (self.p.dx * self.p.dx)).0;
+        let c_u = Fixe::depuis_f64((self.p.d * self.p.dt) / (self.p.dx * self.p.dx)).0;
+        let lambda = Fixe::depuis_f64(self.p.lambda).0;
+        let deux = Fixe::entier(2).0;
+        let un = Fixe::UN.0;
+        let demi = Fixe::depuis_f64(0.5).0;
+        let n = self.phi.len();
+        for _ in 0..pas {
+            let mut phi2: Vec<Fixe> = Vec::new();
+            let mut u2: Vec<Fixe> = Vec::new();
+            for i in 0..n {
+                let phi_i = self.phi[i].0;
+                let gauche = if i == 0 { self.phi[0].0 } else { self.phi[i - 1].0 };
+                let droite = if i + 1 == n { self.phi[n - 1].0 } else { self.phi[i + 1].0 };
+                let lap_phi = difference(somme(gauche, droite)?, produit(deux, phi_i)?)?;
+                let f = difference(phi_i, produit(produit(phi_i, phi_i)?, phi_i)?)?;
+                let q = difference(un, produit(phi_i, phi_i)?)?;
+                let g = produit(produit(lambda, self.u[i].0)?, produit(q, q)?)?;
+                let vitesse = somme(produit(c_phi, lap_phi)?, difference(f, g)?)?;
+                let dphi = produit(r, vitesse)?;
+                phi2.push(Fixe(somme(phi_i, dphi)?));
+                if self.mode == ModeU::Joue {
+                    let u_i = self.u[i].0;
+                    let ug = if i == 0 { self.u[0].0 } else { self.u[i - 1].0 };
+                    let ud = if i + 1 == n { self.u[n - 1].0 } else { self.u[i + 1].0 };
+                    let lap_u = difference(somme(ug, ud)?, produit(deux, u_i)?)?;
+                    u2.push(Fixe(somme(u_i, somme(produit(c_u, lap_u)?, produit(demi, dphi)?)?)?));
+                } else {
+                    u2.push(self.u[i]);
+                }
+            }
+            self.phi = phi2;
+            self.u = u2;
+            self.pas = self.pas.saturating_add(1);
+        }
+        Ok(())
     }
 
     /// Le nombre de pas faits.
     pub fn pas_faits(&self) -> u64 {
-        todo!()
+        self.pas
     }
 
     /// Le temps écoulé : `pas_faits() as f64 * dt`.
     pub fn temps(&self) -> f64 {
-        todo!()
+        self.pas as f64 * self.p.dt
     }
 
     /// La phase, case 0 à `n - 1`, en virgule fixe.
     pub fn phi(&self) -> &[Fixe] {
-        todo!()
+        &self.phi
     }
 
     /// La température, case 0 à `n - 1`, en virgule fixe.
     pub fn u(&self) -> &[Fixe] {
-        todo!()
+        &self.u
     }
 
     /// La position du front (voir la doc du module).
     pub fn position_front(&self) -> Option<f64> {
-        todo!()
+        let phi: Vec<f64> = self.phi.iter().map(|x| x.vers_f64()).collect();
+        let n = phi.len();
+        if n < 2 {
+            return None;
+        }
+        for i in 0..n - 1 {
+            if phi[i] > 0.0 && phi[i + 1] <= 0.0 {
+                return Some(((i as f64 + 0.5) * self.p.dx) + self.p.dx * (phi[i] / (phi[i] - phi[i + 1])));
+            }
+        }
+        None
     }
 
     /// L'écriture canonique (voir la doc du module : l'étiquette est `P1FIX\n`).
     pub fn ecriture_canonique(&self) -> Vec<u8> {
-        todo!()
+        let mut octets: Vec<u8> = Vec::new();
+        octets.extend_from_slice(b"P1FIX\n");
+        octets.extend_from_slice(&(self.phi.len() as u64).to_le_bytes());
+        octets.extend_from_slice(&self.pas.to_le_bytes());
+        octets.push(match self.mode {
+            ModeU::Gele => 0,
+            ModeU::Joue => 1,
+        });
+        for x in &self.phi {
+            octets.extend_from_slice(&x.0.to_le_bytes());
+        }
+        for x in &self.u {
+            octets.extend_from_slice(&x.0.to_le_bytes());
+        }
+        octets
     }
 
     /// `sha256_hex(ecriture_canonique())`.
     pub fn empreinte(&self) -> String {
-        todo!()
+        crate::empreinte::sha256_hex(&self.ecriture_canonique())
     }
 }
 
