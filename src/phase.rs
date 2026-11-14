@@ -169,7 +169,9 @@ impl Parametres {
     /// `a = (dx * dx) / (2.0 * d)`, `b = (tau * (dx * dx)) / (2.0 * (w * w) + dx * dx)`, `a.min(b)` (le `min` de `f64` : si
     /// l'un des deux est NaN, l'autre est rendu). Les réglages sont supposés valides.
     pub fn dt_max(&self) -> f64 {
-        todo!()
+        let a = (self.dx * self.dx) / (2.0 * self.d);
+        let b = (self.tau * (self.dx * self.dx)) / (2.0 * (self.w * self.w) + self.dx * self.dx);
+        a.min(b)
     }
 
     /// Vérifie les réglages, en trois temps, dans cet ordre :
@@ -183,8 +185,28 @@ impl Parametres {
     ///
     /// Le pas `dt = dt_max()` est accepté : la borne est nécessaire, pas suffisante (voir « La stabilité » dans la doc du
     /// module).
+    #[allow(clippy::neg_cmp_op_on_partial_ord)] // `!(v <= borne)` refuse NaN, là où `v > borne` l'accepterait
     pub fn verifier(&self) -> Result<(), ErreurPhase> {
-        todo!()
+        for (nom, v) in
+            [("w", self.w), ("tau", self.tau), ("lambda", self.lambda), ("d", self.d), ("dx", self.dx), ("dt", self.dt)]
+        {
+            if !(v.is_finite() && v > 0.0) {
+                return Err(ErreurPhase::ParametreInvalide(nom));
+            }
+        }
+        let r = self.dt / self.tau;
+        let c_phi = (self.w * self.w) / (self.dx * self.dx);
+        let c_u = (self.d * self.dt) / (self.dx * self.dx);
+        for (nom, v) in [("c_phi", c_phi), ("c_u", c_u), ("r", r), ("lambda", self.lambda)] {
+            if !(v <= 1_048_576.0) {
+                return Err(ErreurPhase::ParametreInvalide(nom));
+            }
+        }
+        let m = self.dt_max();
+        if !(self.dt <= m) {
+            return Err(ErreurPhase::PasInstable { dt: self.dt, dt_max: m });
+        }
+        Ok(())
     }
 }
 
@@ -214,48 +236,116 @@ impl Front1d {
     /// celles de [`Parametres::verifier`] ; `GrilleTropPetite(n)` si `phi.len() < 3` ; `LongueursDifferentes` ;
     /// `ValeurDeDepart` si une valeur n'est pas finie. Zéro pas fait.
     pub fn new(p: Parametres, phi: &[f64], u: &[f64], mode: ModeU) -> Result<Front1d, ErreurPhase> {
-        todo!()
+        p.verifier()?;
+        if phi.len() < 3 {
+            return Err(ErreurPhase::GrilleTropPetite(phi.len()));
+        }
+        if phi.len() != u.len() {
+            return Err(ErreurPhase::LongueursDifferentes);
+        }
+        if phi.iter().chain(u.iter()).any(|v| !v.is_finite()) {
+            return Err(ErreurPhase::ValeurDeDepart);
+        }
+        Ok(Front1d { p, phi: phi.to_vec(), u: u.to_vec(), pas: 0, mode })
     }
 
     /// Fait `pas` pas de temps (le schéma de la doc du module) ; `Err(Debordement)` si une valeur n'est plus finie (voir la
     /// doc du module : l'état est celui d'avant le pas fautif).
     pub fn avancer(&mut self, pas: u64) -> Result<(), ErreurPhase> {
-        todo!()
+        let r = self.p.dt / self.p.tau;
+        let c_phi = (self.p.w * self.p.w) / (self.p.dx * self.p.dx);
+        let c_u = (self.p.d * self.p.dt) / (self.p.dx * self.p.dx);
+        let n = self.phi.len();
+        for _ in 0..pas {
+            let mut phi2: Vec<f64> = Vec::new();
+            let mut u2: Vec<f64> = Vec::new();
+            for i in 0..n {
+                let gauche = if i == 0 { self.phi[0] } else { self.phi[i - 1] };
+                let droite = if i + 1 == n { self.phi[n - 1] } else { self.phi[i + 1] };
+                let lap_phi = (gauche + droite) - 2.0 * self.phi[i];
+                let f = self.phi[i] - (self.phi[i] * self.phi[i]) * self.phi[i];
+                let q = 1.0 - self.phi[i] * self.phi[i];
+                let g = (self.p.lambda * self.u[i]) * (q * q);
+                let vitesse = c_phi * lap_phi + (f - g);
+                let dphi = r * vitesse;
+                phi2.push(self.phi[i] + dphi);
+                if self.mode == ModeU::Joue {
+                    let ug = if i == 0 { self.u[0] } else { self.u[i - 1] };
+                    let ud = if i + 1 == n { self.u[n - 1] } else { self.u[i + 1] };
+                    let lap_u = (ug + ud) - 2.0 * self.u[i];
+                    u2.push(self.u[i] + (c_u * lap_u + 0.5 * dphi));
+                } else {
+                    u2.push(self.u[i]);
+                }
+            }
+            if phi2.iter().chain(u2.iter()).any(|v| !v.is_finite()) {
+                return Err(ErreurPhase::Debordement);
+            }
+            self.phi = phi2;
+            self.u = u2;
+            self.pas = self.pas.saturating_add(1);
+        }
+        Ok(())
     }
 
     /// Le nombre de pas faits depuis le départ.
     pub fn pas_faits(&self) -> u64 {
-        todo!()
+        self.pas
     }
 
     /// Le temps écoulé : `pas_faits() as f64 * dt` (un produit, dans cet ordre).
     pub fn temps(&self) -> f64 {
-        todo!()
+        self.pas as f64 * self.p.dt
     }
 
     /// La phase `φ`, case 0 à `n - 1`.
     pub fn phi(&self) -> &[f64] {
-        todo!()
+        &self.phi
     }
 
     /// La température `u`, case 0 à `n - 1`.
     pub fn u(&self) -> &[f64] {
-        todo!()
+        &self.u
     }
 
     /// La position du front (voir la doc du module), ou `None`.
     pub fn position_front(&self) -> Option<f64> {
-        todo!()
+        let n = self.phi.len();
+        if n < 2 {
+            return None;
+        }
+        for i in 0..n - 1 {
+            if self.phi[i] > 0.0 && self.phi[i + 1] <= 0.0 {
+                return Some(
+                    ((i as f64 + 0.5) * self.p.dx) + self.p.dx * (self.phi[i] / (self.phi[i] - self.phi[i + 1])),
+                );
+            }
+        }
+        None
     }
 
     /// L'écriture canonique (voir la doc du module).
     pub fn ecriture_canonique(&self) -> Vec<u8> {
-        todo!()
+        let mut octets: Vec<u8> = Vec::new();
+        octets.extend_from_slice(b"P1F64\n");
+        octets.extend_from_slice(&(self.phi.len() as u64).to_le_bytes());
+        octets.extend_from_slice(&self.pas.to_le_bytes());
+        octets.push(match self.mode {
+            ModeU::Gele => 0,
+            ModeU::Joue => 1,
+        });
+        for x in &self.phi {
+            octets.extend_from_slice(&x.to_bits().to_le_bytes());
+        }
+        for x in &self.u {
+            octets.extend_from_slice(&x.to_bits().to_le_bytes());
+        }
+        octets
     }
 
     /// `sha256_hex(ecriture_canonique())`.
     pub fn empreinte(&self) -> String {
-        todo!()
+        crate::empreinte::sha256_hex(&self.ecriture_canonique())
     }
 }
 
@@ -282,50 +372,146 @@ pub struct Front1dFixe {
     mode: ModeU,
 }
 
+/// Le produit arrondi de la virgule fixe, sans panique : `Some(brut)` si le résultat tient dans un `i64`.
+fn fois(a: i64, b: i64) -> Option<i64> {
+    i64::try_from((i128::from(a) * i128::from(b) + (1_i128 << 31)) >> 32).ok()
+}
+
+/// La somme de deux champs bruts, ou `Debordement`.
+fn somme(a: i64, b: i64) -> Result<i64, ErreurPhase> {
+    a.checked_add(b).ok_or(ErreurPhase::Debordement)
+}
+
+/// La différence de deux champs bruts, ou `Debordement`.
+fn difference(a: i64, b: i64) -> Result<i64, ErreurPhase> {
+    a.checked_sub(b).ok_or(ErreurPhase::Debordement)
+}
+
+/// Le produit arrondi de deux champs bruts, ou `Debordement`.
+fn produit(a: i64, b: i64) -> Result<i64, ErreurPhase> {
+    fois(a, b).ok_or(ErreurPhase::Debordement)
+}
+
 impl Front1dFixe {
     /// Comme [`Front1d::new`] ; en plus, `ValeurDeDepart` si une valeur de départ est de valeur absolue `>= 2^31`.
     pub fn new(p: Parametres, phi: &[f64], u: &[f64], mode: ModeU) -> Result<Front1dFixe, ErreurPhase> {
-        todo!()
+        p.verifier()?;
+        if phi.len() < 3 {
+            return Err(ErreurPhase::GrilleTropPetite(phi.len()));
+        }
+        if phi.len() != u.len() {
+            return Err(ErreurPhase::LongueursDifferentes);
+        }
+        if phi.iter().chain(u.iter()).any(|v| !v.is_finite() || v.abs() >= 2_147_483_648.0) {
+            return Err(ErreurPhase::ValeurDeDepart);
+        }
+        Ok(Front1dFixe {
+            p,
+            phi: phi.iter().map(|&v| Fixe::depuis_f64(v)).collect(),
+            u: u.iter().map(|&v| Fixe::depuis_f64(v)).collect(),
+            pas: 0,
+            mode,
+        })
     }
 
     /// Fait `pas` pas de temps ; `Err(Debordement)` si une opération sort de `[-2^31, 2^31[` (voir la doc du module).
     pub fn avancer(&mut self, pas: u64) -> Result<(), ErreurPhase> {
-        todo!()
+        let r = Fixe::depuis_f64(self.p.dt / self.p.tau).0;
+        let c_phi = Fixe::depuis_f64((self.p.w * self.p.w) / (self.p.dx * self.p.dx)).0;
+        let c_u = Fixe::depuis_f64((self.p.d * self.p.dt) / (self.p.dx * self.p.dx)).0;
+        let lambda = Fixe::depuis_f64(self.p.lambda).0;
+        let deux = Fixe::entier(2).0;
+        let un = Fixe::UN.0;
+        let demi = Fixe::depuis_f64(0.5).0;
+        let n = self.phi.len();
+        for _ in 0..pas {
+            let mut phi2: Vec<Fixe> = Vec::new();
+            let mut u2: Vec<Fixe> = Vec::new();
+            for i in 0..n {
+                let phi_i = self.phi[i].0;
+                let gauche = if i == 0 { self.phi[0].0 } else { self.phi[i - 1].0 };
+                let droite = if i + 1 == n { self.phi[n - 1].0 } else { self.phi[i + 1].0 };
+                let lap_phi = difference(somme(gauche, droite)?, produit(deux, phi_i)?)?;
+                let f = difference(phi_i, produit(produit(phi_i, phi_i)?, phi_i)?)?;
+                let q = difference(un, produit(phi_i, phi_i)?)?;
+                let g = produit(produit(lambda, self.u[i].0)?, produit(q, q)?)?;
+                let vitesse = somme(produit(c_phi, lap_phi)?, difference(f, g)?)?;
+                let dphi = produit(r, vitesse)?;
+                phi2.push(Fixe(somme(phi_i, dphi)?));
+                if self.mode == ModeU::Joue {
+                    let u_i = self.u[i].0;
+                    let ug = if i == 0 { self.u[0].0 } else { self.u[i - 1].0 };
+                    let ud = if i + 1 == n { self.u[n - 1].0 } else { self.u[i + 1].0 };
+                    let lap_u = difference(somme(ug, ud)?, produit(deux, u_i)?)?;
+                    u2.push(Fixe(somme(u_i, somme(produit(c_u, lap_u)?, produit(demi, dphi)?)?)?));
+                } else {
+                    u2.push(self.u[i]);
+                }
+            }
+            self.phi = phi2;
+            self.u = u2;
+            self.pas = self.pas.saturating_add(1);
+        }
+        Ok(())
     }
 
     /// Le nombre de pas faits.
     pub fn pas_faits(&self) -> u64 {
-        todo!()
+        self.pas
     }
 
     /// Le temps écoulé : `pas_faits() as f64 * dt`.
     pub fn temps(&self) -> f64 {
-        todo!()
+        self.pas as f64 * self.p.dt
     }
 
     /// La phase, case 0 à `n - 1`, en virgule fixe.
     pub fn phi(&self) -> &[Fixe] {
-        todo!()
+        &self.phi
     }
 
     /// La température, case 0 à `n - 1`, en virgule fixe.
     pub fn u(&self) -> &[Fixe] {
-        todo!()
+        &self.u
     }
 
     /// La position du front (voir la doc du module).
     pub fn position_front(&self) -> Option<f64> {
-        todo!()
+        let phi: Vec<f64> = self.phi.iter().map(|x| x.vers_f64()).collect();
+        let n = phi.len();
+        if n < 2 {
+            return None;
+        }
+        for i in 0..n - 1 {
+            if phi[i] > 0.0 && phi[i + 1] <= 0.0 {
+                return Some(((i as f64 + 0.5) * self.p.dx) + self.p.dx * (phi[i] / (phi[i] - phi[i + 1])));
+            }
+        }
+        None
     }
 
     /// L'écriture canonique (voir la doc du module : l'étiquette est `P1FIX\n`).
     pub fn ecriture_canonique(&self) -> Vec<u8> {
-        todo!()
+        let mut octets: Vec<u8> = Vec::new();
+        octets.extend_from_slice(b"P1FIX\n");
+        octets.extend_from_slice(&(self.phi.len() as u64).to_le_bytes());
+        octets.extend_from_slice(&self.pas.to_le_bytes());
+        octets.push(match self.mode {
+            ModeU::Gele => 0,
+            ModeU::Joue => 1,
+        });
+        for x in &self.phi {
+            octets.extend_from_slice(&x.0.to_le_bytes());
+        }
+        for x in &self.u {
+            octets.extend_from_slice(&x.0.to_le_bytes());
+        }
+        octets
     }
 
     /// `sha256_hex(ecriture_canonique())`.
     pub fn empreinte(&self) -> String {
-        todo!()
+        crate::empreinte::sha256_hex(&self.ecriture_canonique())
     }
 }
 
@@ -359,16 +545,41 @@ impl Diffusion2d {
     /// `depart.len() != n * n` (aussi quand `n * n` déborde un `usize` : jamais de panique, `n.checked_mul(n)`) ;
     /// `ParametreInvalide("k")` ; `ValeurDeDepart`. Dans cet ordre.
     pub fn new(n: usize, k: f64, depart: &[f64]) -> Result<Diffusion2d, ErreurPhase> {
-        todo!()
+        if n < 2 {
+            return Err(ErreurPhase::GrilleTropPetite(n));
+        }
+        if n.checked_mul(n) != Some(depart.len()) {
+            return Err(ErreurPhase::LongueursDifferentes);
+        }
+        if !(k.is_finite() && k > 0.0 && k <= 0.25) {
+            return Err(ErreurPhase::ParametreInvalide("k"));
+        }
+        if depart.iter().any(|v| !v.is_finite()) {
+            return Err(ErreurPhase::ValeurDeDepart);
+        }
+        Ok(Diffusion2d { n, k, c: depart.to_vec() })
     }
 
     /// Fait un pas (la doc du type).
     pub fn pas(&mut self) {
-        todo!()
+        let n = self.n;
+        let mut c2: Vec<f64> = Vec::with_capacity(n * n);
+        for i in 0..n {
+            for j in 0..n {
+                let x = self.c[i * n + j];
+                let est = if j + 1 < n { self.c[i * n + j + 1] } else { x };
+                let ouest = if j > 0 { self.c[i * n + j - 1] } else { x };
+                let nord = if i > 0 { self.c[(i - 1) * n + j] } else { x };
+                let sud = if i + 1 < n { self.c[(i + 1) * n + j] } else { x };
+                let somme = (est + ouest) + (nord + sud);
+                c2.push(x + self.k * (somme - 4.0 * x));
+            }
+        }
+        self.c = c2;
     }
 
     /// Les valeurs, ligne par ligne.
     pub fn cellules(&self) -> &[f64] {
-        todo!()
+        &self.c
     }
 }
