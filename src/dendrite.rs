@@ -284,25 +284,47 @@ impl Reglages {
     /// Les réglages de cinétique nulle pour une longueur capillaire `d0` : `lambda = (A1 * w0) / d0` et
     /// `tau0 = (lambda * (A2 * (w0 * w0))) / d` (`β = 0`), dans cet ordre d'opérations.
     pub fn depuis_capillarite(w0: f64, d0: f64, d: f64, epsilon: f64, dx: f64, dt: f64) -> Reglages {
-        todo!()
+        let lambda = (A1 * w0) / d0;
+        let tau0 = (lambda * (A2 * (w0 * w0))) / d;
+        Reglages { w0, tau0, lambda, d, epsilon, dx, dt }
     }
 
     /// Le pas maximal accepté (voir « La stabilité ») pour `u_max = max |u|` de l'état de départ.
     pub fn dt_borne(&self, u_max: f64, mode: ModeU) -> f64 {
-        todo!()
+        let dx2 = self.dx * self.dx;
+        let s_max = (self.w0 * self.w0) * ((1.0 - self.epsilon) * (1.0 + 15.0 * self.epsilon));
+        let tau_min = self.tau0 * ((1.0 - self.epsilon) * (1.0 - self.epsilon));
+        let dt_phi = (2.0 * tau_min) / ((((8.0 * s_max) / dx2) + 2.0) + ((1.54 * self.lambda) * u_max));
+        let dt_u = 1.0 / (((4.0 * self.d) / dx2) + (self.lambda / (4.0 * tau_min)));
+        match mode {
+            ModeU::Gele => 0.5 * dt_phi,
+            ModeU::Joue => 0.5 * dt_phi.min(dt_u),
+        }
     }
 
     /// Vérifie les réglages (les erreurs et leur ordre : la doc du module ; `dt_borne` avec `u_max`).
     #[allow(clippy::neg_cmp_op_on_partial_ord)]
     pub fn verifier(&self, u_max: f64, mode: ModeU) -> Result<(), ErreurDendrite> {
-        todo!()
+        verifier_les_sept(self)?;
+        let b = self.dt_borne(u_max, mode);
+        if !(self.dt <= b) {
+            return Err(ErreurDendrite::PasInstable { dt: self.dt, dt_borne: b });
+        }
+        Ok(())
     }
 }
 
 /// Le facteur `H(s, t)` de la doc du module.
 #[inline(always)]
 pub fn facteur_h(s: f64, t: f64, c1: f64, c2: f64, k16: f64) -> f64 {
-    todo!()
+    let r = s + t;
+    if r < GARDE {
+        return 1.0;
+    }
+    let rr = r * r;
+    let a = c1 + (c2 * ((s * s) + (t * t))) / rr;
+    let b = (k16 * (t * (s - t))) / rr;
+    a * (a + b)
 }
 
 /// La dendrite : l'état `φ`, `u`, le nombre de pas faits, et le schéma de la doc du module.
@@ -396,4 +418,33 @@ impl Dendrite {
     pub fn empreinte(&self) -> String {
         todo!()
     }
+}
+
+/// `v` est un réglage positif : fini et `> 0`.
+fn reglage_positif(v: f64) -> bool {
+    v.is_finite() && v > 0.0
+}
+
+/// `epsilon` est valide : fini, `>= 0` et `< 1/15` (la raideur anisotrope reste positive).
+#[allow(clippy::manual_range_contains)]
+fn epsilon_valide(e: f64) -> bool {
+    e.is_finite() && e >= 0.0 && e < 1.0 / 15.0
+}
+
+/// Les sept réglages, dans l'ordre de la doc du module : `w0`, `tau0`, `lambda`, `d`, `epsilon`, `dx`, `dt`.
+fn verifier_les_sept(r: &Reglages) -> Result<(), ErreurDendrite> {
+    for (nom, valeur) in [("w0", r.w0), ("tau0", r.tau0), ("lambda", r.lambda), ("d", r.d)] {
+        if !reglage_positif(valeur) {
+            return Err(ErreurDendrite::ParametreInvalide(nom));
+        }
+    }
+    if !epsilon_valide(r.epsilon) {
+        return Err(ErreurDendrite::ParametreInvalide("epsilon"));
+    }
+    for (nom, valeur) in [("dx", r.dx), ("dt", r.dt)] {
+        if !reglage_positif(valeur) {
+            return Err(ErreurDendrite::ParametreInvalide(nom));
+        }
+    }
+    Ok(())
 }
