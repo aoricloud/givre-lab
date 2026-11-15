@@ -215,6 +215,8 @@
 
 #![allow(unused_variables, dead_code)]
 
+use crate::empreinte::sha256_hex;
+
 /// `a1 = 5√2/8` (modèle 2 de Kim et coll., table I : `5/(4√2)`).
 pub const A1: f64 = 0.883_883_476_483_184_4;
 /// `a2 = 47/75` (modèle 2 de Kim et coll., table I).
@@ -349,7 +351,22 @@ impl Dendrite {
         u: &[f64],
         mode: ModeU,
     ) -> Result<Dendrite, ErreurDendrite> {
-        todo!()
+        verifier_les_sept(&r)?;
+        if n < 3 {
+            return Err(ErreurDendrite::GrilleTropPetite(n));
+        }
+        if n > N_MAX {
+            return Err(ErreurDendrite::GrilleTropGrande(n));
+        }
+        if phi.len() != n * n || u.len() != n * n {
+            return Err(ErreurDendrite::LongueursDifferentes);
+        }
+        if phi.iter().any(|v| !v.is_finite() || v.abs() > 1.0 + MARGE) || u.iter().any(|v| !v.is_finite()) {
+            return Err(ErreurDendrite::ValeurDeDepart);
+        }
+        let u_max = u.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+        r.verifier(u_max, mode)?;
+        Ok(Dendrite { r, n, domaine, mode, pas: 0, phi: phi.to_vec(), u: u.to_vec() })
     }
 
     /// La graine ronde de la doc du module (`delta > 0` fini : `ParametreInvalide("delta")` ; `rayon > 0` fini :
@@ -362,40 +379,70 @@ impl Dendrite {
         rayon: f64,
         mode: ModeU,
     ) -> Result<Dendrite, ErreurDendrite> {
-        todo!()
+        verifier_les_sept(&r)?;
+        if n < 3 {
+            return Err(ErreurDendrite::GrilleTropPetite(n));
+        }
+        if n > N_MAX {
+            return Err(ErreurDendrite::GrilleTropGrande(n));
+        }
+        if !(delta.is_finite() && delta > 0.0) {
+            return Err(ErreurDendrite::ParametreInvalide("delta"));
+        }
+        if !(rayon.is_finite() && rayon > 0.0) {
+            return Err(ErreurDendrite::ParametreInvalide("rayon"));
+        }
+        r.verifier(delta, mode)?;
+        let centre = (n - 1) as f64 / 2.0;
+        let mut phi = Vec::with_capacity(n * n);
+        let mut u = Vec::with_capacity(n * n);
+        for i in 0..n {
+            for j in 0..n {
+                let (x, y) = match domaine {
+                    Domaine::Quart => ((j as f64 + 0.5) * r.dx, (i as f64 + 0.5) * r.dx),
+                    Domaine::Entier => ((j as f64 - centre) * r.dx, (i as f64 - centre) * r.dx),
+                };
+                let ray = (x * x + y * y).sqrt();
+                let s = (ray - rayon) / (r.w0 * std::f64::consts::SQRT_2);
+                let p = 0.0 - s.clamp(-1.0, 1.0);
+                phi.push(p);
+                u.push(0.0 - (delta * ((1.0 - p) * 0.5)));
+            }
+        }
+        Ok(Dendrite { r, n, domaine, mode, pas: 0, phi, u })
     }
 
     /// Le côté `n`.
     pub fn n(&self) -> usize {
-        todo!()
+        self.n
     }
     /// Les réglages.
     pub fn reglages(&self) -> Reglages {
-        todo!()
+        self.r
     }
     /// Le domaine.
     pub fn domaine(&self) -> Domaine {
-        todo!()
+        self.domaine
     }
     /// Le mode de `u`.
     pub fn mode(&self) -> ModeU {
-        todo!()
+        self.mode
     }
     /// `φ`, ligne par ligne.
     pub fn phi(&self) -> &[f64] {
-        todo!()
+        &self.phi
     }
     /// `u`, ligne par ligne.
     pub fn u(&self) -> &[f64] {
-        todo!()
+        &self.u
     }
     /// Le nombre de pas faits.
     pub fn pas_faits(&self) -> u64 {
-        todo!()
+        self.pas
     }
     /// Le temps écoulé : `pas_faits() as f64 * dt`.
     pub fn temps(&self) -> f64 {
-        todo!()
+        self.pas as f64 * self.r.dt
     }
 
     /// Fait `pas` pas de temps (le schéma de la doc du module).
@@ -406,17 +453,45 @@ impl Dendrite {
 
     /// La position de la pointe (voir la doc du module).
     pub fn position_pointe(&self) -> Option<f64> {
-        todo!()
+        if self.domaine != Domaine::Quart {
+            return None;
+        }
+        let dx = self.r.dx;
+        let derniere = self.n.saturating_sub(1);
+        for j in 0..derniere {
+            if self.phi[j] > 0.0 && self.phi[j + 1] <= 0.0 {
+                return Some(((j as f64 + 0.5) * dx) + dx * (self.phi[j] / (self.phi[j] - self.phi[j + 1])));
+            }
+        }
+        None
     }
 
     /// L'écriture canonique (voir la doc du module).
     pub fn ecriture_canonique(&self) -> Vec<u8> {
-        todo!()
+        let mut o = Vec::new();
+        o.extend_from_slice(b"P2DEN\n");
+        o.extend_from_slice(&(self.n as u64).to_le_bytes());
+        o.extend_from_slice(&self.pas.to_le_bytes());
+        o.push(match self.domaine {
+            Domaine::Entier => 0,
+            Domaine::Quart => 1,
+        });
+        o.push(match self.mode {
+            ModeU::Gele => 0,
+            ModeU::Joue => 1,
+        });
+        for v in &self.phi {
+            o.extend_from_slice(&v.to_bits().to_le_bytes());
+        }
+        for v in &self.u {
+            o.extend_from_slice(&v.to_bits().to_le_bytes());
+        }
+        o
     }
 
     /// `sha256_hex(ecriture_canonique())`.
     pub fn empreinte(&self) -> String {
-        todo!()
+        sha256_hex(&self.ecriture_canonique())
     }
 }
 
