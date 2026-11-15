@@ -118,7 +118,9 @@
 //! doit tenir dans un `i64` ; de même `+` et `-` sur les champs bruts), ou si, après un pas, une valeur neuve de `Front1d`
 //! (de `φ`, ou de `u` quand il est joué) n'est pas finie (NaN ou infinie), `avancer` s'arrête **avant d'avoir changé l'état de ce pas** (le pas fautif n'est pas compté ;
 //! `phi()`, `u()`, `pas_faits()` sont ceux d'avant lui) et rend l'erreur. Les pas faits avant le pas fautif restent faits.
-//! Dans le régime stable (état de départ dans `[-1, 1]`, `|lambda u|` modéré, `dt <= dt_max`) aucun débordement n'arrive.
+//! `dt <= dt_max` ne suffit pas à éviter un débordement (`le_pas_maximal_n_est_pas_suffisant`, dans `tests/etape_p1_refus.rs`) ; à
+//! `dt = dt_sur / 2`, aucun des 80 réglages tirés de `zone_sure_mesuree` (même fichier) ne déborde en 4000 pas : une mesure,
+//! pas une garantie.
 
 #![allow(unused_variables, dead_code)]
 
@@ -165,7 +167,8 @@ pub struct Parametres {
 }
 
 impl Parametres {
-    /// Le pas maximal stable : `min( dx² / (2 d),  tau · dx² / (2 w² + dx²) )`, calculé dans cet ordre :
+    /// Le pas maximal que `verifier` accepte (nécessaire, pas suffisant pour la stabilité : voir la doc du module) :
+    /// `min( dx² / (2 d),  tau · dx² / (2 w² + dx²) )`, calculé dans cet ordre :
     /// `a = (dx * dx) / (2.0 * d)`, `b = (tau * (dx * dx)) / (2.0 * (w * w) + dx * dx)`, `a.min(b)` (le `min` de `f64` : si
     /// l'un des deux est NaN, l'autre est rendu). Les réglages sont supposés valides.
     pub fn dt_max(&self) -> f64 {
