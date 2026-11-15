@@ -1508,3 +1508,109 @@ solide `φ = 1` n'est stable que jusqu'à `φ ≈ 1 + 1/(2 λ|u|)`. Une explosio
 - Que le flottant « suffit » pour P2 : rien ne dit ce qui arrive avec l'anisotropie (une division par `|∇φ|⁴`, des dérivées croisées,
   leur écriture par paires) ; P1 dit seulement qu'en 1D il retrouve les solutions exactes aussi bien que `Fixe`, plus vite, et que
   l'écriture par paires garde les symétries d'un pas isotrope.
+
+## Étape P2 : la dendrite 2D du champ de phase (l'anisotropie, les huit symétries au bit près, et une vitesse de pointe non atteinte)
+
+P2 pose la dendrite à quatre bras d'un métal pur en 2D : le champ de phase de Karma et Rappel avec l'anisotropie d'ordre 4, en `f64`
+seul, sur une grille carrée uniforme. La question était : ce calcul, écrit par paires, retrouve-t-il la vitesse de pointe que donne la
+théorie, sans perdre le déterminisme ni les huit symétries du carré ? **La réponse est en deux parties** : les symétries et le
+déterminisme tiennent au bit près, par des tests ; à `d0 = 0,5`, la vitesse de pointe publiée n'est **pas** atteinte (−13 % et −6 % aux deux
+pas de grille mesurés, des repères hors des tests), et aucun test ne la fige. Chaque phrase ci-dessous nomme le test qui la tient (`tests/etape_p2_*.rs`) ; ce qui est
+mesuré hors des tests est dit « repère ». Valeurs et sources : `references/etape-p2-valeurs.md`.
+
+### Le modèle
+
+`src/dendrite.rs` calcule, en différences finies explicites (Euler, un pas ne lit que l'ancien état, bords sans flux), le modèle dans la
+forme de Kim, Provatas, Goldenfeld et Dantzig (Phys. Rev. E 59, R2546, 1999, arXiv cond-mat/9810189 : équations 4 à 6, table I modèle 2,
+lues) : `τ(n) ∂φ/∂t = ∇·(W(n)² ∇φ) + ∂x(|∇φ|² W ∂W/∂φx) + ∂y(|∇φ|² W ∂W/∂φy) + φ − φ³ − λ u (1 − φ²)²`, `∂u/∂t = D ∇²u + ½ ∂φ/∂t`,
+`W = W0 a(n)`, `τ = τ0 a(n)²`, `a(n) = 1 + ε cos 4θ`. L'article de Karma et Rappel (Phys. Rev. E 57, 4323, 1998) n'a pas pu être ouvert.
+Le schéma est écrit à la lettre dans la doc du module (des flux aux faces des cases, un facteur `H` commun aux deux directions, une
+garde là où le gradient s'annule). La bibliothèque donne exactement les bits d'un simulateur naïf écrit dans les tests d'après cette
+doc, sur 24 tirages de réglages, de tailles et d'états, 1 à 300 pas, `u` gelé ou joué (`dendrite_egale_au_naif_bit_pour_bit`), et au
+seuil exact de la garde (`la_garde_au_seuil_exact`) ; un pas isotrope sur 3 × 3 cases est retrouvé en rationnels exacts
+(`un_pas_isotrope_a_la_main`), le facteur `H` aussi (`facteur_h_a_la_main`) ; la graine ronde est celle de la doc
+(`graine_ronde_egale_a_la_graine_a_la_main`) ; `λ = a1 W0/d0` et `τ0 = λ a2 W0²/D` (cinétique nulle) sont calculés à la main
+(`capillarite_a_la_main`). Douze empreintes d'état viennent de deux codes Python écrits d'après la doc, sans donnée de Rust
+(`empreinte_des_scenarios`, `empreinte_des_scenarios_du_juge`) ; l'écriture canonique est recalculée octet par octet
+(`ecriture_canonique_a_la_main`).
+
+### Les huit symétries du carré, au bit près
+
+Chaque somme ou produit que l'une des huit symétries échange est écrit par paires, et chaque constante est calculée une seule fois
+(`AGENTS.md`, règle 2). Depuis un état à huit symétries, de côté pair ou impair (6, 7, 12, 17), `ε` = 0 ; 0,05 ; 0,0665,
+`u` joué (et gelé à `ε` = 0,05), l'état est symétrique au bit près à chacun des neuf relevés, de 1 à 2000 pas
+(`huit_symetries_exactes_depuis_un_etat_tire`), et depuis la graine ronde (côtés 10, 13, 24, `ε` = 0,05, `u` joué) au bout de 800 pas
+(`huit_symetries_exactes_sur_la_graine_ronde`). Sans ces écritures, la symétrie se perd : une somme de `u` en chaîne, un gradient
+transverse en chaîne, une constante écrite sous deux formes ou une mise à jour en place la perdent sur chacun des huit départs tirés
+(côtés 8 et 9), en 100 pas au plus (`sans_paires_perd_les_symetries`).
+Depuis un état symétrique, le quart de domaine calculé seul est, au bit près, le quart du domaine entier de côté double (graine
+ronde jusqu'à 800 pas, états tirés jusqu'à 500 : `le_quart_est_le_quart_du_domaine_entier`).
+Repère hors des tests : 6000 couples tirés (côté de 3 à 33, pair ou impair) et 2000 quarts, sans un écart.
+
+### Le front droit d'axe retrouve la vitesse exacte de P1
+
+Un état qui ne dépend que de `x`, à `u` gelé, le reste (toutes les lignes égales au bit près à la fin de la mesure), et sa vitesse est
+celle de l'onde progressive du modèle 1D de P1 avec `W = W0 (1 + ε)` et `τ = τ0 (1 + ε)²` (les termes croisés s'annulent quand
+`φy = 0`), à l'ordre 2 en `dx` (avec `dt` = la borne, qui suit `dx²`) : l'écart
+relatif passe de −7,6e-3 à −1,9e-3 de `dx` = 0,5 à 0,25 pour `λΔ` = 0,1, et de −1,2e-2 à −3,0e-3 pour `λΔ` = 1, soit un rapport de 4,0
+(`front_droit_d_axe_a_la_vitesse_exacte_de_p1`). En diagonale, l'écart à la vitesse continue (`1 − ε`) est de −2,5e-4 et −3,6e-3 à
+`dx` = 0,5 : un repère de l'anisotropie de la grille, pas une valeur exacte (`repere_du_front_en_diagonale`, une régression de notre code).
+
+### La stabilité : refuser plus tôt
+
+Un pas de temps au-delà d'une borne écrite dans la doc (la diffusion 2D de `u`, celle de `φ` avec l'anisotropie, la relaxation, le
+couplage `λ U`, le tout divisé par deux) est refusé avant tout calcul (`borne_de_pas_a_la_main`, `graine_ronde_refus_et_ordre`). Ce que
+cette borne garantit est **mesuré, pas démontré** : à `dt` = la borne, sur 80 réglages tirés × six familles d'états, 1500 pas, aucune
+erreur, et, relevé tous les 100 pas, `|φ|` ne dépasse pas `max(1, |φ| de départ)` de plus de `1e-12`
+(`la_zone_sure_sans_erreur_ni_derive`, une régression de notre code ; repère hors du test : 0 exactement, relevé à chaque pas). Repères
+hors des tests, sur une plage plus large (`λ` jusqu'à 20, `U` jusqu'à 3, `dx` de 0,15 à 2,5, huit familles) : aucune divergence sur 51 200
+états à `dt` = la borne, aucune sur 25 600 à 1,1 fois la borne, 8 à 1,25 fois, 273 à 1,5 fois, 1602 à 2 fois ; **le facteur ½ n'est donc
+pas un facteur 2 de réserve**, la réserve mesurée est entre 10 % et 25 %. En marche, `avancer` rend une erreur, sans panique et avec
+l'état d'avant le pas fautif, dès qu'une valeur n'est plus finie ou que `|φ|` dépasse `1 + 0,001`
+(`un_pas_qui_franchit_la_marge_est_refuse_avec_l_etat_d_avant`, `reglages_demesures_sans_panique`). Un état accepté n'est pas pour autant à l'abri : des réglages ou des
+valeurs démesurés mais finis peuvent être acceptés puis refusés au premier pas (le même test). Les refus et leur ordre sont
+affirmés, deux règles fausses à la fois (`reglages_refuses_et_leur_ordre`, `etats_de_depart_refuses_et_leur_ordre`,
+`graine_ronde_refus_et_ordre`).
+
+### La pointe : ce que le calcul fait, et l'écart à la théorie, tel quel
+
+**Ce que les tests tiennent.** La position de la pointe d'une graine ronde de rayon 15 (réglages de la table II de Kim et coll. :
+`Δ = 0,65`, `d0 = 0,5`, `D = 1`, `ε = 0,05`), à `t = 50`, vaut 25,5017 ; 25,7734 ; 25,8301 pour `dx` = 0,8 ; 0,4 ; 0,2 : le rapport des
+écarts est 4,8 (le test exige de 4,0 à 5,6 ; l'ordre 2 donne 4, l'ordre 1 donne 2), ce qui est compatible avec une convergence d'ordre 2
+quand `dx` et `dt` s'affinent ensemble ; doubler le domaine déplace la pointe de moins de `1e-4`, et diviser `dt` par deux de moins de
+4 % des écarts de grille (l'erreur entière du pas de temps, d'ordre 1, en vaut environ le double : un repère hors des tests) (`la_pointe_converge_a_l_ordre_2_sans_reproduire_la_theorie`, une régression de notre code). **Ce test décrit
+le calcul ; il ne reproduit pas la théorie.** Repère hors des tests : à `t = 30`, avec un quatrième pas de grille (0,1), les rapports
+sont 5,3 puis 3,9.
+
+**Ce que les tests ne tiennent pas : la vitesse de pointe.** La valeur publiée est `Ṽ = V d0/D = 0,0469` à `Δ = 0,65` (Kim et coll.,
+table II, page 3 : la vitesse prédite par la théorie de la solvabilité, pas une vitesse simulée). Ce schéma, en régime établi (`t` de 1200
+à 1500 à `dx` = 0,8, de 1000 à 1400 à 0,4, où elle baisse encore de 0,2 %), avec `dt` = la borne, donne **0,0408 à `dx` = 0,8** (le même chiffre dans un quart de 200 et de 400) et **0,0440 à `dx` = 0,4**,
+soit **−13 % et −6 %** ; une extrapolation d'ordre 2 de ces deux points donne ≈ 0,0450 (≈ −4 %), ce qui est un calcul et non une mesure.
+La vitesse bouge donc encore de 8 % quand la grille s'affine de 0,8 à 0,4 : **ce n'est pas une reproduction**. Ce sont des repères
+mesurés hors des tests (31 s à `dx` = 0,8, environ 8 minutes à 0,4, non mesuré à 0,2) : aucun test, aucune empreinte, aucune tolérance
+ne porte sur une vitesse de pointe.
+
+**La cause : probable, non établie.** À `d0 = 0,5`, l'article lui-même met en garde. La légende de sa figure 2 (page 3 : `Δ = 0,65`,
+`d0 = 0,5`) dit : « When IPe is too large the different models do not exhibit universal behavior. » Cette phrase porte sur l'accord
+entre cinq modèles de champ de phase, pas sur la valeur de la théorie ; le corps du texte y voit le signe que, à ce `d0`, les équations
+ne travaillent pas dans la limite de l'interface nette (« sharp interface limit »), et retrouve l'accord entre modèles à `d0 = 1,5`. Notre écart peut donc venir de
+là, de l'erreur de grille qui reste à `dx` = 0,4, ou des deux : rien ici ne les sépare. Une mesure à `d0 = 1,5` est prévue plus tard,
+hors des tests ; elle n'est pas faite.
+
+**Les deux autres valeurs publiées.** `Δ = 0,55` (publié 0,0170) : 0,0165 à `t = 3000`, `dx` = 0,8, encore en baisse : un repère non
+établi. `Δ = 0,45` (publié 0,00545) : non mesuré (au moins 1250 cases de côté à `dx` = 0,8).
+
+### Ce que cela n'établit pas
+
+- **La vitesse de pointe de la théorie** : non atteinte à `d0 = 0,5` (−13 % et −6 %), et non mesurée à `d0 = 1,5` ; `Δ = 0,55` n'est
+  pas établi, `Δ = 0,45` n'est pas mesuré.
+- La forme de la pointe (son rayon, la constante de sélection), la ramification, le bruit et les branches latérales.
+- Le maillage qui s'affine : la grille est uniforme ; la convergence n'est mesurée que jusqu'à `dx` = 0,2 (0,1 une fois, hors des tests),
+  et seulement en temps court.
+- La convergence en `dt` seul (ordre 1, mesurée une fois) ; un autre rayon de graine, un autre `ε` que 0,05 pour la pointe.
+- Une borne de stabilité démontrée : la zone sûre est mesurée, à l'égalité `dt` = la borne ; au-delà, rien n'est promis, et la réserve
+  est mince.
+- L'accord avec l'article de Karma et Rappel de 1998 lui-même (non ouvert).
+- La 3D ; l'anisotropie variable (P3) ; la page (P4) ; wasm (le module n'est pas dans la page ; non rejoué en wasm).
+- La justesse physique des empreintes : elles montrent que des codes écrits séparément d'après la doc en tirent les mêmes bits (une
+  lecture commune, pas la preuve qu'il n'y en a qu'une), pas que le modèle est juste.
