@@ -213,8 +213,6 @@
 //! être acceptés puis rendre `Divergence` au premier pas (`reglages_demesures_sans_panique` : `w0 = dx = 1e200` avec `u` joué,
 //! `u = 1e308` joué, `dx = 1e-150`).
 
-#![allow(unused_variables, dead_code)]
-
 use crate::empreinte::sha256_hex;
 
 /// `a1 = 5√2/8` (modèle 2 de Kim et coll., table I : `5/(4√2)`).
@@ -448,7 +446,105 @@ impl Dendrite {
     /// Fait `pas` pas de temps (le schéma de la doc du module).
     #[allow(clippy::neg_cmp_op_on_partial_ord)]
     pub fn avancer(&mut self, pas: u64) -> Result<(), ErreurDendrite> {
-        todo!()
+        let n = self.n;
+        let ig = 1.0 / self.r.dx;
+        let ig2 = 0.5 * ig;
+        let ig4 = 0.25 * ig;
+        let w2 = self.r.w0 * self.r.w0;
+        let c1 = 1.0 - 3.0 * self.r.epsilon;
+        let c2 = 4.0 * self.r.epsilon;
+        let k16 = 16.0 * self.r.epsilon;
+        let r0 = self.r.dt / self.r.tau0;
+        let c_u = (self.r.d * self.r.dt) / (self.r.dx * self.r.dx);
+        let joue = self.mode == ModeU::Joue;
+        let nf = n + 1;
+        for _ in 0..pas {
+            let mut fx = vec![0.0_f64; n * nf];
+            for i in 0..n {
+                let im = miroir(i as isize - 1, n);
+                let ip = miroir(i as isize + 1, n);
+                let base = i * n;
+                let base_m = im * n;
+                let base_p = ip * n;
+                let base_f = i * nf;
+                for jj in 0..=n {
+                    let j0 = miroir(jj as isize - 1, n);
+                    let j1 = miroir(jj as isize, n);
+                    let gn = (self.phi[base + j1] - self.phi[base + j0]) * ig;
+                    let gt = ((self.phi[base_p + j0] + self.phi[base_p + j1])
+                        - (self.phi[base_m + j0] + self.phi[base_m + j1]))
+                        * ig4;
+                    fx[base_f + jj] = (w2 * facteur_h(gn * gn, gt * gt, c1, c2, k16)) * gn;
+                }
+            }
+            let mut fy = vec![0.0_f64; nf * n];
+            for ii in 0..=n {
+                let i0 = miroir(ii as isize - 1, n);
+                let i1 = miroir(ii as isize, n);
+                let base0 = i0 * n;
+                let base1 = i1 * n;
+                let base_f = ii * n;
+                for j in 0..n {
+                    let jm = miroir(j as isize - 1, n);
+                    let jp = miroir(j as isize + 1, n);
+                    let gn = (self.phi[base1 + j] - self.phi[base0 + j]) * ig;
+                    let gt = ((self.phi[base0 + jp] + self.phi[base1 + jp])
+                        - (self.phi[base0 + jm] + self.phi[base1 + jm]))
+                        * ig4;
+                    fy[base_f + j] = (w2 * facteur_h(gn * gn, gt * gt, c1, c2, k16)) * gn;
+                }
+            }
+            let mut nphi = vec![0.0_f64; n * n];
+            let mut nu = if joue { vec![0.0_f64; n * n] } else { Vec::new() };
+            for i in 0..n {
+                let im = miroir(i as isize - 1, n);
+                let ip = miroir(i as isize + 1, n);
+                let ligne = i * n;
+                let ligne_m = im * n;
+                let ligne_p = ip * n;
+                for j in 0..n {
+                    let jm = miroir(j as isize - 1, n);
+                    let jp = miroir(j as isize + 1, n);
+                    let k = ligne + j;
+                    let ph = self.phi[k];
+                    let dxx = fx[i * nf + (j + 1)] - fx[i * nf + j];
+                    let dyy = fy[(i + 1) * n + j] - fy[i * n + j];
+                    let div = (dxx + dyy) * ig;
+                    let gxc = (self.phi[ligne + jp] - self.phi[ligne + jm]) * ig2;
+                    let gyc = (self.phi[ligne_p + j] - self.phi[ligne_m + j]) * ig2;
+                    let p = gxc * gxc;
+                    let q = gyc * gyc;
+                    let rs = p + q;
+                    let ac = if rs < GARDE { 1.0 } else { c1 + (c2 * ((p * p) + (q * q))) / (rs * rs) };
+                    let f = ph - (ph * ph) * ph;
+                    let qq = 1.0 - ph * ph;
+                    let g = (self.r.lambda * self.u[k]) * (qq * qq);
+                    let rate = div + (f - g);
+                    let dphi = (r0 * rate) / (ac * ac);
+                    nphi[k] = ph + dphi;
+                    if joue {
+                        let e = self.u[ligne + jp];
+                        let o = self.u[ligne + jm];
+                        let no = self.u[ligne_m + j];
+                        let su = self.u[ligne_p + j];
+                        let lap_u = ((e + o) + (no + su)) - 4.0 * self.u[k];
+                        nu[k] = self.u[k] + (c_u * lap_u + 0.5 * dphi);
+                    }
+                }
+            }
+            if nphi.iter().any(|p| !(p.abs() <= 1.0 + MARGE)) {
+                return Err(ErreurDendrite::Divergence);
+            }
+            if joue && nu.iter().any(|v| !v.is_finite()) {
+                return Err(ErreurDendrite::Divergence);
+            }
+            self.phi = nphi;
+            if joue {
+                self.u = nu;
+            }
+            self.pas = self.pas.saturating_add(1);
+        }
+        Ok(())
     }
 
     /// La position de la pointe (voir la doc du module).
@@ -522,4 +618,9 @@ fn verifier_les_sept(r: &Reglages) -> Result<(), ErreurDendrite> {
         }
     }
     Ok(())
+}
+
+/// L'indice miroir : un indice hors de `[0, n - 1]` ramené sur la case du bord (`n >= 3`).
+fn miroir(k: isize, n: usize) -> usize {
+    k.clamp(0, n as isize - 1) as usize
 }
