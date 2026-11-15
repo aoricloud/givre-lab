@@ -213,7 +213,7 @@
 //! être acceptés puis rendre `Divergence` au premier pas (`reglages_demesures_sans_panique` : `w0 = dx = 1e200` avec `u` joué,
 //! `u = 1e308` joué, `dx = 1e-150`).
 
-#![allow(unused_variables, dead_code)]
+use crate::empreinte::sha256_hex;
 
 /// `a1 = 5√2/8` (modèle 2 de Kim et coll., table I : `5/(4√2)`).
 pub const A1: f64 = 0.883_883_476_483_184_4;
@@ -284,25 +284,47 @@ impl Reglages {
     /// Les réglages de cinétique nulle pour une longueur capillaire `d0` : `lambda = (A1 * w0) / d0` et
     /// `tau0 = (lambda * (A2 * (w0 * w0))) / d` (`β = 0`), dans cet ordre d'opérations.
     pub fn depuis_capillarite(w0: f64, d0: f64, d: f64, epsilon: f64, dx: f64, dt: f64) -> Reglages {
-        todo!()
+        let lambda = (A1 * w0) / d0;
+        let tau0 = (lambda * (A2 * (w0 * w0))) / d;
+        Reglages { w0, tau0, lambda, d, epsilon, dx, dt }
     }
 
     /// Le pas maximal accepté (voir « La stabilité ») pour `u_max = max |u|` de l'état de départ.
     pub fn dt_borne(&self, u_max: f64, mode: ModeU) -> f64 {
-        todo!()
+        let dx2 = self.dx * self.dx;
+        let s_max = (self.w0 * self.w0) * ((1.0 - self.epsilon) * (1.0 + 15.0 * self.epsilon));
+        let tau_min = self.tau0 * ((1.0 - self.epsilon) * (1.0 - self.epsilon));
+        let dt_phi = (2.0 * tau_min) / ((((8.0 * s_max) / dx2) + 2.0) + ((1.54 * self.lambda) * u_max));
+        let dt_u = 1.0 / (((4.0 * self.d) / dx2) + (self.lambda / (4.0 * tau_min)));
+        match mode {
+            ModeU::Gele => 0.5 * dt_phi,
+            ModeU::Joue => 0.5 * dt_phi.min(dt_u),
+        }
     }
 
     /// Vérifie les réglages (les erreurs et leur ordre : la doc du module ; `dt_borne` avec `u_max`).
     #[allow(clippy::neg_cmp_op_on_partial_ord)]
     pub fn verifier(&self, u_max: f64, mode: ModeU) -> Result<(), ErreurDendrite> {
-        todo!()
+        verifier_les_sept(self)?;
+        let b = self.dt_borne(u_max, mode);
+        if !(self.dt <= b) {
+            return Err(ErreurDendrite::PasInstable { dt: self.dt, dt_borne: b });
+        }
+        Ok(())
     }
 }
 
 /// Le facteur `H(s, t)` de la doc du module.
 #[inline(always)]
 pub fn facteur_h(s: f64, t: f64, c1: f64, c2: f64, k16: f64) -> f64 {
-    todo!()
+    let r = s + t;
+    if r < GARDE {
+        return 1.0;
+    }
+    let rr = r * r;
+    let a = c1 + (c2 * ((s * s) + (t * t))) / rr;
+    let b = (k16 * (t * (s - t))) / rr;
+    a * (a + b)
 }
 
 /// La dendrite : l'état `φ`, `u`, le nombre de pas faits, et le schéma de la doc du module.
@@ -327,7 +349,22 @@ impl Dendrite {
         u: &[f64],
         mode: ModeU,
     ) -> Result<Dendrite, ErreurDendrite> {
-        todo!()
+        verifier_les_sept(&r)?;
+        if n < 3 {
+            return Err(ErreurDendrite::GrilleTropPetite(n));
+        }
+        if n > N_MAX {
+            return Err(ErreurDendrite::GrilleTropGrande(n));
+        }
+        if phi.len() != n * n || u.len() != n * n {
+            return Err(ErreurDendrite::LongueursDifferentes);
+        }
+        if phi.iter().any(|v| !v.is_finite() || v.abs() > 1.0 + MARGE) || u.iter().any(|v| !v.is_finite()) {
+            return Err(ErreurDendrite::ValeurDeDepart);
+        }
+        let u_max = u.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+        r.verifier(u_max, mode)?;
+        Ok(Dendrite { r, n, domaine, mode, pas: 0, phi: phi.to_vec(), u: u.to_vec() })
     }
 
     /// La graine ronde de la doc du module (`delta > 0` fini : `ParametreInvalide("delta")` ; `rayon > 0` fini :
@@ -340,60 +377,250 @@ impl Dendrite {
         rayon: f64,
         mode: ModeU,
     ) -> Result<Dendrite, ErreurDendrite> {
-        todo!()
+        verifier_les_sept(&r)?;
+        if n < 3 {
+            return Err(ErreurDendrite::GrilleTropPetite(n));
+        }
+        if n > N_MAX {
+            return Err(ErreurDendrite::GrilleTropGrande(n));
+        }
+        if !(delta.is_finite() && delta > 0.0) {
+            return Err(ErreurDendrite::ParametreInvalide("delta"));
+        }
+        if !(rayon.is_finite() && rayon > 0.0) {
+            return Err(ErreurDendrite::ParametreInvalide("rayon"));
+        }
+        r.verifier(delta, mode)?;
+        let centre = (n - 1) as f64 / 2.0;
+        let mut phi = Vec::with_capacity(n * n);
+        let mut u = Vec::with_capacity(n * n);
+        for i in 0..n {
+            for j in 0..n {
+                let (x, y) = match domaine {
+                    Domaine::Quart => ((j as f64 + 0.5) * r.dx, (i as f64 + 0.5) * r.dx),
+                    Domaine::Entier => ((j as f64 - centre) * r.dx, (i as f64 - centre) * r.dx),
+                };
+                let ray = (x * x + y * y).sqrt();
+                let s = (ray - rayon) / (r.w0 * std::f64::consts::SQRT_2);
+                let p = 0.0 - s.clamp(-1.0, 1.0);
+                phi.push(p);
+                u.push(0.0 - (delta * ((1.0 - p) * 0.5)));
+            }
+        }
+        Ok(Dendrite { r, n, domaine, mode, pas: 0, phi, u })
     }
 
     /// Le côté `n`.
     pub fn n(&self) -> usize {
-        todo!()
+        self.n
     }
     /// Les réglages.
     pub fn reglages(&self) -> Reglages {
-        todo!()
+        self.r
     }
     /// Le domaine.
     pub fn domaine(&self) -> Domaine {
-        todo!()
+        self.domaine
     }
     /// Le mode de `u`.
     pub fn mode(&self) -> ModeU {
-        todo!()
+        self.mode
     }
     /// `φ`, ligne par ligne.
     pub fn phi(&self) -> &[f64] {
-        todo!()
+        &self.phi
     }
     /// `u`, ligne par ligne.
     pub fn u(&self) -> &[f64] {
-        todo!()
+        &self.u
     }
     /// Le nombre de pas faits.
     pub fn pas_faits(&self) -> u64 {
-        todo!()
+        self.pas
     }
     /// Le temps écoulé : `pas_faits() as f64 * dt`.
     pub fn temps(&self) -> f64 {
-        todo!()
+        self.pas as f64 * self.r.dt
     }
 
     /// Fait `pas` pas de temps (le schéma de la doc du module).
     #[allow(clippy::neg_cmp_op_on_partial_ord)]
     pub fn avancer(&mut self, pas: u64) -> Result<(), ErreurDendrite> {
-        todo!()
+        let n = self.n;
+        let ig = 1.0 / self.r.dx;
+        let ig2 = 0.5 * ig;
+        let ig4 = 0.25 * ig;
+        let w2 = self.r.w0 * self.r.w0;
+        let c1 = 1.0 - 3.0 * self.r.epsilon;
+        let c2 = 4.0 * self.r.epsilon;
+        let k16 = 16.0 * self.r.epsilon;
+        let r0 = self.r.dt / self.r.tau0;
+        let c_u = (self.r.d * self.r.dt) / (self.r.dx * self.r.dx);
+        let joue = self.mode == ModeU::Joue;
+        let nf = n + 1;
+        for _ in 0..pas {
+            let mut fx = vec![0.0_f64; n * nf];
+            for i in 0..n {
+                let im = miroir(i as isize - 1, n);
+                let ip = miroir(i as isize + 1, n);
+                let base = i * n;
+                let base_m = im * n;
+                let base_p = ip * n;
+                let base_f = i * nf;
+                for jj in 0..=n {
+                    let j0 = miroir(jj as isize - 1, n);
+                    let j1 = miroir(jj as isize, n);
+                    let gn = (self.phi[base + j1] - self.phi[base + j0]) * ig;
+                    let gt = ((self.phi[base_p + j0] + self.phi[base_p + j1])
+                        - (self.phi[base_m + j0] + self.phi[base_m + j1]))
+                        * ig4;
+                    fx[base_f + jj] = (w2 * facteur_h(gn * gn, gt * gt, c1, c2, k16)) * gn;
+                }
+            }
+            let mut fy = vec![0.0_f64; nf * n];
+            for ii in 0..=n {
+                let i0 = miroir(ii as isize - 1, n);
+                let i1 = miroir(ii as isize, n);
+                let base0 = i0 * n;
+                let base1 = i1 * n;
+                let base_f = ii * n;
+                for j in 0..n {
+                    let jm = miroir(j as isize - 1, n);
+                    let jp = miroir(j as isize + 1, n);
+                    let gn = (self.phi[base1 + j] - self.phi[base0 + j]) * ig;
+                    let gt = ((self.phi[base0 + jp] + self.phi[base1 + jp])
+                        - (self.phi[base0 + jm] + self.phi[base1 + jm]))
+                        * ig4;
+                    fy[base_f + j] = (w2 * facteur_h(gn * gn, gt * gt, c1, c2, k16)) * gn;
+                }
+            }
+            let mut nphi = vec![0.0_f64; n * n];
+            let mut nu = if joue { vec![0.0_f64; n * n] } else { Vec::new() };
+            for i in 0..n {
+                let im = miroir(i as isize - 1, n);
+                let ip = miroir(i as isize + 1, n);
+                let ligne = i * n;
+                let ligne_m = im * n;
+                let ligne_p = ip * n;
+                for j in 0..n {
+                    let jm = miroir(j as isize - 1, n);
+                    let jp = miroir(j as isize + 1, n);
+                    let k = ligne + j;
+                    let ph = self.phi[k];
+                    let dxx = fx[i * nf + (j + 1)] - fx[i * nf + j];
+                    let dyy = fy[(i + 1) * n + j] - fy[i * n + j];
+                    let div = (dxx + dyy) * ig;
+                    let gxc = (self.phi[ligne + jp] - self.phi[ligne + jm]) * ig2;
+                    let gyc = (self.phi[ligne_p + j] - self.phi[ligne_m + j]) * ig2;
+                    let p = gxc * gxc;
+                    let q = gyc * gyc;
+                    let rs = p + q;
+                    let ac = if rs < GARDE { 1.0 } else { c1 + (c2 * ((p * p) + (q * q))) / (rs * rs) };
+                    let f = ph - (ph * ph) * ph;
+                    let qq = 1.0 - ph * ph;
+                    let g = (self.r.lambda * self.u[k]) * (qq * qq);
+                    let rate = div + (f - g);
+                    let dphi = (r0 * rate) / (ac * ac);
+                    nphi[k] = ph + dphi;
+                    if joue {
+                        let e = self.u[ligne + jp];
+                        let o = self.u[ligne + jm];
+                        let no = self.u[ligne_m + j];
+                        let su = self.u[ligne_p + j];
+                        let lap_u = ((e + o) + (no + su)) - 4.0 * self.u[k];
+                        nu[k] = self.u[k] + (c_u * lap_u + 0.5 * dphi);
+                    }
+                }
+            }
+            if nphi.iter().any(|p| !(p.abs() <= 1.0 + MARGE)) {
+                return Err(ErreurDendrite::Divergence);
+            }
+            if joue && nu.iter().any(|v| !v.is_finite()) {
+                return Err(ErreurDendrite::Divergence);
+            }
+            self.phi = nphi;
+            if joue {
+                self.u = nu;
+            }
+            self.pas = self.pas.saturating_add(1);
+        }
+        Ok(())
     }
 
     /// La position de la pointe (voir la doc du module).
     pub fn position_pointe(&self) -> Option<f64> {
-        todo!()
+        if self.domaine != Domaine::Quart {
+            return None;
+        }
+        let dx = self.r.dx;
+        let derniere = self.n.saturating_sub(1);
+        for j in 0..derniere {
+            if self.phi[j] > 0.0 && self.phi[j + 1] <= 0.0 {
+                return Some(((j as f64 + 0.5) * dx) + dx * (self.phi[j] / (self.phi[j] - self.phi[j + 1])));
+            }
+        }
+        None
     }
 
     /// L'écriture canonique (voir la doc du module).
     pub fn ecriture_canonique(&self) -> Vec<u8> {
-        todo!()
+        let mut o = Vec::new();
+        o.extend_from_slice(b"P2DEN\n");
+        o.extend_from_slice(&(self.n as u64).to_le_bytes());
+        o.extend_from_slice(&self.pas.to_le_bytes());
+        o.push(match self.domaine {
+            Domaine::Entier => 0,
+            Domaine::Quart => 1,
+        });
+        o.push(match self.mode {
+            ModeU::Gele => 0,
+            ModeU::Joue => 1,
+        });
+        for v in &self.phi {
+            o.extend_from_slice(&v.to_bits().to_le_bytes());
+        }
+        for v in &self.u {
+            o.extend_from_slice(&v.to_bits().to_le_bytes());
+        }
+        o
     }
 
     /// `sha256_hex(ecriture_canonique())`.
     pub fn empreinte(&self) -> String {
-        todo!()
+        sha256_hex(&self.ecriture_canonique())
     }
+}
+
+/// `v` est un réglage positif : fini et `> 0`.
+fn reglage_positif(v: f64) -> bool {
+    v.is_finite() && v > 0.0
+}
+
+/// `epsilon` est valide : fini, `>= 0` et `< 1/15` (la raideur anisotrope reste positive).
+#[allow(clippy::manual_range_contains)]
+fn epsilon_valide(e: f64) -> bool {
+    e.is_finite() && e >= 0.0 && e < 1.0 / 15.0
+}
+
+/// Les sept réglages, dans l'ordre de la doc du module : `w0`, `tau0`, `lambda`, `d`, `epsilon`, `dx`, `dt`.
+fn verifier_les_sept(r: &Reglages) -> Result<(), ErreurDendrite> {
+    for (nom, valeur) in [("w0", r.w0), ("tau0", r.tau0), ("lambda", r.lambda), ("d", r.d)] {
+        if !reglage_positif(valeur) {
+            return Err(ErreurDendrite::ParametreInvalide(nom));
+        }
+    }
+    if !epsilon_valide(r.epsilon) {
+        return Err(ErreurDendrite::ParametreInvalide("epsilon"));
+    }
+    for (nom, valeur) in [("dx", r.dx), ("dt", r.dt)] {
+        if !reglage_positif(valeur) {
+            return Err(ErreurDendrite::ParametreInvalide(nom));
+        }
+    }
+    Ok(())
+}
+
+/// L'indice miroir : un indice hors de `[0, n - 1]` ramené sur la case du bord (`n >= 3`).
+fn miroir(k: isize, n: usize) -> usize {
+    k.clamp(0, n as isize - 1) as usize
 }

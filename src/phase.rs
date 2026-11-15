@@ -122,8 +122,6 @@
 //! `dt = dt_sur / 2`, aucun des 80 réglages tirés de `zone_sure_mesuree` (même fichier) ne déborde en 4000 pas : une mesure,
 //! pas une garantie.
 
-#![allow(unused_variables, dead_code)]
-
 use crate::math::Fixe;
 
 /// Pourquoi un réglage ou un état de départ est refusé.
@@ -222,15 +220,10 @@ impl Parametres {
 /// attendue `-(+0.0) = -0.0` a d'autres bits (les deux sont égaux par `==`) ; le miroir pair n'a pas cette réserve.
 #[derive(Clone, Debug)]
 pub struct Front1d {
-    #[allow(dead_code)]
     p: Parametres,
-    #[allow(dead_code)]
     phi: Vec<f64>,
-    #[allow(dead_code)]
     u: Vec<f64>,
-    #[allow(dead_code)]
     pas: u64,
-    #[allow(dead_code)]
     mode: ModeU,
 }
 
@@ -363,15 +356,10 @@ impl Front1d {
 /// `8e-9` à `dt/tau = 1e-2`, `1e-5` à `dt/tau = 1e-5`).
 #[derive(Clone, Debug)]
 pub struct Front1dFixe {
-    #[allow(dead_code)]
     p: Parametres,
-    #[allow(dead_code)]
     phi: Vec<Fixe>,
-    #[allow(dead_code)]
     u: Vec<Fixe>,
-    #[allow(dead_code)]
     pas: u64,
-    #[allow(dead_code)]
     mode: ModeU,
 }
 
@@ -534,11 +522,8 @@ impl Front1dFixe {
 /// près** à chaque pas.
 #[derive(Clone, Debug)]
 pub struct Diffusion2d {
-    #[allow(dead_code)]
     n: usize,
-    #[allow(dead_code)]
     k: f64,
-    #[allow(dead_code)]
     c: Vec<f64>,
 }
 
