@@ -87,3 +87,12 @@ Chaque cristal grandit dans un hexagone de rayon 100, assez grand pour qu'aucun 
 
 Un aperçu est pour l'œil, jamais une preuve : les valeurs attendues et les empreintes sont dans `references/`, et
 embellir une image ne change aucune d'entre elles. Ces PNG ne sont pas compressés (`3 * largeur * hauteur` octets : 1,62 Mo chacun).
+
+## Aperçus de l'étape P3
+
+Calculé hors ligne par `cargo run --release --example apercus_etape_p3` (environ trente secondes : à lancer au premier plan avec un délai).
+
+- `etape-p3-anisotropie.png` : la graine ronde de la table II de Kim et coll. (`Δ = 0,65`, `d0 = 0,5`, `D = 1`, rayon 15, pas 0,8) au temps `t = 800`, pour `ε` = 0 ; 0,02 ; 0,04 ; 0,06 de gauche à droite (le domaine entier recomposé par les miroirs du quart, 300 × 300 pixels par panneau), `φ` du bleu foncé (solide) au blanc (liquide), en rouge la parabole ajustée à la pointe : la même graine, plus effilée quand `ε` monte ; à `ε = 0`, pas de dendrite.
+
+Un aperçu est pour l'œil, jamais une preuve : les valeurs attendues et les empreintes sont dans `references/`, et
+embellir une image ne change aucune d'entre elles. Ce PNG n'est pas compressé (`3 * largeur * hauteur` octets : 1,09 Mo).
