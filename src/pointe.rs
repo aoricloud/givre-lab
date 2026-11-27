@@ -114,14 +114,62 @@ pub struct Pointe {
 
 /// Le contour `φ = 0`, ligne par ligne (voir « Le contour ») : `n` valeurs, `None` pour une ligne sans croisement.
 pub fn contour(d: &Dendrite) -> Result<Vec<Option<f64>>, ErreurPointe> {
-    todo!()
+    if d.domaine() != Domaine::Quart {
+        return Err(ErreurPointe::DomaineEntier);
+    }
+    let n = d.n();
+    let dx = d.reglages().dx;
+    let phi = d.phi();
+    let mut c = Vec::with_capacity(n);
+    for i in 0..n {
+        let ligne = &phi[i * n..i * n + n];
+        let mut croisement = None;
+        for j in 0..n.saturating_sub(1) {
+            if ligne[j] > 0.0 && ligne[j + 1] <= 0.0 {
+                croisement = Some(((j as f64 + 0.5) * dx) + dx * (ligne[j] / (ligne[j] - ligne[j + 1])));
+                break;
+            }
+        }
+        c.push(croisement);
+    }
+    Ok(c)
 }
 
 /// L'ajustement de la parabole `x = sommet - y² / (2 rayon)` sur des points `(y, x)` : rend `(sommet, rayon)` (voir « La
 /// parabole »).
 #[allow(clippy::neg_cmp_op_on_partial_ord)]
 pub fn parabole(points: &[(f64, f64)]) -> Result<(f64, f64), ErreurPointe> {
-    todo!()
+    for &(y, x) in points {
+        if !(y.is_finite() && x.is_finite()) {
+            return Err(ErreurPointe::ParametreInvalide("points"));
+        }
+    }
+    if points.len() < 3 {
+        return Err(ErreurPointe::TropPeuDeLignes(points.len()));
+    }
+    let m = points.len() as f64;
+    let mut sy = 0.0;
+    let mut sx = 0.0;
+    for &(y, x) in points {
+        sy += y * y;
+        sx += x;
+    }
+    let my = sy / m;
+    let mx = sx / m;
+    let mut sxy = 0.0;
+    let mut syy = 0.0;
+    for &(y, x) in points {
+        let e = y * y - my;
+        sxy += e * (x - mx);
+        syy += e * e;
+    }
+    let b = sxy / syy;
+    let sommet = mx - b * my;
+    let rayon = -1.0 / (2.0 * b);
+    if !(rayon > 0.0 && rayon.is_finite() && sommet.is_finite()) {
+        return Err(ErreurPointe::PasDeCourbure);
+    }
+    Ok((sommet, rayon))
 }
 
 /// La mesure de la pointe : la règle des lignes jusqu'à `profondeur`, puis la parabole (voir « Le rayon de la pointe »).
@@ -133,11 +181,27 @@ pub fn mesurer_pointe(d: &Dendrite, profondeur: f64) -> Result<Pointe, ErreurPoi
 /// La vitesse de la pointe entre deux mesures (voir « La vitesse et la constante de sélection »).
 #[allow(clippy::neg_cmp_op_on_partial_ord)]
 pub fn vitesse_de_pointe(avant: &Pointe, apres: &Pointe) -> Result<f64, ErreurPointe> {
-    todo!()
+    if !(avant.temps.is_finite() && apres.temps.is_finite() && apres.temps > avant.temps) {
+        return Err(ErreurPointe::ParametreInvalide("temps"));
+    }
+    if !(avant.position.is_finite() && apres.position.is_finite()) {
+        return Err(ErreurPointe::ParametreInvalide("position"));
+    }
+    let v = (apres.position - avant.position) / (apres.temps - avant.temps);
+    if v.is_finite() { Ok(v) } else { Err(ErreurPointe::HorsDePortee) }
 }
 
 /// La constante de sélection `σ* = 2 d0 D / (ρ² V)` (voir « La vitesse et la constante de sélection »).
 #[allow(clippy::neg_cmp_op_on_partial_ord)]
 pub fn constante_de_selection(d0: f64, d: f64, rayon: f64, vitesse: f64) -> Result<f64, ErreurPointe> {
-    todo!()
+    for (nom, v) in [("d0", d0), ("d", d), ("rayon", rayon), ("vitesse", vitesse)] {
+        if !(v.is_finite() && v > 0.0) {
+            return Err(ErreurPointe::ParametreInvalide(nom));
+        }
+    }
+    let s = ((2.0 * d0) * d) / ((rayon * rayon) * vitesse);
+    if !(s.is_finite() && s > 0.0) {
+        return Err(ErreurPointe::HorsDePortee);
+    }
+    Ok(s)
 }
