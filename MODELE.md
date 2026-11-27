@@ -1614,3 +1614,104 @@ hors des tests ; elle n'est pas faite.
 - La 3D ; l'anisotropie variable (P3) ; la page (P4) ; wasm (le module n'est pas dans la page ; non rejoué en wasm).
 - La justesse physique des empreintes : elles montrent que des codes écrits séparément d'après la doc en tirent les mêmes bits (une
   lecture commune, pas la preuve qu'il n'y en a qu'une), pas que le modèle est juste.
+
+## Étape P3 : la pointe selon l'anisotropie (la même dendrite, plus ou moins effilée ; un sens de variation sur notre modèle, pas une reproduction)
+
+P3 regarde la dendrite de P2 selon l'anisotropie `ε` : quand `ε` monte, la pointe va-t-elle plus vite et s'effile-t-elle ? Le module
+`src/pointe.rs` mesure la pointe d'un quart : le contour `φ = 0` ligne par ligne, le rayon par une parabole ajustée, la vitesse entre
+deux mesures, la constante de sélection `σ* = 2 d0 D / (ρ² V)`. Il lit la dendrite par son API publique et ne change rien à
+`src/dendrite.rs`. **La réponse** : oui, sur notre modèle, en temps court et à deux pas de grille, l'ordre est strict et l'écart entre
+deux `ε` voisins dépasse nettement l'écart entre les grilles (un test) ; en régime établi, pour `ε` de 0,04 à 0,0665, le même sens se lit sur
+des repères mesurés hors des tests. Aucune valeur publiée en 2D n'a été lue : aucun chiffre n'est comparé à une source. Chaque phrase ci-dessous nomme le
+test qui la tient (`tests/etape_p3_*.rs`) ; ce qui est mesuré hors des tests est dit « repère ». Valeurs et sources :
+`references/etape-p3-valeurs.md`.
+
+### La mesure, à la lettre
+
+Le contour est l'interpolation de `position_pointe` appliquée à chaque ligne (le plus petit `j` avec `φ[i][j] > 0` et `φ[i][j+1] <= 0`) ;
+sa ligne 0 est la position de la pointe, au bit près (`contour_a_la_main`). Le rayon : les lignes consécutives depuis l'axe dont le
+croisement est à au plus `profondeur` derrière la pointe (la première qui manque arrête la liste), placées au CENTRE de leurs cases
+(`y = (i + 0,5) dx`), puis la parabole `x = sommet - y² / (2 ρ)` des moindres carrés, dans un ordre d'opérations écrit dans la doc
+(`parabole_a_la_main`, `la_regle_des_lignes`, `rayon_sur_une_parabole_exacte` : 8 lignes et `(10, 4)` exactement sur une parabole dyadique). La profondeur est
+une longueur : elle retient à peu près la même portion de la pointe à tous les pas de grille, et la liste consécutive est faite pour s'arrêter
+avant l'autre bras. Le rayon mesuré en
+dépend, parce qu'une pointe n'est pas une parabole loin du sommet : sur un cercle de rayon 8, la parabole des moindres carrés a pour
+rayon 7,56 ; 7,10 ; 6,37 aux profondeurs 1, 2, 4 (`rayon_sur_un_cercle`, valeurs calculées hors de Rust en décimal). Le test du sens, celui de la stabilité et les
+repères emploient la profondeur 2. La vitesse est l'avance de la position entre deux mesures divisée par le temps écoulé, `σ*` la
+formule ci-dessus (`vitesse_a_la_main`, `selection_a_la_main`). Les refus ont un ordre écrit et ne paniquent pas
+(`parabole_refus_et_ordre`, `mesure_refus_et_ordre`, `vitesse_et_selection_refus_et_ordre`). Sur 16 dendrites tirées (six relevés, six
+profondeurs), le module donne exactement les bits d'une mesure naïve écrite dans les tests d'après sa doc (`mesure_egale_au_naif_bit_pour_bit`) ;
+dix fautes plausibles de la mesure (`y` au bord de la case, la pointe lue sur la ligne 1, la profondeur stricte, la règle sans arrêt, le
+dernier croisement, les sommes brutes, le signe de la parabole, `ρ` pour `ρ²`, la vitesse du sommet, l'interpolation par la droite) sont
+vues, chacune par les cas à la main ou par les bits (`la_table_des_fautes_en_entier`). Repère hors des tests : un second code, écrit
+d'après la seule doc sous une autre forme, passe tous les tests du premier coup.
+
+### Le sens de variation, en temps court (le test)
+
+La graine ronde de la table II de Kim et coll. (`Δ = 0,65`, `d0 = 0,5`, `D = 1`, `W0 = 1`, rayon 15, `u` joué), quart de 60, à `t = 150`
+(la vitesse sur `[125 ; 150]`), pour `ε` = 0 ; 0,02 ; 0,04 ; 0,06, aux pas de grille 0,8 et 0,4 (`la_pointe_s_effile_et_accelere_quand_epsilon_monte`,
+une régression de notre code) :
+
+| `dx` | `ε` = 0 | 0,02 | 0,04 | 0,06 |
+|---|---|---|---|---|
+| vitesse, 0,8 / 0,4 | 0,0825 / 0,0834 | 0,0867 / 0,0885 | 0,0940 / 0,0973 | 0,1067 / 0,1115 |
+| rayon, 0,8 / 0,4 | 37,3 / 34,7 | 27,7 / 25,1 | 16,7 / 14,6 | 7,47 / 6,42 |
+| `σ*`, 0,8 / 0,4 | 0,0087 / 0,0100 | 0,0150 / 0,0179 | 0,0380 / 0,0484 | 0,168 / 0,218 |
+
+À chaque pas de grille l'ordre est strict (la pointe plus loin, plus rapide, plus fine, `σ*` plus grand quand `ε` monte), et l'écart
+entre deux `ε` voisins vaut au moins 2,24 fois (vitesse), 3,58 fois (rayon), 2,19 fois (`σ*`), 1,58 fois (position) l'écart entre les
+deux grilles ; le test exige 2, 2, 2 et 1,5. Repère hors des tests : au pas 0,2, `|Q(0,4) - Q(0,2)|` est 2,8 à 6,3 fois plus petit que
+`|Q(0,8) - Q(0,4)|` (l'ordre 2 donne 4) : si la convergence est régulière, l'écart entre les grilles majore l'erreur de grille au pas 0,4. **Le régime n'est pas établi**
+à `t = 150` : la vitesse baisse encore, le rayon change encore ; à `ε = 0`, repère pour l'œil (l'aperçu), il n'y a pas de dendrite (la
+graine grossit, et la grille seule la déforme : à `t = 800`, ses flancs sont plats sur les axes). Les valeurs figées sont celles de notre code
+(deux prototypes, mêmes bits), pas des valeurs de la théorie.
+
+### Les repères en régime établi (hors des tests)
+
+Même graine, quart de 200 au pas 0,8 et de 160 au pas 0,4, `dt` sous la borne ; la vitesse sur 200 de temps, le rayon à la fin de la
+fenêtre, profondeurs 2 et 4, `Ṽ = V d0 / D`, `P = ρ V / (2 D)` avec le rayon de profondeur 2 :
+
+| `dx` | `ε` | temps | `V` | `Ṽ` | `ρ` (2) | `ρ` (4) | `σ*` (2) | `σ*` (4) | `P` |
+|---|---|---|---|---|---|---|---|---|---|
+| 0,8 | 0,04 | 1600 à 1800 | 0,0678 | 0,0339 | 7,88 | 9,12 | 0,238 | 0,177 | 0,267 |
+| 0,8 | 0,05 | 1200 à 1400 | 0,0816 | 0,0408 | 5,77 | 6,86 | 0,368 | 0,261 | 0,235 |
+| 0,8 | 0,06 | 1200 à 1400 | 0,0937 | 0,0468 | 4,40 | 5,89 | 0,552 | 0,308 | 0,206 |
+| 0,8 | 0,0665 | 1000 à 1200 | 0,1008 | 0,0504 | 4,02 | 5,15 | 0,615 | 0,374 | 0,203 |
+| 0,4 | 0,04 | 1200 à 1400 | 0,0739 | 0,0369 | 6,95 | 8,02 | 0,280 | 0,211 | 0,257 |
+| 0,4 | 0,05 | 1000 à 1200 | 0,0878 | 0,0439 | 5,37 | 6,38 | 0,394 | 0,280 | 0,236 |
+| 0,4 | 0,06 | 800 à 1000 | 0,1000 | 0,0500 | 4,15 | 5,25 | 0,579 | 0,363 | 0,208 |
+| 0,4 | 0,0665 | 800 à 1000 | 0,1069 | 0,0534 | 3,81 | 4,73 | 0,645 | 0,418 | 0,204 |
+
+Le régime est établi à environ 1 % près sur la fenêtre (vitesse et rayon) pour `ε` = 0,05 ; 0,06 ; 0,0665 aux deux pas de grille ;
+pour `ε = 0,04`, presque (la vitesse tient à 0,5 % près, le rayon dérive encore : de 7,49 à 7,91 de `t = 1200` à 2000 au pas 0,8) ; `ε = 0,03` et `0,02` ne le sont pas à `t = 2000` (la vitesse monte encore pour
+0,03, baisse encore pour 0,02). Aux deux pas de grille, quand `ε` monte, `V` monte, `ρ` baisse, `σ*` monte et `P` baisse : le sens que
+Karma et Rappel lisent en 3D (PRL 77, 4050, 1996, table I, `Δ = 0,45`). De 0,8 à 0,4, `V` bouge encore de 6 à 9 %, `ρ` de 5 à 12 %,
+`σ*` de 5 à 18 % : ce ne sont pas des valeurs convergées. À `ε = 0,05`, `Ṽ` = 0,0408 et 0,0439 retrouvent les repères de P2 (0,0408 et
+0,0440, à 0,0001 près) ; la valeur publiée de la théorie, 0,0469 (Kim et coll., table II), n'est pas atteinte (P2). `σ*` dépend de la profondeur de la
+mesure d'un facteur 1,3 à 1,8 : c'est une grandeur de notre mesure, pas une valeur à comparer.
+
+### La stabilité selon `ε`
+
+La borne de pas de P2 a tenu partout où on l'a mesurée, jusqu'au bord de la plage de `ε` : la dendrite pleine à `ε` = 0 ; 0,06 ; 0,0665,
+au pas le plus grand accepté, fait 3000 pas sans erreur et sans que `|φ|` dépasse `1 + 1e-12` aux relevés, tous les 500 pas (observé : 1 exactement)
+(`la_dendrite_pleine_tient_a_la_borne_jusqu_a_epsilon_maximal`, une régression).
+Repères hors des tests (la référence de P2 sans le refus du pas) : sur 39 200 états tirés (sept tranches de `ε` de 0 à `1/15`, la plage
+de P2 pour le reste, 3000 pas), aucune divergence à 1 et 1,1 fois la borne, 5 à 1,25 fois (toutes dans les tranches de `ε` sous 0,03),
+794 à 1,5 fois (de 196 dans la tranche la plus basse à 53 dans la plus haute) ; sur la dendrite pleine (deux réglages, deux pas de
+grille, six `ε`, 10 000 pas), aucune divergence jusqu'à 1,5 fois la borne. **La réserve ne fond pas quand `ε` monte** : au-delà de la borne, les
+divergences des états tirés se font plus rares quand `ε` monte (une explication possible, non vérifiée : la raideur `(1 - ε)(1 + 15 ε)` que la borne emploie majore d'autant plus que `ε` est grand). La borne reste mesurée, pas démontrée.
+
+### Ce que cela n'établit pas
+
+- **Une valeur publiée** : aucune vitesse, aucun rayon, aucun `σ*` 2D selon `ε` n'a été lu à une source ; la théorie de la solvabilité
+  2D n'a pas été ouverte (Karma et Rappel 1998 non plus) ; le sens est lu en 3D seulement. Nos `σ*` ne sont comparés à rien.
+- Le régime établi dans les tests : le test est en temps court (`t = 150`) ; les repères en régime établi ne sont pas figés, ne sont
+  pas convergés en grille (5 à 18 % de 0,8 à 0,4) et n'existent pas pour `ε <= 0,03`.
+- Que le rayon mesuré soit « le » rayon de la pointe : il dépend de la profondeur (facteur 1,15 à 1,34 de 2 à 4 en régime établi) et de la
+  règle des lignes ; un autre choix (une autre profondeur, la courbure au sommet) donne d'autres chiffres ; le sens, lui, est le même aux profondeurs 2
+  et 4 dans les repères en régime établi, et n'a pas été mesuré pour la courbure au sommet.
+- Le sens entre les `ε` testés, pour d'autres `Δ`, `d0`, `D`, rayons de graine ou temps ; un `ε` au-delà de 0,06 dans le test (0,0665
+  n'est que dans les repères et le test de stabilité).
+- La convergence en grille de la mesure elle-même au-delà de 0,2 ; la convergence en `dt`.
+- Une borne de stabilité démontrée : la zone sûre est mesurée, sur la dendrite pleine et sur des états tirés, à 1,5 fois la borne au plus.
+- Les branches latérales, le bruit, la 3D, la page (P4).
