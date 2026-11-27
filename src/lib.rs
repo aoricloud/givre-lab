@@ -19,6 +19,7 @@ pub mod math;
 pub mod mesures;
 pub mod neige;
 pub mod phase;
+pub mod pointe;
 pub mod rendu;
 pub mod rendu_hex;
 pub mod reseau;
