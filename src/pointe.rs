@@ -75,8 +75,6 @@
 //! Les refus sont des erreurs, jamais une panique (tests `parabole_refus_et_ordre`, `mesure_refus_et_ordre`,
 //! `vitesse_et_selection_refus_et_ordre`).
 
-#![allow(unused_variables, unused_imports, dead_code)]
-
 use crate::dendrite::{Dendrite, Domaine};
 
 /// Pourquoi une mesure de la pointe est refusée (voir la doc du module pour l'ordre des refus de chaque fonction).
@@ -175,7 +173,23 @@ pub fn parabole(points: &[(f64, f64)]) -> Result<(f64, f64), ErreurPointe> {
 /// La mesure de la pointe : la règle des lignes jusqu'à `profondeur`, puis la parabole (voir « Le rayon de la pointe »).
 #[allow(clippy::neg_cmp_op_on_partial_ord)]
 pub fn mesurer_pointe(d: &Dendrite, profondeur: f64) -> Result<Pointe, ErreurPointe> {
-    todo!()
+    if !(profondeur.is_finite() && profondeur > 0.0) {
+        return Err(ErreurPointe::ParametreInvalide("profondeur"));
+    }
+    let c = contour(d)?;
+    let x0 = c[0].ok_or(ErreurPointe::PasDePointe)?;
+    let dx = d.reglages().dx;
+    let mut points = Vec::new();
+    for (i, x) in c.iter().enumerate() {
+        match x {
+            Some(x) if x0 - x <= profondeur => {
+                points.push((((i as f64) + 0.5) * dx, *x));
+            }
+            _ => break,
+        }
+    }
+    let (sommet, rayon) = parabole(&points)?;
+    Ok(Pointe { temps: d.temps(), position: x0, lignes: points.len(), sommet, rayon })
 }
 
 /// La vitesse de la pointe entre deux mesures (voir « La vitesse et la constante de sélection »).
