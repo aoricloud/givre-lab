@@ -590,11 +590,13 @@ use std::sync::{Mutex, MutexGuard};
 use crate::balayage::{Forme, Reglage, classer, jeu_beta, jeu_mu, jeu_rho, mesurer};
 use crate::claquage::Claquage;
 use crate::courbe::ErreurCourbe;
+use crate::dendrite::{Dendrite, Domaine, ModeU, Reglages};
 use crate::dla::{Amas, COTE_APERCU, amas_colore};
 use crate::empreinte::sha256;
 use crate::flocon::{Flocon, Parametres};
 use crate::math::Fixe;
 use crate::neige::{ErreurNeige, Neige, Parametres as ParametresNeige};
+use crate::pointe::{Pointe, constante_de_selection, mesurer_pointe, vitesse_de_pointe};
 use crate::rendu_hex::{ReglagesImage, rendre};
 
 /// Une image d'aperçu gardée en mémoire : ses dimensions et ses octets R, V, B, ligne par ligne de haut en bas.
@@ -610,6 +612,25 @@ enum Modele {
     Flocon(Flocon),
     Claquage(Claquage),
     Neige(Neige, u32),
+    Metal(Box<Metal>),
+}
+
+/// Le métal en cours : la dendrite, le côté du quart, la limite du mur, les deux derniers relevés de la pointe et la divergence (voir « Le métal »).
+struct Metal {
+    dendrite: Dendrite,
+    cote: u32,
+    limite: f64,
+    avant: Option<Pointe>,
+    dernier: Option<Pointe>,
+    diverge: bool,
+}
+
+/// Le métal est au mur quand sa pointe n'existe pas ou atteint la limite (voir « La fin et le mur du métal »).
+fn metal_au_mur(metal: &Metal) -> bool {
+    match metal.dendrite.position_pointe() {
+        Some(position) => position >= metal.limite,
+        None => true,
+    }
 }
 
 /// L'état global : le modèle, la durée de son scénario, l'image de l'état courant (refaite quand l'état change), la mesure
@@ -770,6 +791,7 @@ fn image_de(modele: &Modele) -> Image {
             let cote = 2 * neige.rayon() + 1;
             Image { largeur: cote, hauteur: cote, rvb: neige.apercu() }
         }
+        Modele::Metal(_) => Image { largeur: 0, hauteur: 0, rvb: Vec::new() },
     }
 }
 
@@ -780,6 +802,7 @@ fn temps_de(modele: &Modele) -> u32 {
         Modele::Claquage(claquage) => claquage.sites().len().saturating_sub(1) as u32,
         Modele::Flocon(flocon) => u32::try_from(flocon.temps()).unwrap_or(u32::MAX),
         Modele::Neige(neige, _) => u32::try_from(neige.temps()).unwrap_or(u32::MAX),
+        Modele::Metal(metal) => u32::try_from(metal.dendrite.pas_faits()).unwrap_or(u32::MAX),
     }
 }
 
@@ -882,6 +905,24 @@ pub extern "C" fn givre_avancer(n: u32) -> u32 {
             }
             jouees
         }
+        Modele::Metal(metal) => {
+            let mut jouees = 0;
+            while jouees < a_jouer {
+                if metal.diverge || metal_au_mur(metal) {
+                    break;
+                }
+                if metal.dendrite.avancer(1).is_err() {
+                    metal.diverge = true;
+                    break;
+                }
+                jouees += 1;
+                if metal.dendrite.pas_faits().is_multiple_of(u64::from(METAL_RELEVE)) {
+                    metal.avant = metal.dernier.take();
+                    metal.dernier = mesurer_pointe(&metal.dendrite, METAL_PROFONDEUR).ok();
+                }
+            }
+            jouees
+        }
     };
     if jouees > 0 {
         etat.mesure = None;
@@ -954,6 +995,7 @@ pub extern "C" fn givre_sites() -> u32 {
         Modele::Claquage(claquage) => claquage.sites().len() as u32,
         Modele::Flocon(flocon) => flocon.gelees() as u32,
         Modele::Neige(neige, _) => neige.cases_rattachees() as u32,
+        Modele::Metal(metal) => metal.dendrite.phi().iter().filter(|phi| **phi > 0.0).count() as u32,
     }
 }
 
@@ -967,6 +1009,10 @@ pub extern "C" fn givre_rayon() -> u32 {
         Modele::Claquage(claquage) => claquage.rayon(),
         Modele::Flocon(flocon) => flocon.rayon_cristal(),
         Modele::Neige(neige, _) => neige.rayon_cristal(),
+        Modele::Metal(metal) => {
+            let n = metal.dendrite.n();
+            metal.dendrite.phi().get(..n).map_or(0, |ligne| ligne.iter().filter(|phi| **phi > 0.0).count() as u32)
+        }
     }
 }
 
@@ -976,7 +1022,7 @@ pub extern "C" fn givre_compacite() -> f64 {
     let garde = verrouiller();
     let Some(etat) = garde.as_ref() else { return f64::NAN };
     match &etat.modele {
-        Modele::Dla(_) | Modele::Claquage(_) | Modele::Neige(..) => f64::NAN,
+        Modele::Dla(_) | Modele::Claquage(_) | Modele::Neige(..) | Modele::Metal(_) => f64::NAN,
         Modele::Flocon(flocon) => flocon.compacite().vers_f64(),
     }
 }
@@ -998,6 +1044,7 @@ pub extern "C" fn givre_empreinte_mot(i: u32) -> u32 {
         Modele::Claquage(claquage) => claquage.ecriture_canonique(),
         Modele::Flocon(flocon) => flocon.ecriture_canonique(),
         Modele::Neige(neige, _) => neige.ecriture_canonique(),
+        Modele::Metal(metal) => metal.dendrite.ecriture_canonique(),
     };
     let empreinte = sha256(&ecriture);
     let debut = 4 * i as usize;
@@ -1030,7 +1077,7 @@ pub extern "C" fn givre_mesurer() -> u32 {
                 crate::courbe::mesure_petit_amas(claquage.sites())
             }
         }
-        Modele::Flocon(_) | Modele::Neige(..) => None,
+        Modele::Flocon(_) | Modele::Neige(..) | Modele::Metal(_) => None,
     };
     match mesure {
         Some(mesure) => {
@@ -1512,29 +1559,109 @@ pub extern "C" fn givre_neige_masse(i: u32) -> u32 {
 
 /// Démarre le métal : la graine ronde de P2 et P3 dans un quart de `cote` cases, d'anisotropie `epsilon_ppm` millionièmes (voir « Le métal ») ; remplace l'état entier. Rend 0 (démarré), 1 (`epsilon_ppm` au-delà de
 /// [`METAL_EPSILON_MAX_PPM`]), 2 (`cote` hors de [`METAL_COTE_MIN`] à [`METAL_COTE_MAX`]) ou 3 (la graine est refusée par la bibliothèque : inatteignable), **dans cet ordre** ; un refus ne change rien et rien ne panique, pour aucun `u32`.
-#[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_metal_demarrer(epsilon_ppm: u32, cote: u32) -> u32 {
-    todo!()
+    if epsilon_ppm > METAL_EPSILON_MAX_PPM {
+        return 1;
+    }
+    if !(METAL_COTE_MIN..=METAL_COTE_MAX).contains(&cote) {
+        return 2;
+    }
+    let epsilon = f64::from(epsilon_ppm) / 1_000_000.0;
+    let mut reglages = Reglages::depuis_capillarite(METAL_W0, METAL_D0, METAL_D, epsilon, METAL_DX, 1.0);
+    reglages.dt = reglages.dt_borne(METAL_DELTA, ModeU::Joue);
+    let Ok(dendrite) =
+        Dendrite::graine_ronde(reglages, cote as usize, Domaine::Quart, METAL_DELTA, METAL_RAYON, ModeU::Joue)
+    else {
+        return 3;
+    };
+    let limite = f64::from(cote * METAL_MUR_POURCENT / 100) * METAL_DX;
+    let dernier = mesurer_pointe(&dendrite, METAL_PROFONDEUR).ok();
+    let modele = Modele::Metal(Box::new(Metal { dendrite, cote, limite, avant: None, dernier, diverge: false }));
+    let image = image_de(&modele);
+    *verrouiller() = Some(Etat { modele, duree: METAL_PAS, image, mesure: None, nette: None, masses: None });
+    0
 }
 
 /// Un réglage du métal **en cours** (de 0 à 14 : voir « Le métal », le tableau des réglages) ; `NaN` sans métal en cours ou hors de portée. Ne change rien.
-#[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_metal_reglage(champ: u32) -> f64 {
-    todo!()
+    let garde = verrouiller();
+    let Some(Modele::Metal(metal)) = garde.as_ref().map(|etat| &etat.modele) else { return f64::NAN };
+    let r = metal.dendrite.reglages();
+    match champ {
+        0 => r.epsilon,
+        1 => METAL_DELTA,
+        2 => METAL_D0,
+        3 => r.d,
+        4 => r.w0,
+        5 => r.lambda,
+        6 => r.tau0,
+        7 => r.dx,
+        8 => r.dt,
+        9 => METAL_RAYON,
+        10 => f64::from(metal.cote),
+        11 => metal.limite,
+        12 => f64::from(METAL_PAS),
+        13 => f64::from(METAL_RELEVE),
+        14 => METAL_PROFONDEUR,
+        _ => f64::NAN,
+    }
 }
 
 /// Une mesure du métal **en cours** (de 0 à 10 : voir « Les mesures du métal ») ; `NaN` sans métal en cours, hors de portée ou quand la mesure n'existe pas. Ne change rien.
-#[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_metal_mesure(champ: u32) -> f64 {
-    todo!()
+    let garde = verrouiller();
+    let Some(Modele::Metal(metal)) = garde.as_ref().map(|etat| &etat.modele) else { return f64::NAN };
+    let dernier = metal.dernier.as_ref();
+    match champ {
+        0 => metal.dendrite.position_pointe().unwrap_or(f64::NAN),
+        1 => metal.dendrite.temps(),
+        2 => {
+            if metal_au_mur(metal) {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        3 => {
+            if metal.diverge {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        4 => dernier.map_or(f64::NAN, |pointe| pointe.temps),
+        5 => dernier.map_or(f64::NAN, |pointe| pointe.position),
+        6 => dernier.map_or(f64::NAN, |pointe| pointe.lignes as f64),
+        7 => dernier.map_or(f64::NAN, |pointe| pointe.sommet),
+        8 => dernier.map_or(f64::NAN, |pointe| pointe.rayon),
+        9 => match (metal.avant.as_ref(), dernier) {
+            (Some(avant), Some(dernier)) => vitesse_de_pointe(avant, dernier).unwrap_or(f64::NAN),
+            _ => f64::NAN,
+        },
+        10 => match (metal.avant.as_ref(), dernier) {
+            (Some(avant), Some(dernier)) => match vitesse_de_pointe(avant, dernier) {
+                Ok(vitesse) => constante_de_selection(METAL_D0, metal.dendrite.reglages().d, dernier.rayon, vitesse)
+                    .unwrap_or(f64::NAN),
+                Err(_) => f64::NAN,
+            },
+            _ => f64::NAN,
+        },
+        _ => f64::NAN,
+    }
 }
 
 /// `φ` (`champ` 0) ou `u` (`champ` 1) de la case `i` du quart du métal **en cours** (ligne par ligne, de 0 à `cote² − 1` : `Dendrite::phi()[i]`, `Dendrite::u()[i]`) ; `NaN` sans métal en cours ou hors de portée. Ne change rien.
-#[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_metal_case(champ: u32, i: u32) -> f64 {
-    todo!()
+    let garde = verrouiller();
+    let Some(Modele::Metal(metal)) = garde.as_ref().map(|etat| &etat.modele) else { return f64::NAN };
+    let valeurs = match champ {
+        0 => metal.dendrite.phi(),
+        1 => metal.dendrite.u(),
+        _ => return f64::NAN,
+    };
+    valeurs.get(i as usize).copied().unwrap_or(f64::NAN)
 }

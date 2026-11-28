@@ -328,3 +328,158 @@ export function texteRefusNeige(code) {
 export function blocsNeige(neige) {
   return { commandes: !neige, mesures: !neige };
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Le métal (étape P4) : la dendrite à quatre bras du champ de phase (étapes P2 et P3), calculée dans un quart du domaine. Ce que la page lit du module, l'image qu'elle en tire et ses textes. Le module rend des `f64` (NaN : pas de valeur).
+// ---------------------------------------------------------------------------------------------------------------
+
+// Les réglages du métal dans l'ordre du module (`givre_metal_reglage(champ)`, champs 0 à 14).
+const REGLAGES_METAL = ["epsilon", "delta", "d0", "diffusivite", "w0", "lambda", "tau0", "dx", "dt", "rayon", "cote", "limite", "duree", "releve", "profondeur"];
+
+// Les couleurs de l'image du métal (R, V, B) : le liquide du plus froid (u = −Δ, loin du cristal) au plus chaud (u = 0, la température de fusion), en quatre arrêts, puis le solide.
+const LIQUIDE_METAL = [
+  [11, 17, 24],
+  [24, 40, 66],
+  [70, 92, 150],
+  [255, 178, 122],
+];
+const SOLIDE_METAL = [236, 242, 248];
+
+/** Les réglages du métal **en cours dans le module** (pas ceux des commandes) : { epsilon, delta, d0, diffusivite, w0, lambda, tau0, dx, dt, rayon, cote, limite, duree, releve, profondeur } (des nombres), ou null quand le module n'a pas de métal en cours. */
+export function lireReglagesMetal(m) {
+  const reglages = {};
+  REGLAGES_METAL.forEach((cle, champ) => {
+    reglages[cle] = m.givre_metal_reglage(champ);
+  });
+  return Number.isNaN(reglages.epsilon) ? null : reglages;
+}
+
+/**
+ * Les mesures du métal en cours, à l'instant : { position, temps, auMur, diverge, releve: { temps, position, lignes, sommet, rayon }, vitesse, selection }, ou null sans métal en cours. `position` et `temps` sont ceux de maintenant ; `releve`
+ * est le dernier relevé de la pointe ; `vitesse` est celle de la pointe entre les deux derniers relevés et `selection` la constante de sélection σ* ; NaN quand une mesure n'existe pas (pas encore deux relevés, une mesure refusée).
+ */
+export function lireMesuresMetal(m) {
+  const temps = m.givre_metal_mesure(1);
+  if (Number.isNaN(temps)) {
+    return null;
+  }
+  return {
+    position: m.givre_metal_mesure(0),
+    temps,
+    auMur: m.givre_metal_mesure(2) === 1,
+    diverge: m.givre_metal_mesure(3) === 1,
+    releve: {
+      temps: m.givre_metal_mesure(4),
+      position: m.givre_metal_mesure(5),
+      lignes: m.givre_metal_mesure(6),
+      sommet: m.givre_metal_mesure(7),
+      rayon: m.givre_metal_mesure(8),
+    },
+    vitesse: m.givre_metal_mesure(9),
+    selection: m.givre_metal_mesure(10),
+  };
+}
+
+/** Les champs du quart du métal en cours : { cote, delta, phi, u } (deux `Float64Array` de `cote × cote` valeurs, ligne par ligne, lues case par case), ou null sans métal en cours. */
+export function lireChampsMetal(m) {
+  const cote = m.givre_metal_reglage(10);
+  if (Number.isNaN(cote)) {
+    return null;
+  }
+  const nombre = cote * cote;
+  const phi = new Float64Array(nombre);
+  const u = new Float64Array(nombre);
+  for (let i = 0; i < nombre; i++) {
+    phi[i] = m.givre_metal_case(0, i);
+    u[i] = m.givre_metal_case(1, i);
+  }
+  return { cote, delta: m.givre_metal_reglage(1), phi, u };
+}
+
+/**
+ * L'image du métal, prête pour `new ImageData(rgba, taille, taille)` : le domaine entier (deux quarts de côté par axe) montré par miroir du quart calculé, `taille × taille` pixels, φ et u **interpolés** entre les centres des cases
+ * (un champ continu : jamais de cases). `champs` est ce que rend `lireChampsMetal`. Pour le pixel (px, py) (px vers la droite, py vers le bas, à partir de 0), avec n = cote et T = taille, en nombres flottants dans cet ordre :
+ *   gx = ((2 px + 1) n) / T − n ;  gy = n − ((2 py + 1) n) / T                (le centre du pixel, en cases, depuis le centre du domaine ; y vers le haut)
+ *   fj = |gx| − 0,5 ;  fi = |gy| − 0,5 ;  j0 = ⌊fj⌋ ;  i0 = ⌊fi⌋ ;  tj = fj − j0 ;  ti = fi − i0   (le miroir : |gx|, |gy| ; la case (i, j) a son centre en (j + 0,5, i + 0,5))
+ *   ja, jb, ia, ib = j0, j0 + 1, i0, i0 + 1, chacun ramené dans [0, n − 1]
+ *   pour un champ f : r0 = f(ia, ja) + tj (f(ia, jb) − f(ia, ja)) ;  r1 = f(ib, ja) + tj (f(ib, jb) − f(ib, ja)) ;  valeur = r0 + ti (r1 − r0)
+ *   s = (φ + 1) × 0,5 ramené dans [0, 1] (la part de solide) ;  h = (u + Δ) / Δ ramené dans [0, 1] (la chaleur latente : 0 loin du cristal, 1 à la température de fusion)
+ *   k = min(⌊3 h⌋, 2) ;  a = 3 h − k ;  pour chaque canal : liquide = L[k] + a (L[k + 1] − L[k]) ;  couleur = liquide + s (S − liquide) ;  octet = ⌊couleur + 0,5⌋
+ * où L sont les quatre couleurs du liquide (LIQUIDE_METAL) et S celle du solide (SOLIDE_METAL). Les octets sont R, V, B, 255, ligne par ligne de haut en bas. Rend { largeur, hauteur, rgba } (rgba : un Uint8ClampedArray).
+ */
+export function imageDuMetal(champs, taille) {
+  const n = champs.cote;
+  const { phi, u, delta } = champs;
+  const rgba = new Uint8ClampedArray(4 * taille * taille);
+  const borne = (k) => Math.min(Math.max(k, 0), n - 1);
+  for (let py = 0; py < taille; py++) {
+    const gy = n - ((2 * py + 1) * n) / taille;
+    const fi = Math.abs(gy) - 0.5;
+    const i0 = Math.floor(fi);
+    const ti = fi - i0;
+    const ia = borne(i0) * n;
+    const ib = borne(i0 + 1) * n;
+    for (let px = 0; px < taille; px++) {
+      const gx = ((2 * px + 1) * n) / taille - n;
+      const fj = Math.abs(gx) - 0.5;
+      const j0 = Math.floor(fj);
+      const tj = fj - j0;
+      const ja = borne(j0);
+      const jb = borne(j0 + 1);
+      const p0 = phi[ia + ja] + tj * (phi[ia + jb] - phi[ia + ja]);
+      const p1 = phi[ib + ja] + tj * (phi[ib + jb] - phi[ib + ja]);
+      const p = p0 + ti * (p1 - p0);
+      const u0 = u[ia + ja] + tj * (u[ia + jb] - u[ia + ja]);
+      const u1 = u[ib + ja] + tj * (u[ib + jb] - u[ib + ja]);
+      const v = u0 + ti * (u1 - u0);
+      const s = Math.min(Math.max((p + 1) * 0.5, 0), 1);
+      const h = Math.min(Math.max((v + delta) / delta, 0), 1);
+      const k = Math.min(Math.floor(3 * h), 2);
+      const a = 3 * h - k;
+      const o = 4 * (py * taille + px);
+      for (let c = 0; c < 3; c++) {
+        const liquide = LIQUIDE_METAL[k][c] + a * (LIQUIDE_METAL[k + 1][c] - LIQUIDE_METAL[k][c]);
+        rgba[o + c] = Math.floor(liquide + s * (SOLIDE_METAL[c] - liquide) + 0.5);
+      }
+      rgba[o + 3] = 255;
+    }
+  }
+  return { largeur: taille, hauteur: taille, rgba };
+}
+
+/** Un nombre avec `decimales` décimales et une virgule (`0,0817`), ou « – » quand il n'y a pas de valeur (NaN). */
+export function formaterMetal(valeur, decimales) {
+  return Number.isNaN(valeur) ? "–" : valeur.toFixed(decimales).replace(".", ",");
+}
+
+/** Le texte des réglages du métal démarré (ce que dit le module, jamais les commandes). */
+export function texteReglagesMetal(reglages) {
+  return `Démarré avec ε ${formaterMetal(reglages.epsilon, 3)} · surfusion Δ ${formaterMetal(reglages.delta, 2)} · longueur capillaire d0 ${formaterMetal(reglages.d0, 1)} · diffusivité ${formaterMetal(reglages.diffusivite, 0)} · graine de rayon ${formaterMetal(reglages.rayon, 0)} · pas de grille ${formaterMetal(reglages.dx, 1)} · pas de temps ${formaterMetal(reglages.dt, 4)} · quart de ${reglages.cote} cases ; arrêt quand la pointe atteint ${formaterMetal(reglages.limite, 1)} (le bord est à ${formaterMetal(reglages.cote * reglages.dx, 1)}).`;
+}
+
+/** Le texte des mesures du métal : la pointe maintenant, puis le dernier relevé (vitesse, rayon de la parabole ajustée, σ*). */
+export function texteMesuresMetal(mesures) {
+  const r = mesures.releve;
+  return `Pointe à ${formaterMetal(mesures.position, 2)} au temps ${formaterMetal(mesures.temps, 1)} · au dernier relevé (temps ${formaterMetal(r.temps, 1)}) : vitesse ${formaterMetal(mesures.vitesse, 4)} · rayon ${formaterMetal(r.rayon, 2)} (parabole sur ${formaterMetal(r.lignes, 0)} lignes) · σ* ${formaterMetal(mesures.selection, 3)}`;
+}
+
+/** Le texte de la fin du métal : le mur (la limite avant le bord), une divergence, ou la durée. */
+export function texteFinMetal(mesures) {
+  if (mesures.diverge) {
+    return "Arrêté : un pas a divergé (le module garde l'état d'avant). Recommencez ou choisissez un autre modèle.";
+  }
+  return mesures.auMur
+    ? "Arrêté avant le bord : la pointe a atteint la limite du mur (le mur est à nous ; plus près, le bord la freinerait). Recommencez ou choisissez un autre modèle."
+    : "Scénario terminé (tous les pas sont joués) : recommencez ou choisissez un autre modèle.";
+}
+
+/** Le texte d'un refus de `givre_metal_demarrer` (le code du module). */
+export function texteRefusMetal(code) {
+  const refus = { 1: "ε hors plage", 2: "côté hors plage", 3: "graine refusée" };
+  return `Le métal ne démarre pas : ${refus[code] ?? "refus du module"} (code ${code}).`;
+}
+
+/** Ce que la page montre d'après le modèle en cours (vrai : le métal tourne) : son panneau de commandes, son image et ses mesures ne sont montrés que pour lui. Rend { commandes, image, mesures } : vrai quand le bloc est caché. */
+export function blocsMetal(metal) {
+  return { commandes: !metal, image: !metal, mesures: !metal };
+}
