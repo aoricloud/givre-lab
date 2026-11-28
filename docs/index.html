@@ -115,13 +115,18 @@
   #pas-un-accord, #pas-un-accord-courbe { color: #ffb27a; }
   #avancement-courbe { font-variant-numeric: tabular-nums; }
   #mesure-eta { margin-top: 10px; }
+  /* Le métal : une image déjà lissée (les champs interpolés entre les centres des cases), que le navigateur lisse encore en la mettant à la taille de l'écran. */
+  #vitrine-metal { image-rendering: auto; background: #0b1118; }
+  #legende-metal { margin: 10px 2px 0; color: var(--doux); }
+  .note-metal { grid-column: 1 / -1; margin: 0; color: var(--doux); }
+  #reglages-metal, #mesures-metal { margin: 6px 0; font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
 <main>
   <header>
     <h1>Givre Lab</h1>
-    <p>La DLA, les flocons de Reiter, le claquage diélectrique et la neige de Gravner et Griffeath, calculés en WebAssembly et dessinés au fil des unités de temps.</p>
+    <p>La DLA, les flocons de Reiter, le claquage diélectrique, la neige de Gravner et Griffeath et la dendrite d'un métal, calculés en WebAssembly et dessinés au fil des unités de temps.</p>
   </header>
 
   <section class="commandes" aria-label="Commandes">
@@ -133,6 +138,7 @@
         <option value="3">Reiter, dendrite</option>
         <option value="claquage">Claquage diélectrique</option>
         <option value="neige">Neige de Gravner</option>
+        <option value="metal">Métal (dendrite)</option>
       </select>
     </label>
     <label for="eta" id="commande-eta" hidden>Exposant <span class="minuscule">η</span> (0 à 3)
@@ -185,9 +191,28 @@
     <p id="legende-neige" class="note-neige">Quatre réglages sont libres (ρ la vapeur, β le seuil, κ le gel d'un coup, μ la fonte) ; les trois autres (α, θ, γ), la taille du domaine et le nombre de pas restent ceux du jeu choisi. Le cristal s'arrête quand il arrive près du mur du domaine : le mur est à nous, au-delà ce ne serait plus la neige de l'article (et pour certains réglages le cristal le ressent déjà avant). Ce sont des stades précoces de la croissance, bien plus petits que les cristaux de l'article.</p>
   </section>
 
+  <section class="commandes" id="commandes-metal" aria-label="Réglages du métal" hidden>
+    <label for="metal-epsilon">Anisotropie <span class="minuscule">ε</span> (0 à 0,06)
+      <span class="curseur">
+        <input id="metal-epsilon" type="range" min="0" max="60000" step="5000" value="50000">
+        <output id="valeur-metal-epsilon" for="metal-epsilon">0,050</output>
+      </span>
+    </label>
+    <label for="metal-cote">Taille du domaine
+      <select id="metal-cote">
+        <option value="128">petit (quart de 128 cases)</option>
+        <option value="192" selected>moyen (quart de 192 cases)</option>
+        <option value="256">grand (quart de 256 cases, plus lent)</option>
+      </select>
+    </label>
+    <p class="note-metal">Les autres réglages sont fixes : la surfusion Δ = 0,65, la longueur capillaire d0 = 0,5 et la diffusivité 1 de la table II de Kim et coll. ; la graine ronde de rayon 15 et le pas de grille 0,8 de nos étapes P2 et P3. Le curseur de vitesse donne au plus ce nombre de pas par image, dans un budget de 30 ms par image.</p>
+  </section>
+
   <div class="cadre">
     <canvas id="vitrine" width="512" height="512" aria-label="Image du modèle en cours, un pixel par case"></canvas>
     <canvas id="vitrine-nette" width="384" height="384" hidden aria-label="Image nette du modèle en cours, chaque case dessinée comme un hexagone"></canvas>
+    <canvas id="vitrine-metal" width="384" height="384" hidden aria-label="Image du métal : le solide et la chaleur latente, le domaine entier montré par miroir du quart calculé"></canvas>
+    <p id="legende-metal" hidden>Notre modèle, en 2D : la dendrite à quatre bras d'un métal pur du champ de phase (Karma et Rappel, dans la forme de Kim et coll.), calculée dans un quart du domaine et montrée en entier par miroir. Blanc : le solide ; le halo : la chaleur latente que le front dégage dans le liquide surfondu, du plus froid (sombre) à la température de fusion (orangé). À ε = 0, pas de dendrite : seule la grille déforme la graine ; à ces tailles, les bras ne font que commencer (au côté 128, le cristal s'arrête quand ce n'est encore qu'un losange). Ce n'est pas une reproduction : en régime établi, à ε = 0,05, notre calcul donne Ṽ = 0,0408 (un repère de notre étape P2, sur un domaine plus grand) ; la valeur publiée par Kim et coll. (table II : Ṽ = 0,0469) n'est pas atteinte. Ṽ est la vitesse sans dimension, V · d0 / diffusivité, soit ici V = 2 Ṽ : 0,0469 correspond à une vitesse affichée de 0,0938. Le domaine est petit et le mur est à nous : la pointe s'arrête avant le bord, quand elle atteint 55 % du côté depuis le centre. Aux petits côtés et aux faibles ε, le régime n'est pas établi : la vitesse de la pointe change encore quand elle s'arrête ; au côté 256 et pour ε de 0,045 à 0,06, elle ne varie plus sur la fin qu'au niveau du bruit des relevés (moins de 2 %). Le rayon et σ* sont ceux de notre mesure (une parabole ajustée à la pointe) : ils dépendent de la profondeur choisie.</p>
     <p id="legende-nette" hidden>Chaque case est un hexagone. Fond blanc : pas de glace. Le bleu fonce avec la masse de la case : pour un flocon de Reiter, la masse d'eau qu'elle a gagnée depuis qu'elle a gelé (le centre, gelé le premier, finit bleu foncé) ; pour la neige, sa masse cristalline.</p>
   </div>
 
@@ -202,6 +227,12 @@
     <p id="reglages-neige"></p>
     <p id="mesures-neige"></p>
     <p id="forme-neige"></p>
+  </section>
+
+  <section class="mesure" id="mesures-metal-bloc" aria-label="Ce que le métal a fait" hidden>
+    <h2>Le métal</h2>
+    <p id="reglages-metal"></p>
+    <p id="mesures-metal"></p>
   </section>
 
   <section class="mesure" aria-label="Mesure de la dimension par corrélation">
