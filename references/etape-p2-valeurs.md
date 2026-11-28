@@ -113,7 +113,8 @@ par ce schéma (grille uniforme, quart, rayon 15, `u` joué, `dt` = la borne, `V
 
 `Ṽ` bouge donc encore de 8 % quand la grille passe de 0,8 à 0,4. `Δ = 0,55` (publié 0,0170) : 0,0165 à `t = 3000`, `dx = 0,8`, encore en
 baisse (l'écrivain ; non établi, non refait par le juge). `Δ = 0,45` (publié 0,00545) : non mesuré (`L = 1000`, `D = 3` : au moins 1250
-cases de côté à `dx = 0,8`). `d0 = 1,5` (la seconde ligne à `Δ = 0,65`) : non mesuré.
+cases de côté à `dx = 0,8`). `d0 = 1,5` (la seconde ligne à `Δ = 0,65`) : mesuré hors des tests le 15/11, au pas 0,8 seulement :
+0,0450 de `t = 5500` à 6000 (−4 %), en régime non établi, un repère (`MODELE.md`, « Étape P2 »).
 
 ## V-P2-NAIF-01 à 04, V-P2-SYM-01 à 03, V-P2-QUART-01, V-P2-FAUTE-01/02
 
