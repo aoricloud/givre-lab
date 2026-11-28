@@ -397,6 +397,18 @@ pub const FONCTIONS_V8: [(&str, &[u8], &[u8]); 2] =
 /// Vrai quand la fonctionnalité `etape-v8` est active : le module doit alors avoir les trente-quatre fonctions.
 pub const V8_ACTIVE: bool = cfg!(feature = "etape-v8");
 
+/// Les quatre fonctions du métal de l'étape P4 (voir `src/vitrine.rs`, « Le métal »), avec leur signature. Le module et la page d'avant P4 ne les ont pas : tant que la fonctionnalité `etape-p4` n'est pas active, les tests acceptent le module
+/// et la page tels qu'ils sont (trente-quatre fonctions, six modèles dans le menu) ou étendus de ces quatre (trente-huit, et le métal en septième modèle) ; avec `etape-p4`, ils n'acceptent que l'étendu. La page qui a le métal emploie les quatre.
+pub const FONCTIONS_P4: [(&str, &[u8], &[u8]); 4] = [
+    ("givre_metal_demarrer", &[I32, I32], &[I32]),
+    ("givre_metal_reglage", &[I32], &[F64]),
+    ("givre_metal_mesure", &[I32], &[F64]),
+    ("givre_metal_case", &[I32, I32], &[F64]),
+];
+
+/// Vrai quand la fonctionnalité `etape-p4` est active : le module doit alors avoir les trente-huit fonctions, et la page le métal.
+pub const P4_ACTIVE: bool = cfg!(feature = "etape-p4");
+
 /// Les identifiants que les tests de la page exigent (étapes 5, Z1, D3, V7 et G3), **chacun une seule fois, dans `index.html`** : à n'importe quelle place (un tiroir, un `<aside>`, un `<dialog>`, un `<div hidden>`), dans n'importe quel élément. Quarante-huit.
 pub const IDENTIFIANTS_DE_LA_PAGE: [&str; 48] = [
     "vitrine",

@@ -35,6 +35,7 @@ etape-v8 = []
 etape-p1 = []
 etape-p2 = []
 etape-p3 = []
+etape-p4 = []
 
 # Les tests de simulation (agrégats, surfaces, Monte-Carlo) sont lourds : le profil de test est optimisé. Les
 # vérifications de débordement restent actives. Ne pas le changer sans PR à part.

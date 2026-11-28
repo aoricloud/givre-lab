@@ -106,7 +106,13 @@ fn le_module_exporte_les_deux_fonctions_des_masses() {
         .chain(e5::FONCTIONS_V8.iter())
         .collect();
     assert_eq!(toutes.len(), 34, "la liste écrite dans etape_5_commun a trente-quatre fonctions");
-    assert_eq!(noms.len(), 34, "le module exporte {} fonctions : {noms:?}", noms.len());
+    // Étape P4 : le module a aussi les quatre fonctions du métal ; avec `etape-p4`, trente-huit seulement ; sans elle, trente-quatre ou trente-huit (les trente-quatre y sont toujours, vérifiées une à une plus bas).
+    let p4 = noms.len() == 38 && e5::FONCTIONS_P4.iter().all(|(nom, _, _)| noms.contains(nom));
+    if e5::P4_ACTIVE {
+        assert!(p4, "le module exporte {} fonctions, pas les trente-huit : {noms:?}", noms.len());
+    } else {
+        assert!(noms.len() == 34 || p4, "le module exporte {} fonctions : {noms:?}", noms.len());
+    }
     for (nom, parametres, resultats) in toutes {
         let exportation = module
             .exportations

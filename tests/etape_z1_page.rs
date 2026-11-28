@@ -39,9 +39,9 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 use etape_5_commun::{
-    D3_ACTIVE, FONCTIONS, FONCTIONS_D3, FONCTIONS_G3, FONCTIONS_V7, FONCTIONS_V8, FONCTIONS_Z1, G3_ACTIVE, TABLE,
-    V7_ACTIVE, Z1_ACTIVE, chaines_du_code, chemin_de_lecture, chemin_module, code_js_de_la_page, lire_page,
-    node_est_la, racine, textes_des_fichiers, textes_ecrits_par_la_page, tout_le_code_js,
+    D3_ACTIVE, FONCTIONS, FONCTIONS_D3, FONCTIONS_G3, FONCTIONS_P4, FONCTIONS_V7, FONCTIONS_V8, FONCTIONS_Z1,
+    G3_ACTIVE, TABLE, V7_ACTIVE, Z1_ACTIVE, chaines_du_code, chemin_de_lecture, chemin_module, code_js_de_la_page,
+    lire_page, node_est_la, racine, textes_des_fichiers, textes_ecrits_par_la_page, tout_le_code_js,
 };
 use givre_lab::correlation::mesure;
 use givre_lab::dla::Amas;
@@ -376,6 +376,9 @@ fn la_page_emploie_les_quinze_exportations_et_lire_correlation() {
         etendu_v7.iter().cloned().chain(FONCTIONS_G3.iter().map(|(nom, _, _)| nom.to_string())).collect();
     // Étape V8 : les deux fonctions des masses sont permises (jamais exigées) : on les retire de ce que la page emploie avant de comparer.
     let masses: BTreeSet<String> = FONCTIONS_V8.iter().map(|(nom, _, _)| nom.to_string()).collect();
+    // Étape P4 : les quatre fonctions du métal sont permises ici (`etape_5_page.rs` les exige avec `etape-p4`) : on les retire aussi avant de comparer.
+    let masses: BTreeSet<String> =
+        masses.into_iter().chain(FONCTIONS_P4.iter().map(|(nom, _, _)| nom.to_string())).collect();
     let employes_avec_v8 = noms_employes(&format!("{code}\n{lecture}"));
     let permis: BTreeSet<String> = etendu_g3.union(&masses).cloned().collect();
     let inconnus: Vec<&String> = employes_avec_v8.difference(&permis).collect();
@@ -416,6 +419,7 @@ fn la_page_emploie_les_quinze_exportations_et_lire_correlation() {
         .chain(FONCTIONS_V7.iter())
         .chain(FONCTIONS_G3.iter())
         .chain(FONCTIONS_V8.iter())
+        .chain(FONCTIONS_P4.iter())
     {
         for arite in arites_des_appels(&code, nom) {
             assert_eq!(

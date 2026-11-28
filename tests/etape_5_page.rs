@@ -66,10 +66,10 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 use etape_5_commun::{
-    CODE_MAX, D3_ACTIVE, FONCTIONS, FONCTIONS_D3, FONCTIONS_G3, FONCTIONS_V7, FONCTIONS_V8, FONCTIONS_Z1, G3_ACTIVE,
-    IDENTIFIANTS_DE_LA_PAGE, IMAGE_MAX, IMAGES_MAX, V7_ACTIVE, Z1_ACTIVE, adresse_externe, chaines_du_code,
-    chemin_de_lecture, chemin_module, code_js_de_la_page, est_une_image, fichiers_de_la_page, lancer_le_script,
-    lire_page, natif, node_est_la, racine, ressources_externes, sans_commentaires, scripts_en_ligne,
+    CODE_MAX, D3_ACTIVE, FONCTIONS, FONCTIONS_D3, FONCTIONS_G3, FONCTIONS_P4, FONCTIONS_V7, FONCTIONS_V8, FONCTIONS_Z1,
+    G3_ACTIVE, IDENTIFIANTS_DE_LA_PAGE, IMAGE_MAX, IMAGES_MAX, P4_ACTIVE, V7_ACTIVE, Z1_ACTIVE, adresse_externe,
+    chaines_du_code, chemin_de_lecture, chemin_module, code_js_de_la_page, est_une_image, fichiers_de_la_page,
+    lancer_le_script, lire_page, natif, node_est_la, racine, ressources_externes, sans_commentaires, scripts_en_ligne,
     textes_des_fichiers, tout_le_code_js,
 };
 use givre_lab::empreinte::sha256_hex;
@@ -236,7 +236,8 @@ fn la_page_a_ses_commandes_et_ses_affichages() {
         let nom = nom_de_balise(balise);
         if nom == "select" && attribut(balise, "id").as_deref() == Some("modele") {
             dans_le_select = true;
-        } else if nom == "/select" {
+        } else if balise.starts_with("/select") {
+            // Étape P4 (juge) : `nom_de_balise("/select")` rend "" (la barre est un séparateur) : la fin du choix du modèle n'était jamais vue, et les options d'un `<select>` qui le suit (le côté du métal) étaient comptées avec les siennes.
             dans_le_select = false;
         } else if dans_le_select && nom == "option" {
             options.push((attribut(balise, "value").unwrap_or_default(), texte.trim().to_lowercase()));
@@ -246,18 +247,28 @@ fn la_page_a_ses_commandes_et_ses_affichages() {
     // Étape D3 : une cinquième option, le claquage diélectrique (`value` « claquage » : le curseur η donne le numéro du modèle). Avec `etape-d3`, les
     // cinq seulement ; sans elle, les quatre d'avant ou les cinq.
     // Étape G3 : une sixième option, la neige (`value` « neige » : le menu des jeux nommés et les curseurs donnent son démarrage). Avec `etape-g3`, les six seulement ; sans elle, ce que `etape-d3` dit ou les six.
-    if G3_ACTIVE {
-        assert_eq!(valeurs, ["0", "1", "2", "3", "claquage", "neige"], "les <option> du choix du modèle");
+    // Étape P4 : une septième option, le métal (`value` « metal » : le curseur ε et le côté donnent son démarrage). Avec `etape-p4`, les sept seulement ; sans elle, ce que les fonctionnalités d'avant disent ou les sept.
+    let sept = ["0", "1", "2", "3", "claquage", "neige", "metal"];
+    if P4_ACTIVE {
+        assert_eq!(valeurs, sept, "les <option> du choix du modèle");
+    } else if G3_ACTIVE {
+        assert!(
+            valeurs == ["0", "1", "2", "3", "claquage", "neige"] || valeurs == sept,
+            "les <option> du choix du modèle : {valeurs:?}"
+        );
     } else if D3_ACTIVE {
         assert!(
-            valeurs == ["0", "1", "2", "3", "claquage"] || valeurs == ["0", "1", "2", "3", "claquage", "neige"],
+            valeurs == ["0", "1", "2", "3", "claquage"]
+                || valeurs == ["0", "1", "2", "3", "claquage", "neige"]
+                || valeurs == sept,
             "les <option> du choix du modèle : {valeurs:?}"
         );
     } else {
         assert!(
             valeurs == ["0", "1", "2", "3"]
                 || valeurs == ["0", "1", "2", "3", "claquage"]
-                || valeurs == ["0", "1", "2", "3", "claquage", "neige"],
+                || valeurs == ["0", "1", "2", "3", "claquage", "neige"]
+                || valeurs == sept,
             "les <option> du choix du modèle : {valeurs:?}"
         );
     }
@@ -321,9 +332,21 @@ fn la_page_emploie_les_exportations_du_module_et_rien_d_autre() {
         vingt_sept.iter().cloned().chain(FONCTIONS_G3.iter().map(|(nom, _, _)| nom.to_string())).collect();
     // Étape V8 : les deux fonctions des masses sont **permises** (la page de la session de site les emploie dans un worker) mais jamais exigées : ni l'une ni l'autre régime ne les demande.
     let masses: BTreeSet<String> = FONCTIONS_V8.iter().map(|(nom, _, _)| nom.to_string()).collect();
-    let permises: BTreeSet<String> = trente_deux.union(&masses).cloned().collect();
+    // Étape P4 : les quatre fonctions du métal sont **exigées** avec `etape-p4` (la page a le métal) ; sans elle, permises (toutes les quatre ou aucune).
+    let metal: BTreeSet<String> = FONCTIONS_P4.iter().map(|(nom, _, _)| nom.to_string()).collect();
+    let permises: BTreeSet<String> = trente_deux.union(&masses).cloned().chain(metal.iter().cloned()).collect();
     let employes = noms_employes(&code);
+    let metal_employe: BTreeSet<String> = employes.intersection(&metal).cloned().collect();
+    if P4_ACTIVE {
+        assert_eq!(metal_employe, metal, "la page n'emploie pas les quatre fonctions du métal");
+    } else {
+        assert!(
+            metal_employe.is_empty() || metal_employe == metal,
+            "la page emploie une partie seulement des fonctions du métal : {metal_employe:?}"
+        );
+    }
     let employes_d_avant: BTreeSet<String> = employes.difference(&masses).cloned().collect();
+    let employes_d_avant: BTreeSet<String> = employes_d_avant.difference(&metal).cloned().collect();
     let exportees = if G3_ACTIVE || employes_d_avant == trente_deux {
         trente_deux
     } else if V7_ACTIVE || employes_d_avant == vingt_sept {
@@ -348,6 +371,7 @@ fn la_page_emploie_les_exportations_du_module_et_rien_d_autre() {
         .chain(FONCTIONS_V7.iter())
         .chain(FONCTIONS_G3.iter())
         .chain(FONCTIONS_V8.iter())
+        .chain(FONCTIONS_P4.iter())
         .filter(|(nom, _, _)| employes.contains(*nom))
     {
         let arites = arites_des_appels(&code, nom);
