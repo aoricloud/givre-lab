@@ -281,16 +281,21 @@ fn la_page_a_les_elements_du_claquage_et_de_la_courbe() {
         }
     }
     // Étape G3 : une sixième option, « neige », peut suivre le claquage (avec `etape-g3` elle y est : voir `etape_g3_page.rs`) ; le claquage est alors l'avant-dernière.
-    let avec_neige = options.last().is_some_and(|(valeur, _)| valeur == "neige");
-    assert!(avec_neige || !e5::G3_ACTIVE, "avec etape-g3, la dernière option du choix du modèle est « neige »");
-    let (valeur, texte) = if avec_neige {
-        options.get(options.len() - 2).expect("des options")
-    } else {
-        options.last().expect("des options")
-    };
-    assert_eq!(valeur, "claquage", "la dernière option du choix du modèle (avant « neige » s'il y en a une)");
+    // Étape P4 : une septième option, « metal », peut suivre la neige (avec `etape-p4` elle y est) ; le claquage est alors l'antépénultième.
+    let avec_metal = options.last().is_some_and(|(valeur, _)| valeur == "metal");
+    assert!(avec_metal || !e5::P4_ACTIVE, "avec etape-p4, la dernière option du choix du modèle est « metal »");
+    let suivantes = usize::from(avec_metal);
+    let avec_neige = options.len() > suivantes && options[options.len() - 1 - suivantes].0 == "neige";
+    assert!(
+        avec_neige || !e5::G3_ACTIVE,
+        "avec etape-g3, la dernière option du choix du modèle est « neige » (avant « metal » s'il y en a une)"
+    );
+    assert!(avec_neige || !avec_metal, "le métal suit la neige");
+    let (valeur, texte) =
+        options.get(options.len().wrapping_sub(1 + usize::from(avec_neige) + suivantes)).expect("des options");
+    assert_eq!(valeur, "claquage", "la dernière option du choix du modèle (avant « neige » et « metal » s'il y en a)");
     assert!(texte.contains("claquage") && texte.contains("diélectrique"), "le texte de l'option : « {texte} »");
-    assert_eq!(options.len(), if avec_neige { 6 } else { 5 });
+    assert_eq!(options.len(), 5 + usize::from(avec_neige) + suivantes);
     let bouton = texte_de(&html, "calculer-courbe").expect("le bouton");
     assert!(bouton.contains("courbe"), "le texte du bouton est « {bouton} »");
 }

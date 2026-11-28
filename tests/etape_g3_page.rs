@@ -115,12 +115,19 @@ fn la_page_a_le_panneau_de_la_neige() {
             options.push(attribut(balise, "value").unwrap_or_default());
         }
     }
-    assert_eq!(
-        options.last().map(String::as_str),
-        Some("neige"),
-        "la dernière option du choix du modèle : {options:?}"
+    // Étape P4 : une septième option, le métal, peut suivre la neige (avec `etape-p4` elle y est : voir `etape_p4_page.rs`) ; la neige est alors l'avant-dernière.
+    let avec_metal = options.last().is_some_and(|valeur| valeur == "metal");
+    assert!(
+        avec_metal || !e5::P4_ACTIVE,
+        "avec etape-p4, la dernière option du choix du modèle est « metal » : {options:?}"
     );
-    assert_eq!(options.len(), 6);
+    let neige = if avec_metal { options.get(options.len() - 2) } else { options.last() };
+    assert_eq!(
+        neige.map(String::as_str),
+        Some("neige"),
+        "la dernière option du choix du modèle (avant « metal » s'il y en a une) : {options:?}"
+    );
+    assert_eq!(options.len(), if avec_metal { 7 } else { 6 });
 }
 
 /// juste + forme : les curseurs de la page atteignent chacun des dix-neuf jeux nommés (V-G3-21). Pour chaque jeu de la table **écrite à la main d'après la source** (`etape_g3_commun::JEUX`), `ρ`, `β`, `κ` et `μ` en millionièmes sont dans `[min, max]` du curseur correspondant de

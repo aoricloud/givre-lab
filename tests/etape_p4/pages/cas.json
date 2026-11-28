@@ -1,0 +1,727 @@
+{
+ "_lisez_moi": "Les pages d'essai de P4 (leçon 28) et les mutants de la page (leçon 29) : chaque cas est une page de base (docs/, la page rhabillée avec le métal, la page rhabillée de V8), un régime (avec ou sans etape-p4), des opérations (remplacer [ancien, nouveau], ancien une seule fois) et l'attendu : doit_passer, doit_echouer (au moins un de ces tests échoue) ou survivant (aucun test ne le voit, avec la raison). Joués par pages_p4.py (le juge, hors du dépôt), sur des binaires de test construits avec et sans etape-p4, GIVRE_DOCS pointant sur une copie de la page.",
+ "cas": [
+  {
+   "nom": "H1 docs (la page du prototype), avec etape-p4",
+   "base": "docs",
+   "regime": "avec",
+   "doit_passer": true
+  },
+  {
+   "nom": "H2 docs, sans etape-p4",
+   "base": "docs",
+   "regime": "sans",
+   "doit_passer": true
+  },
+  {
+   "nom": "H3 rhabillee-metal (worker, tiroir, légende écrite par un script), avec",
+   "base": "tests/etape_p4/pages/rhabillee-metal",
+   "regime": "avec",
+   "doit_passer": true
+  },
+  {
+   "nom": "H4 rhabillee-metal, sans",
+   "base": "tests/etape_p4/pages/rhabillee-metal",
+   "regime": "sans",
+   "doit_passer": true
+  },
+  {
+   "nom": "H5 la page rhabillée de V8 (sans métal), sans etape-p4",
+   "base": "tests/etape_v8/pages/rhabillee",
+   "regime": "sans",
+   "doit_passer": true
+  },
+  {
+   "nom": "H6 la page rhabillée de V8 (sans métal), avec etape-p4 : refusée",
+   "base": "tests/etape_v8/pages/rhabillee",
+   "regime": "avec",
+   "doit_echouer": [
+    "etape_5_page::la_page_a_ses_commandes_et_ses_affichages",
+    "etape_p4_page::la_page_a_le_panneau_du_metal"
+   ]
+  },
+  {
+   "nom": "P01 imageDuMetal sans miroir (gx au lieu de |gx|)",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "lecture.js",
+     "remplacer": [
+      "const fj = Math.abs(gx) - 0.5;",
+      "const fj = gx - 0.5;"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::lecture_js_lit_le_metal_sur_un_faux_module",
+    "etape_p4_module::node_joue_le_metal_comme_le_natif"
+   ]
+  },
+  {
+   "nom": "P02 ti et tj échangés",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "lecture.js",
+     "remplacer": [
+      "const p = p0 + ti * (p1 - p0);",
+      "const p = p0 + tj * (p1 - p0);"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::lecture_js_lit_le_metal_sur_un_faux_module",
+    "etape_p4_module::node_joue_le_metal_comme_le_natif"
+   ]
+  },
+  {
+   "nom": "P03 k sans le plafond 2",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "lecture.js",
+     "remplacer": [
+      "const k = Math.min(Math.floor(3 * h), 2);",
+      "const k = Math.floor(3 * h);"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::lecture_js_lit_le_metal_sur_un_faux_module"
+   ]
+  },
+  {
+   "nom": "P04 solide et liquide échangés",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "lecture.js",
+     "remplacer": [
+      "const s = Math.min(Math.max((p + 1) * 0.5, 0), 1);",
+      "const s = Math.min(Math.max((1 - p) * 0.5, 0), 1);"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::lecture_js_lit_le_metal_sur_un_faux_module",
+    "etape_p4_module::node_joue_le_metal_comme_le_natif"
+   ]
+  },
+  {
+   "nom": "P05 Math.round au lieu de floor(x + 0,5)",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "lecture.js",
+     "remplacer": [
+      "rgba[o + c] = Math.floor(liquide + s * (SOLIDE_METAL[c] - liquide) + 0.5);",
+      "rgba[o + c] = Math.round(liquide + s * (SOLIDE_METAL[c] - liquide));"
+     ]
+    }
+   ],
+   "survivant": "équivalent : pour x >= 0, Math.round(x) = floor(x + 0,5) (JavaScript arrondit les demis vers le haut)"
+  },
+  {
+   "nom": "P06 y vers le bas (gy non retourné)",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "lecture.js",
+     "remplacer": [
+      "const gy = n - ((2 * py + 1) * n) / taille;",
+      "const gy = ((2 * py + 1) * n) / taille - n;"
+     ]
+    }
+   ],
+   "survivant": "équivalent : le miroir |gy| rend l'image symétrique de haut en bas"
+  },
+  {
+   "nom": "P07 vitesse et σ* échangées",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "lecture.js",
+     "remplacer": [
+      "vitesse: m.givre_metal_mesure(9),",
+      "vitesse: m.givre_metal_mesure(10),"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::lecture_js_lit_le_metal_sur_un_faux_module",
+    "etape_p4_module::node_joue_le_metal_comme_le_natif"
+   ]
+  },
+  {
+   "nom": "P08 φ lu dans le champ de u",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "lecture.js",
+     "remplacer": [
+      "phi[i] = m.givre_metal_case(0, i);",
+      "phi[i] = m.givre_metal_case(1, i);"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::lecture_js_lit_le_metal_sur_un_faux_module",
+    "etape_p4_module::node_joue_le_metal_comme_le_natif"
+   ]
+  },
+  {
+   "nom": "P09 réglages jamais null",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "lecture.js",
+     "remplacer": [
+      "return Number.isNaN(reglages.epsilon) ? null : reglages;",
+      "return reglages;"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::lecture_js_lit_le_metal_sur_un_faux_module",
+    "etape_p4_module::node_joue_le_metal_comme_le_natif"
+   ]
+  },
+  {
+   "nom": "P10 texte de refus changé",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "lecture.js",
+     "remplacer": [
+      "1: \"ε hors plage\"",
+      "1: \"erreur\""
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::lecture_js_lit_le_metal_sur_un_faux_module"
+   ]
+  },
+  {
+   "nom": "P11 formaterMetal sans le cas NaN",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "lecture.js",
+     "remplacer": [
+      "return Number.isNaN(valeur) ? \"–\" : valeur.toFixed(decimales).replace(\".\", \",\");",
+      "return valeur.toFixed(decimales).replace(\".\", \",\");"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::lecture_js_lit_le_metal_sur_un_faux_module"
+   ]
+  },
+  {
+   "nom": "P12 blocsMetal inversé",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "lecture.js",
+     "remplacer": [
+      "return { commandes: !metal, image: !metal, mesures: !metal };",
+      "return { commandes: metal, image: metal, mesures: metal };"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::lecture_js_lit_le_metal_sur_un_faux_module"
+   ]
+  },
+  {
+   "nom": "P13 un réglage écrit dans l'appel de démarrage",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "app.js",
+     "remplacer": [
+      "return m.givre_metal_demarrer(Number(curseurMetalEpsilon.value), Number(choixMetalCote.value)) >>> 0;",
+      "return m.givre_metal_demarrer(50000, Number(choixMetalCote.value)) >>> 0;"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::lecture_js_declare_ce_que_la_page_lit_du_metal"
+   ]
+  },
+  {
+   "nom": "P14 un refus avalé (pas de texteRefusMetal)",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "app.js",
+     "remplacer": [
+      "affichageEtat.textContent = texteRefusMetal(code);",
+      "affichageEtat.textContent = \"\";"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::lecture_js_declare_ce_que_la_page_lit_du_metal"
+   ]
+  },
+  {
+   "nom": "P15 le curseur ε par 1 000 (des ε non joués)",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "min=\"0\" max=\"60000\" step=\"5000\" value=\"50000\"",
+      "min=\"0\" max=\"60000\" step=\"1000\" value=\"50000\""
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::les_reglages_offerts_ont_ete_joues"
+   ]
+  },
+  {
+   "nom": "P16 le curseur ε jusqu'à 0,07",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "min=\"0\" max=\"60000\" step=\"5000\" value=\"50000\"",
+      "min=\"0\" max=\"70000\" step=\"5000\" value=\"50000\""
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::les_reglages_offerts_ont_ete_joues"
+   ]
+  },
+  {
+   "nom": "P17 un côté non joué (320)",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<option value=\"256\">grand (quart de 256 cases, plus lent)</option>",
+      "<option value=\"320\">très grand</option>"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::les_reglages_offerts_ont_ete_joues"
+   ]
+  },
+  {
+   "nom": "P18 la légende sans « le mur est à nous »",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "Le domaine est petit et le mur est à nous :",
+      "Le domaine est petit :"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::la_page_dit_ce_que_le_metal_est_et_n_est_pas"
+   ]
+  },
+  {
+   "nom": "P19 la légende dit « réaliste »",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "Notre modèle, en 2D :",
+      "Notre modèle réaliste, en 2D :"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::la_page_dit_ce_que_le_metal_est_et_n_est_pas"
+   ]
+  },
+  {
+   "nom": "P20 le métal avant la neige",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<option value=\"neige\">Neige de Gravner</option>\n        <option value=\"metal\">Métal (dendrite)</option>",
+      "<option value=\"metal\">Métal (dendrite)</option>\n        <option value=\"neige\">Neige de Gravner</option>"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_a_ses_commandes_et_ses_affichages",
+    "etape_p4_page::la_page_a_le_panneau_du_metal",
+    "etape_g3_page::la_page_a_le_panneau_de_la_neige"
+   ]
+  },
+  {
+   "nom": "P21 le canvas du métal pixélisé",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "#vitrine-metal { image-rendering: auto; background: #0b1118; }",
+      "#vitrine-metal { image-rendering: pixelated; background: #0b1118; }"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_v7_page::le_canvas_des_modeles_hexagonaux_n_est_pas_pixelise"
+   ]
+  },
+  {
+   "nom": "P22 app.js lit une case sans lecture.js",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "app.js",
+     "remplacer": [
+      "const champs = lireChampsMetal(m);",
+      "const champs = lireChampsMetal(m);\n  m.givre_metal_case(0, 0);"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::lecture_js_declare_ce_que_la_page_lit_du_metal"
+   ]
+  },
+  {
+   "nom": "P23 PAS_PAR_APPEL_METAL à 50",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "app.js",
+     "remplacer": [
+      "const PAS_PAR_APPEL_METAL = 1;",
+      "const PAS_PAR_APPEL_METAL = 50;"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::les_bornes_de_la_boucle_et_de_l_image_du_metal"
+   ]
+  },
+  {
+   "nom": "P24 l'image de la fin à 2048",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "app.js",
+     "remplacer": [
+      "const METAL_IMAGE_FIN = 768;",
+      "const METAL_IMAGE_FIN = 2048;"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::les_bornes_de_la_boucle_et_de_l_image_du_metal"
+   ]
+  },
+  {
+   "nom": "P25 l'identifiant metal-cote absent",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<select id=\"metal-cote\">",
+      "<select id=\"metal-taille\">"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::la_page_a_le_panneau_du_metal",
+    "etape_5_page::les_identifiants_sont_dans_index_html_une_seule_fois"
+   ]
+  },
+  {
+   "nom": "P26 la légende nomme Lydite",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "Notre modèle, en 2D :",
+      "Notre modèle (écrit sous Lydite), en 2D :"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::la_page_dit_ce_que_le_metal_est_et_n_est_pas"
+   ]
+  },
+  {
+   "nom": "P27 la valeur initiale du curseur hors grille",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "step=\"5000\" value=\"50000\"",
+      "step=\"5000\" value=\"52000\""
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::les_reglages_offerts_ont_ete_joues"
+   ]
+  },
+  {
+   "nom": "P28 le canvas du métal est un div",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<canvas id=\"vitrine-metal\" width=\"384\" height=\"384\" hidden",
+      "<div id=\"vitrine-metal\" hidden></div><canvas width=\"384\" height=\"384\" hidden"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::la_page_a_le_panneau_du_metal"
+   ]
+  },
+  {
+   "nom": "P29 lecture.js emploie document",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "lecture.js",
+     "remplacer": [
+      "export function blocsMetal(metal) {",
+      "export function blocsMetal(metal) {\n  void document;"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::lecture_js_declare_ce_que_la_page_lit_du_metal"
+   ]
+  },
+  {
+   "nom": "P30 la page n'emploie plus givre_metal_mesure",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "lecture.js",
+     "remplacer": [
+      "vitesse: m.givre_metal_mesure(9),",
+      "vitesse: NaN,"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_5_page::la_page_emploie_les_exportations_du_module_et_rien_d_autre",
+    "etape_p4_page::lecture_js_lit_le_metal_sur_un_faux_module"
+   ]
+  },
+  {
+   "nom": "P31 l'état suit les commandes (metalEnCours posé avant le code)",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "app.js",
+     "remplacer": [
+      "  if (metal) {\n    const code = demarrerLeMetal();",
+      "  if (metal) {\n    metalEnCours = true;\n    const code = demarrerLeMetal();"
+     ]
+    }
+   ],
+   "survivant": "le DOM et l'enchaînement d'app.js ne sont pas éprouvés (V8 : la page peut être réécrite) ; dit dans « Ce que cette étape n'établit pas »"
+  },
+  {
+   "nom": "P32 un résidu : le canvas de l'image nette non caché pour le métal",
+   "base": "docs",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "app.js",
+     "remplacer": [
+      "  canvasNette.hidden = true;\n",
+      ""
+     ]
+    }
+   ],
+   "survivant": "idem : le DOM n'est pas éprouvé"
+  },
+  {
+   "nom": "F01 rhabillée : un ε écrit dans l'appel du worker",
+   "base": "tests/etape_p4/pages/rhabillee-metal",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "calcul.js",
+     "remplacer": [
+      "const code = m.givre_metal_demarrer(epsilon, cote) >>> 0;",
+      "const code = m.givre_metal_demarrer(30000, cote) >>> 0;"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::lecture_js_declare_ce_que_la_page_lit_du_metal"
+   ]
+  },
+  {
+   "nom": "F02 rhabillée : la légende (script) sans « pas une reproduction »",
+   "base": "tests/etape_p4/pages/rhabillee-metal",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "app.js",
+     "remplacer": [
+      "Notre modèle, en 2D, pas une reproduction :",
+      "Notre modèle, en 2D :"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::la_page_dit_ce_que_le_metal_est_et_n_est_pas"
+   ]
+  },
+  {
+   "nom": "F03 rhabillée : le worker lit φ sans lecture.js",
+   "base": "tests/etape_p4/pages/rhabillee-metal",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "calcul.js",
+     "remplacer": [
+      "const reglages = lireReglagesMetal(m);",
+      "const reglages = lireReglagesMetal(m);\n  m.givre_metal_case(0, 0);"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::lecture_js_declare_ce_que_la_page_lit_du_metal"
+   ]
+  },
+  {
+   "nom": "F04 rhabillée : un côté non joué",
+   "base": "tests/etape_p4/pages/rhabillee-metal",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<option value=\"192\">moyen</option>",
+      "<option value=\"200\">moyen</option>"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::les_reglages_offerts_ont_ete_joues"
+   ]
+  },
+  {
+   "nom": "F05 rhabillée : une option du modèle en trop après le métal",
+   "base": "tests/etape_p4/pages/rhabillee-metal",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "<option value=\"metal\">Le métal : une dendrite</option>",
+      "<option value=\"metal\">Le métal : une dendrite</option>\n    <option value=\"9\">autre</option>"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::la_page_a_le_panneau_du_metal",
+    "etape_5_page::la_page_a_ses_commandes_et_ses_affichages"
+   ]
+  },
+  {
+   "nom": "F06 rhabillée : un refus du métal avalé",
+   "base": "tests/etape_p4/pages/rhabillee-metal",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "app.js",
+     "remplacer": [
+      "etat.textContent = texteRefusMetal(donnee.refusMetal);",
+      "etat.textContent = \"\";"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::lecture_js_declare_ce_que_la_page_lit_du_metal"
+   ]
+  },
+  {
+   "nom": "F07 rhabillée : la légende dit « fidèle »",
+   "base": "tests/etape_p4/pages/rhabillee-metal",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "app.js",
+     "remplacer": [
+      "pas une reproduction :",
+      "pas une reproduction fidèle :"
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::la_page_dit_ce_que_le_metal_est_et_n_est_pas"
+   ]
+  },
+  {
+   "nom": "F08 rhabillée : le curseur ε à 0,065",
+   "base": "tests/etape_p4/pages/rhabillee-metal",
+   "regime": "avec",
+   "operations": [
+    {
+     "fichier": "index.html",
+     "remplacer": [
+      "min=\"10000\" max=\"60000\" step=\"10000\"",
+      "min=\"5000\" max=\"65000\" step=\"10000\""
+     ]
+    }
+   ],
+   "doit_echouer": [
+    "etape_p4_page::les_reglages_offerts_ont_ete_joues"
+   ]
+  }
+ ]
+}

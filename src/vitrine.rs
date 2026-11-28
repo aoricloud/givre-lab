@@ -1,13 +1,15 @@
 //! La vitrine (étape 5) : la DLA, les flocons de Reiter et (étape D3) le claquage diélectrique pilotés par des nombres seulement, pour une page web ; depuis l'étape V7 elle donne
 //! aussi, pour les modèles sur la grille hexagonale, une image nette (chaque case dessinée comme un hexagone lisse) ; depuis l'étape G3 elle fait aussi croître la neige de
-//! Gravner et Griffeath (étapes G1 et G2), réglée par quatre nombres ou par un jeu de réglages nommé d'après une figure de l'article ; depuis l'étape V8 elle donne enfin la masse cristalline de chaque case de la neige, en nombres (voir « La masse de chaque case »).
+//! Gravner et Griffeath (étapes G1 et G2), réglée par quatre nombres ou par un jeu de réglages nommé d'après une figure de l'article ; depuis l'étape V8 elle donne la masse cristalline de chaque case de la neige, en nombres (voir « La masse de chaque case ») ;
+//! depuis l'étape P4 elle fait enfin pousser le métal : la dendrite à quatre bras du champ de phase (étapes P2 et P3), réglée par son anisotropie et la taille de son domaine (voir « Le métal »).
 //!
 //! Ce module est compilé deux fois : en natif (les tests appellent ses fonctions comme n'importe quelle fonction Rust) et en
 //! WebAssembly (`wasm32-unknown-unknown`, module sans importation). Chaque fonction `givre_*` est exportée sous son nom
 //! (`#[unsafe(no_mangle)] pub extern "C" fn`) et ne prend et ne rend que des nombres : un `u32` devient un `i32` côté
 //! WebAssembly (JavaScript le lit signé : `>>> 0` le relit non signé), un `f64` reste un `f64`. Il n'y a ni pointeur ni
-//! mémoire à manipuler côté JavaScript. **Trente-quatre fonctions, ni plus ni moins** (les onze de l'étape 5, les quatre de l'étape Z1, voir
-//! « La mesure de la corrélation », les huit de l'étape D3, voir « La courbe D(η) à la demande », les quatre de l'étape V7, voir « L'image nette », les cinq de l'étape G3, voir « La neige », et les deux de l'étape V8, voir « La masse de chaque case »), toutes de ce
+//! mémoire à manipuler côté JavaScript. **Trente-huit fonctions, ni plus ni moins** (les onze de l'étape 5, les quatre de l'étape Z1, voir
+//! « La mesure de la corrélation », les huit de l'étape D3, voir « La courbe D(η) à la demande », les quatre de l'étape V7, voir « L'image nette », les cinq de l'étape G3, voir « La neige », les deux de l'étape V8, voir « La masse de chaque case »,
+//! et les quatre de l'étape P4, voir « Le métal »), toutes de ce
 //! fichier ; aucune autre n'est exportée (le module exporte aussi `memory`, que la cible ajoute, et rien d'autre).
 //!
 //! **Aucune de ces fonctions ne panique, jamais** : une panique dans une `extern "C" fn` fait avorter le processus (le
@@ -79,7 +81,8 @@
 //! # Avant tout démarrage
 //!
 //! Tant que [`givre_demarrer`] n'a pas réussi une fois (ni [`givre_neige_demarrer`]), les fonctions qui rendent un entier rendent 0 (sauf [`givre_pixel`] et [`givre_nette_pixel`] :
-//! `u32::MAX`, [`givre_nette_preparer`] : le code 2, [`givre_neige_reglage`] et [`givre_neige_mesure`] : `u32::MAX`, [`givre_neige_masses_preparer`] : 0 et [`givre_neige_masse`] : `u32::MAX`), [`givre_compacite`] rend `NaN` et [`givre_avancer`] ne fait rien (rend 0). Ce contrat n'est éprouvé que par
+//! `u32::MAX`, [`givre_nette_preparer`] : le code 2, [`givre_neige_reglage`] et [`givre_neige_mesure`] : `u32::MAX`, [`givre_neige_masses_preparer`] : 0 et [`givre_neige_masse`] : `u32::MAX`), [`givre_compacite`] rend `NaN` et [`givre_avancer`] ne fait rien (rend 0) ;
+//! [`givre_metal_reglage`], [`givre_metal_mesure`] et [`givre_metal_case`] rendent `NaN` (étape P4 : `tests/etape_p4_neuf.rs`, un fichier d'un seul test, le vérifie dans un processus neuf). Ce contrat n'est éprouvé que par
 //! Node (`tests/etape_5/etat-wasm.mjs`, sur un module neuf) : en natif l'état global est déjà posé par les autres tests du
 //! processus. Pour l'image nette il l'est aussi en natif : `tests/etape_v7_neuf.rs` est un fichier d'**un seul test**, donc un processus neuf (le code 2, le tampon vide) ; pour la neige de même : `tests/etape_g3_neuf.rs` (les lecteurs à `u32::MAX`, un démarrage refusé qui ne démarre rien).
 //!
@@ -313,7 +316,7 @@
 //! Hors de portée (`jeu >= 19` ou `champ >= 14`, `u32::MAX` compris) : `u32::MAX` (aucune valeur du tableau n'est `u32::MAX`). **Les numéros de réglage** : 0 `ρ`, 1 `β`, 2 `α`, 3 `θ`, 4 `κ`, 5 `μ`, 6 `γ` (l'ordre de [`crate::neige::Parametres`]).
 //!
 //! **Démarrer.** [`givre_neige_demarrer`]`(jeu, rho, beta, kappa, mu)` démarre une neige : les réglages du jeu `jeu`, **sauf** `ρ`, `β`, `κ` et `μ`, qui prennent les quatre valeurs passées (en millionièmes, **dans l'ordre `ρ β κ μ`** : celui de [`crate::neige::Parametres`]) ; `Neige::essayer_new(rayon du jeu, réglages)` ; la durée est le nombre de pas du jeu.
-//! L'état est remplacé **entièrement** (le temps 0, l'image, l'empreinte, le tampon de l'image nette, la mesure gardée de corrélation : après une DLA ou un claquage mesurés, [`givre_correlation_rayon`] rend 0 et [`givre_dimension`] `NaN` dès le démarrage de la neige, sans attendre un [`givre_mesurer`]).
+//! L'état est remplacé **entièrement** (un métal en cours compris ; le temps 0, l'image, l'empreinte, le tampon de l'image nette, la mesure gardée de corrélation : après une DLA ou un claquage mesurés, [`givre_correlation_rayon`] rend 0 et [`givre_dimension`] `NaN` dès le démarrage de la neige, sans attendre un [`givre_mesurer`]).
 //! **L'état n'est touché qu'une fois tout vérifié** (le jeu, les réglages, la neige construite) : c'est ce qui fait qu'un refus ne change rien.
 //! Elle rend un code, **dans cet ordre** : 0 (démarrée), 1 (`jeu >= 19`), puis, par `Parametres::verifier` des réglages ainsi formés (le **premier** réglage hors plage dans l'ordre `ρ β α θ κ μ γ`) : 2 (`ρ` hors de `[0 ; 1]`, c'est-à-dire plus de 1 000 000), 3 (`β` hors de `[1 ; 8]`, c'est-à-dire moins de 1 000 000 ou plus de 8 000 000),
 //! 4 (`κ` hors de `[0 ; 1]`), 5 (`μ` hors de `[0 ; 1]`), et 6 (tout autre refus : un autre nom rendu par `Parametres::verifier`, ou un `Err` de `Neige::essayer_new` ; inatteignable, `α`, `θ` et `γ` viennent d'un jeu valide et le rayon vaut 100). Un `ρ` fautif et un `κ` fautif donnent donc 2, un `κ` et un `μ` fautifs donnent 4. **Un refus ne change rien** (ni l'état, ni le tampon de l'image nette : comme un `givre_demarrer` refusé) et ne panique jamais, pour aucun `u32` (`u32::MAX` compris). Les quatre valeurs
@@ -421,19 +424,138 @@
 //! **Le coût** (natif, `release`, médiane de 21 mesures sur le jeu 6 à 412 pas : `MODELE.md`, étape V8 ; le module sous Node : voir la fin du paragraphe) : une préparation recalcule 30 301 entiers et coûte 0,14 ms ; 30 301 lectures de [`givre_neige_masse`] (chacune un accès au tampon sous le verrou de l'état) coûtent 0,35 ms ; pour comparer, l'image nette `(384, 2)` préparée et lue pixel par pixel coûte 13,7 ms.
 //! Le module WebAssembly, sous Node 20 (mesuré par le pilote sur la VM de preuve, Linux, le module reconstruit avec le prototype) : une préparation 0,07 ms, 30 301 lectures 0,27 ms, l'image nette `(384, 2)` préparée et lue 28,6 ms : lire toutes les masses coûte cent fois moins que faire rendre l'image par le module.
 //!
+//! # Le métal (étape P4)
+//!
+//! Quatre fonctions de plus (`givre_metal_*`) font pousser **la dendrite à quatre bras d'un métal pur** : le champ de phase de [`crate::dendrite`] (étape P2 : Karma et Rappel dans la forme de Kim et coll., anisotropie d'ordre 4, `f64` écrit par
+//! paires), mesurée par [`crate::pointe`] (étape P3), **dans le même état global** que les autres modèles : un métal démarré est « le modèle en cours », et **toutes les fonctions qui existent déjà le jouent et le lisent** (le tableau plus bas).
+//! [`givre_demarrer`] ne change pas (il n'a toujours que les modèles 0 à 7) ; le métal se démarre par [`givre_metal_demarrer`], qui remplace l'état entier comme lui, et un [`givre_demarrer`] ou un [`givre_neige_demarrer`] qui réussit remplace un métal
+//! entièrement. Ce module ne calcule rien de neuf : il appelle `Dendrite::graine_ronde`, `Dendrite::avancer`, `Dendrite::position_pointe` et les fonctions de [`crate::pointe`], et rend leurs nombres tels quels (`f64` bit pour bit). **Le cœur
+//! ne change pas** : `src/dendrite.rs`, `src/phase.rs` et `src/pointe.rs` sont ceux de P2 et P3 (`N_MAX` reste 16 384 ; la vitrine borne son côté, voir « La borne de la page »).
+//!
+//! **Démarrer.** [`givre_metal_demarrer`]`(epsilon_ppm, cote)` démarre le métal d'anisotropie `ε = epsilon_ppm / 10⁶` dans un quart de `cote × cote` cases. Elle rend un code, les vérifications **dans cet ordre** (le premier refus rend son code) :
+//!
+//! | code | sens |
+//! |---|---|
+//! | 0 | démarré |
+//! | 1 | `epsilon_ppm` hors plage : plus de [`METAL_EPSILON_MAX_PPM`] (60 000, soit `ε = 0,06`) ; 0 est permis |
+//! | 2 | `cote` hors plage : moins de [`METAL_COTE_MIN`] (128) ou plus de [`METAL_COTE_MAX`] (256), **refusé avant toute allocation** |
+//! | 3 | `Dendrite::graine_ronde` refuse (tout `Err`) : inatteignable, les réglages ci-dessous sont valides et leur pas est la borne exacte |
+//!
+//! Un `epsilon_ppm` fautif et un `cote` fautif donnent donc 1. **Un refus ne change rien** (ni l'état en cours, ni le tampon de l'image nette, ni l'instantané des masses : comme un `givre_demarrer` refusé) et ne panique jamais, pour aucun `u32`.
+//! **L'état n'est touché qu'une fois tout vérifié et la dendrite construite.** Le démarrage, dans cet ordre exact (chaque ligne un calcul en `f64`) :
+//!
+//! ```text
+//! epsilon  = f64::from(epsilon_ppm) / 1_000_000.0                     (la division de deux flottants exacts : le flottant le plus proche de epsilon_ppm / 10⁶)
+//! reglages = Reglages::depuis_capillarite(METAL_W0, METAL_D0, METAL_D, epsilon, METAL_DX, 1.0)        (W0 = 1, d0 = 0,5, D = 1, dx = 0,8 ; le 1.0 est un dt provisoire)
+//! reglages.dt = reglages.dt_borne(METAL_DELTA, ModeU::Joue)           (Δ = 0,65 : le plus grand pas que P2 accepte, la borne exacte)
+//! dendrite = Dendrite::graine_ronde(reglages, cote, Domaine::Quart, METAL_DELTA, METAL_RAYON, ModeU::Joue)   (la graine ronde de rayon 15, u joué)
+//! limite   = f64::from(cote * METAL_MUR_POURCENT / 100) * METAL_DX  (la division est entière : cote · 55 / 100 cases ; la limite du mur, en longueur : voir « La fin et le mur du métal »)
+//! ```
+//!
+//! puis le **relevé du pas 0** (voir « Les mesures du métal ») et l'état remplacé **entièrement** : le temps 0, l'empreinte, le tampon de l'image nette, la mesure gardée de corrélation, l'instantané des masses. `λ = A1 W0 / d0` et
+//! `τ0 = λ A2 W0² / D` viennent de `depuis_capillarite` (P2 : cinétique nulle). Ce sont les réglages de la table II de Kim et coll. (`Δ = 0,65`, `d0 = 0,5`, `D = 1`) et la graine des tests de P2 et P3 ; **seuls `ε` et le côté se choisissent**.
+//!
+//! **Ce que les fonctions qui existent rendent pour le métal.** Rien de ce qu'elles rendent pour les modèles 0 à 7 et la neige ne change.
+//!
+//! | fonction | pour le métal |
+//! |---|---|
+//! | [`givre_avancer`] | joue des pas de `Dendrite::avancer`, en s'arrêtant au mur : voir « La fin et le mur du métal » |
+//! | [`givre_temps`] | `Dendrite::pas_faits()` (en `u32`) : le nombre de pas joués |
+//! | [`givre_duree`] | [`METAL_PAS`] (60 000) : le scénario s'arrête au plus tard là |
+//! | [`givre_largeur`], [`givre_hauteur`], [`givre_pixel`] | 0, 0 et `u32::MAX` : le métal n'a pas d'image d'un pixel par case (la page dessine ses champs, voir « Les champs du métal ») |
+//! | [`givre_sites`] | le nombre de cases du quart où `φ > 0` (le solide) |
+//! | [`givre_rayon`] | le nombre de cases de la ligne 0 (l'axe `x`, `phi[0..cote]`) où `φ > 0` |
+//! | [`givre_compacite`] | `NaN` (sans objet) |
+//! | [`givre_empreinte_mot`] | les mots du SHA-256 de `Dendrite::ecriture_canonique()` (P2), donc de `Dendrite::empreinte()` : **l'empreinte du métal dans la page est celle du code natif** pour les mêmes `ε`, côté et nombre de pas |
+//! | [`givre_mesurer`], [`givre_correlation_rayon`], [`givre_correlation_valeur`], [`givre_dimension`] | pas de mesure de corrélation : [`givre_mesurer`] rend 0, comme pour un flocon |
+//! | [`givre_nette_preparer`] et les trois autres | le code 1 (le métal est sur une grille carrée : pas d'image nette), et la préparation efface le tampon comme pour la DLA |
+//! | les fonctions de la neige ([`givre_neige_reglage`], [`givre_neige_mesure`], [`givre_neige_masses_preparer`], [`givre_neige_masse`]) | celles d'un modèle qui n'est pas la neige : `u32::MAX`, ou 0 et l'instantané effacé |
+//!
+//! **La fin et le mur du métal.** Le bord du quart est un mur sans flux (P2) : près de lui, la chaleur latente que le front dégage ne s'échappe plus et freine la pointe. Le scénario s'arrête donc **au premier de trois événements** : la durée
+//! ([`METAL_PAS`] pas), **le mur**, ou une divergence. Le métal est **au mur** quand `Dendrite::position_pointe()` est `None` (aucune pointe : inatteignable aux réglages de la vitrine) ou vaut au moins `limite` (`position >= limite`, la limite
+//! écrite au démarrage : la pointe à `cote · 55 / 100` cases du centre, la division étant entière, soit `⌊cote · 0,55⌋ × 0,8` en longueur ; [`METAL_MUR_POURCENT`] = 55). [`givre_avancer`]`(n)` d'un métal joue `Dendrite::avancer(1)` au plus `min(n, durée − temps)` fois, **en vérifiant avant chaque pas** si le métal est au mur
+//! ou s'il a divergé : si oui il s'arrête sans jouer ce pas. Si `Dendrite::avancer(1)` rend une erreur (`Divergence` : jamais vue aux réglages de la vitrine, voir `MODELE.md`, étape P4), la dendrite garde l'état d'avant ce pas (P2), le pas ne compte
+//! pas, le métal est marqué « divergé » et ne joue plus jamais. [`givre_avancer`] rend le nombre de pas joués (0 si le scénario est fini). Comme pour les autres modèles, un appel de `n` pas puis un de `m` donne exactement l'état d'un appel de `n + m`
+//! (relevés compris : ils tombent sur des nombres de pas, pas sur des appels), et un appel qui joue au moins un pas efface la mesure gardée et le tampon de l'image nette.
+//! **Pourquoi 55 %** (mesuré par le juge hors des tests, `MODELE.md`, étape P4 ; le test `le_mur_n_a_pas_d_effet_avant_la_limite` en fige un cas) : la même graine dans un quart de côté double donne la même pointe, à `1e-2` près en
+//! longueur (un 80e de case), tant que la pointe est à plus de 45 % du côté du bord, pour `ε` = 0 ; 0,02 ; 0,04 ; 0,05 ; 0,06 aux côtés 96, 128, 192 et 256 (le pire : `ε = 0` au côté 256, où l'écart passe `1e-2` à 43,6 % du côté du bord) ;
+//! à `1e-3` près pour ces `ε` dès 0,02. Plus près du bord, la pointe du petit quart ralentit nettement. **La limite est un arrêt, pas un certificat** : elle n'est mesurée qu'à ces côtés et ces `ε`. Aux réglages que la page offre (`ε` de 0 à
+//! 0,06 par 0,005 ; côtés 128, 192 et 256), chacun des 39 scénarios joués jusqu'au bout s'arrête au mur, entre 7 815 et 37 598 pas (jamais à la durée), sans divergence, et `|φ|` n'y dépasse jamais 1 aux relevés (tous les 500 pas).
+//!
+//! **Les mesures du métal.** Le module **relève la pointe** au pas 0 (au démarrage) puis après chaque pas qui porte `Dendrite::pas_faits()` à un multiple de [`METAL_RELEVE`] (500) : le relevé est
+//! `pointe::mesurer_pointe(&dendrite, METAL_PROFONDEUR)` (profondeur 2), `Ok` gardé tel quel, `Err` gardé comme un relevé vide (« pas de relevé ») **qui prend sa place** : à chaque relevé, le plus récent devient l'avant-dernier et le nouveau (vide ou non) le plus récent. Il garde **les deux derniers
+//! relevés** (au démarrage il n'y en a qu'un). Un pas qui diverge ne compte pas : il ne déclenche aucun relevé.
+//! [`givre_metal_mesure`]`(champ)` lit le métal **en cours** (rien ne change, rien n'est gardé ; les champs 0 à 2 lisent l'état à l'instant) :
+//!
+//! | `champ` | valeur (un `f64`) |
+//! |---|---|
+//! | 0 | la position de la pointe **maintenant** : `Dendrite::position_pointe()`, `NaN` si `None` |
+//! | 1 | le temps maintenant : `Dendrite::temps()` (`pas_faits × dt`) |
+//! | 2 | 1 si le métal est au mur (la règle ci-dessus : pas de pointe, ou la pointe à la limite ; la divergence n'y entre pas), 0 sinon |
+//! | 3 | 1 si un pas a divergé, 0 sinon |
+//! | 4 | le temps du dernier relevé (`Pointe::temps`) |
+//! | 5 | la position du dernier relevé (`Pointe::position`) |
+//! | 6 | le nombre de lignes du dernier relevé (`Pointe::lignes`, en `f64`) |
+//! | 7 | le sommet de la parabole du dernier relevé (`Pointe::sommet`) |
+//! | 8 | le rayon de la parabole du dernier relevé (`Pointe::rayon`) |
+//! | 9 | la vitesse de la pointe : `pointe::vitesse_de_pointe(avant-dernier, dernier)` |
+//! | 10 | la constante de sélection : `pointe::constante_de_selection(METAL_D0, Reglages::d, rayon du dernier relevé, vitesse du champ 9)` (`Reglages::d` vaut [`METAL_D`], 1) |
+//!
+//! Les champs 4 à 8 sont `NaN` sans dernier relevé (sa mesure a été refusée) ; le champ 9 est `NaN` s'il manque l'un des deux relevés (au démarrage, ou une mesure refusée) ou si `vitesse_de_pointe` refuse ; le champ 10 est `NaN` si le champ 9
+//! l'est, s'il n'y a pas de dernier relevé ou si `constante_de_selection` refuse (une vitesse négative ou nulle, par exemple). Sans métal en cours (rien de démarré, ou le modèle en cours est un autre), ou pour un `champ` au-delà de 10 : `NaN`.
+//! **Ce sont les mesures de notre mesure (P3)** : le rayon dépend de la profondeur (`MODELE.md`, étape P3) ; aucune n'est comparée à une valeur publiée.
+//!
+//! **Les réglages du métal.** [`givre_metal_reglage`]`(champ)` lit le métal **en cours** (un `f64` ; `NaN` sans métal en cours, ou pour un `champ` au-delà de 14) :
+//!
+//! | `champ` | valeur |
+//! |---|---|
+//! | 0 | `ε` (`Reglages::epsilon` de la dendrite : `epsilon_ppm / 10⁶`) |
+//! | 1 | `Δ` ([`METAL_DELTA`], 0,65) |
+//! | 2 | `d0` ([`METAL_D0`], 0,5) |
+//! | 3 | `D` (`Reglages::d`) |
+//! | 4 | `W0` (`Reglages::w0`) |
+//! | 5 | `λ` (`Reglages::lambda`) |
+//! | 6 | `τ0` (`Reglages::tau0`) |
+//! | 7 | `dx` (`Reglages::dx`) |
+//! | 8 | `dt` (`Reglages::dt` : la borne de P2) |
+//! | 9 | le rayon de la graine ([`METAL_RAYON`], 15) |
+//! | 10 | le côté du quart (`cote`, en `f64`) |
+//! | 11 | la limite du mur (`limite`) |
+//! | 12 | la durée ([`METAL_PAS`], en `f64`) |
+//! | 13 | l'intervalle des relevés ([`METAL_RELEVE`], en `f64`) |
+//! | 14 | la profondeur de la mesure du rayon ([`METAL_PROFONDEUR`], 2) |
+//!
+//! **Les champs du métal.** [`givre_metal_case`]`(champ, i)` rend `φ` (`champ` 0 : `Dendrite::phi()[i]`) ou `u` (`champ` 1 : `Dendrite::u()[i]`) de la case `i` du quart du métal **en cours**, bit pour bit ; les cases sont rangées **ligne par
+//! ligne** (`i = ligne × cote + colonne`, de 0 à `cote² − 1` ; la ligne 0 est l'axe `x`, la colonne 0 l'axe `y` : P2, « Le domaine entier et le quart »). `NaN` sans métal en cours, pour `champ >= 2` ou pour `i >= cote²` (`u32::MAX` compris).
+//! **Une lecture ne recalcule rien.** La page en tire son image (le quart montré en entier par miroir) : voir `docs/lecture.js`, `imageDuMetal`.
+//!
+//! **La borne de la page** ([`METAL_COTE_MAX`] = 256). `N_MAX` (16 384) est la borne du cœur ; la vitrine en garde une à elle, choisie sur le temps et la mémoire **mesurés dans le module sous Node** (Node 20, la VM de preuve,
+//! Linux, avec d'autres travaux en cours ; le meilleur de trois mesures, `ε = 0,05`) : un pas coûte 0,48 ms au côté 128, 0,99 ms à 192, 1,78 ms à 256, 2,70 ms à 320, 4,06 ms à 384 et 7,42 ms à 512 (27 à 28 ns par case, le double
+//! du natif à peu près), et la mémoire du module passe de 1,1 Mio à 2,6 Mio (côté 128), 4,3 Mio (192), 7,1 Mio (256), 13,4 Mio (384), 23,6 Mio (512). La page joue les pas dans un budget de 30 ms par image : au côté 256 une image
+//! en joue une quinzaine, et une croissance jusqu'au mur (25 544 à 37 598 pas aux réglages de la page) coûte de 45 à 67 s de calcul pur, plus le dessin . **256 est le plus grand côté où l'on
+//! peut encore regarder la dendrite pousser** : le temps borne la page, pas la mémoire. Lire les deux champs entiers (2 × 65 536 appels de [`givre_metal_case`]) coûte 2,6 ms à 256, l'empreinte 46 ms (huit SHA-256 d'un Mio).
+//! Un côté hors de 128 à 256 est refusé par le code 2, **avant toute allocation** : au-delà de 256 pour le temps ; en deçà de 128, la dendrite n'a pas la place de se former avant le mur (au côté 128, la pointe s'arrête quand le
+//! cristal n'est encore qu'un losange).
+//!
+//! **Ce que le métal de la vitrine n'est pas.** Notre modèle, en 2D, pas une reproduction : à ces réglages et `ε = 0,05`, la vitesse de pointe publiée (Kim et coll., table II) n'est pas atteinte (P2 : −13 % au pas 0,8, en régime établi) ;
+//! le domaine est petit, le mur est à nous et la pointe s'arrête avant le bord ; le régime n'est pas établi aux petits côtés et aux faibles `ε` (sur les 200 dernières unités de temps, l'écart de la vitesse relevée y dépasse
+//! nettement le bruit des relevés, sous 2 % ; au côté 256 et pour `ε` de 0,045 à 0,06, il reste à ce niveau, et pour `ε` = 0,05 et 0,06 la vitesse finale est à 0,4 % au plus du
+//! régime établi que P3 mesure) ; le rayon et `σ*` sont ceux de notre mesure (P3). Ni bruit, ni branches latérales, ni 3D.
+//!
 //! # Hors de portée
 //!
 //! [`givre_pixel`] rend `u32::MAX` hors de l'image ; [`givre_empreinte_mot`] rend 0 pour `i >= 8` ; [`givre_demarrer`] rend 0
 //! pour un modèle qui n'existe pas (et ne change rien : tout modèle au-delà de 7) ; [`givre_avancer`] ne joue rien au-delà de la durée ; les
 //! fonctions de la courbe sont dites plus haut (`NaN` hors de `η` de 0 à 3, code 5 sans travail) ; [`givre_nette_pixel`] rend `u32::MAX` hors du tampon, et
 //! [`givre_nette_preparer`] rend un code (jamais une panique) pour un `cote` ou un `sur` absurde, `u32::MAX` compris ; les cinq fonctions de la neige rendent un code ou `u32::MAX` (jamais une panique) pour un
-//! jeu, un réglage ou un champ absurde, `u32::MAX` compris (voir « La neige ») ; [`givre_neige_masse`] rend `u32::MAX` pour un `i` hors du tampon, `u32::MAX` compris (voir « La masse de chaque case »).
+//! jeu, un réglage ou un champ absurde, `u32::MAX` compris (voir « La neige ») ; [`givre_neige_masse`] rend `u32::MAX` pour un `i` hors du tampon, `u32::MAX` compris (voir « La masse de chaque case ») ; les quatre fonctions du métal rendent un
+//! code ou `NaN` (jamais une panique) pour une anisotropie, un côté, un champ ou une case absurdes, `u32::MAX` compris (voir « Le métal »).
 //!
 //! # La page
 //!
 //! `docs/index.html`, `docs/app.js` et `docs/lecture.js` font tourner ce module dans un navigateur ; leurs règles sont écrites
 //! en tête de `tests/etape_5_page.rs` et, pour l'image nette (le canvas des modèles sur la grille hexagonale, qui n'a **pas** `image-rendering: pixelated`, et celui des modèles carrés, qui
-//! l'a), de `tests/etape_v7_page.rs` et, pour la neige (le panneau, les quatre curseurs, le menu des jeux nommés, les textes), de `tests/etape_g3_page.rs`. `lecture.js` (l'empreinte, l'image, l'image nette et la graine que la page lit, sans DOM) est éprouvé
+//! l'a), de `tests/etape_v7_page.rs`, pour la neige (le panneau, les quatre curseurs, le menu des jeux nommés, les textes), de `tests/etape_g3_page.rs` et, pour le métal (son panneau, son canvas, ses textes, l'image tirée des champs), de `tests/etape_p4_page.rs`. `lecture.js` (l'empreinte, l'image, l'image nette et la graine que la page lit, sans DOM) est éprouvé
 //! sous Node contre le code natif ; le reste de la page ne l'est que par sa forme : voir « Ce que cela n'établit pas » dans
 //! `MODELE.md`. **Depuis l'étape V8, ces tests lisent tous les fichiers de `docs/`** (HTML et scripts en ligne, feuilles de style, scripts, workers, polices et images) et ne figent plus l'écriture de la page : elle peut être réécrite (un tiroir de réglages, des polices en `data:`,
 //! des liens, un SVG, des workers qui calculent hors du fil de la page) tant qu'elle tient ses promesses (voir `MODELE.md`, étape V8, « Ce que les tests de la page figent, et ce qu'ils ne figent plus »).
@@ -457,6 +579,11 @@
 //!
 //! Pour les masses (étape V8) : un champ de plus de l'état, `masses: Option<Vec<u32>>`, rempli par [`givre_neige_masses_preparer`] (`neige.valeurs_du_cristal()` puis, pour chaque `brut`, `u32::try_from(brut.max(0) >> NEIGE_MASSE_DECALAGE)` ramené à `u32::MAX - 1` s'il ne tient pas), **à `None` à la construction de tout état** (donc à tout démarrage réussi : `Etat { …, masses: None }` dans [`givre_demarrer`] et [`givre_neige_demarrer`]) et **nulle part ailleurs**
 //! (ni [`givre_avancer`], ni la préparation de l'image nette, ni `givre_mesurer` ne le touchent : le tampon des masses n'est pas celui de l'image nette, qui s'efface quand l'état avance). Ces deux fonctions ne prennent pas d'autre verrou que celui de l'état ; [`givre_neige_masse`] est un `Option::get` sur le tampon.
+//!
+//! Pour le métal (étape P4) : une variante de plus de l'`enum`, `Metal(Box<Metal>)` (clippy refuse une variante trop grosse : `large_enum_variant`), où `Metal` garde la dendrite, le côté, la limite, les deux derniers relevés
+//! (`Option<Pointe>`) et la divergence ; un bras de plus dans chaque `match` sur le modèle (l'image : vide ; le temps : `pas_faits` ; `givre_avancer` : la boucle d'un pas à la fois de « La fin et le mur du métal », le relevé après le pas ;
+//! les sites et le rayon ; la compacité ; l'empreinte ; `givre_mesurer`). `givre_nette_preparer` et les fonctions de la neige n'ont rien à changer (leurs motifs `Modele::Neige` et `Modele::Flocon | Modele::Neige` laissent déjà le métal
+//! dehors). Les trois lecteurs prennent le verrou, regardent si le modèle en cours est un métal (`let Some(Modele::Metal(metal)) = … else { return f64::NAN }`) et lisent : aucun ne calcule rien qui reste.
 
 use std::sync::{Mutex, MutexGuard};
 
@@ -545,6 +672,45 @@ pub const NEIGE_MASSE_DECALAGE: u32 = 21;
 
 /// La masse (en unités de `2^-11`) qui donne le bleu le plus foncé de l'image nette de la neige : `NEIGE_PLEIN >> 21 = 3072` (soit 1,5 ; voir « La masse de chaque case »).
 pub const NEIGE_MASSE_PLEIN: u32 = 3072;
+
+/// La plus grande anisotropie que [`givre_metal_demarrer`] accepte, en millionièmes : 60 000, soit `ε = 0,06` (voir « Le métal »).
+pub const METAL_EPSILON_MAX_PPM: u32 = 60_000;
+
+/// La surfusion `Δ` du métal : 0,65 (Kim et coll., table II ; voir « Le métal »).
+pub const METAL_DELTA: f64 = 0.65;
+
+/// La longueur capillaire `d0` du métal : 0,5 (Kim et coll., table II).
+pub const METAL_D0: f64 = 0.5;
+
+/// La diffusivité `D` du métal : 1 (Kim et coll., table II).
+pub const METAL_D: f64 = 1.0;
+
+/// La largeur d'interface `W0` du métal : 1 (l'unité de longueur).
+pub const METAL_W0: f64 = 1.0;
+
+/// Le pas de grille `dx` du métal : 0,8.
+pub const METAL_DX: f64 = 0.8;
+
+/// Le rayon de la graine ronde du métal : 15 (en longueur ; 18,75 cases).
+pub const METAL_RAYON: f64 = 15.0;
+
+/// Le plus petit côté du quart que [`givre_metal_demarrer`] accepte : 128 cases (voir « Le métal »).
+pub const METAL_COTE_MIN: u32 = 128;
+
+/// Le plus grand côté du quart que [`givre_metal_demarrer`] accepte : 256 cases (voir « Le métal », « La borne de la page »).
+pub const METAL_COTE_MAX: u32 = 256;
+
+/// La limite du mur, en pourcentage du côté du quart : le métal est au mur quand sa pointe atteint `cote · 55 / 100` cases (division entière) depuis le centre (voir « La fin et le mur du métal »).
+pub const METAL_MUR_POURCENT: u32 = 55;
+
+/// La durée du métal, en pas de temps (voir « La fin et le mur du métal »).
+pub const METAL_PAS: u32 = 60_000;
+
+/// L'intervalle des relevés de la pointe, en pas de temps (voir « Les mesures du métal »).
+pub const METAL_RELEVE: u32 = 500;
+
+/// La profondeur de la mesure du rayon de la pointe (`pointe::mesurer_pointe`) : 2 (voir « Les mesures du métal »).
+pub const METAL_PROFONDEUR: f64 = 2.0;
 
 /// Le seul état de la vitrine ; `None` avant tout démarrage réussi.
 static ETAT: Mutex<Option<Etat>> = Mutex::new(None);
@@ -638,7 +804,7 @@ fn flocon_de(rayon: u32, alpha: &str, beta: &str, gamma: &str) -> Option<Flocon>
 /// donne le même flocon).
 ///
 /// Remplace entièrement l'état précédent : rappelée après des pas, elle repart de zéro. Elle ne touche pas au travail de la courbe. Pour
-/// un `modele` qui n'est pas de 0 à 7, ne change rien (l'état précédent reste en place, ou l'absence d'état) et rend 0.
+/// un `modele` qui n'est pas de 0 à 7, ne change rien (l'état précédent reste en place, ou l'absence d'état) et rend 0. Un démarrage qui réussit remplace aussi une neige ou un métal en cours.
 #[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_demarrer(modele: u32, graine: u32) -> u32 {
@@ -665,7 +831,8 @@ pub extern "C" fn givre_demarrer(modele: u32, graine: u32) -> u32 {
 /// Pour la DLA, si une particule collait hors du réseau (un amas de 3000 sites tient largement dans le carré de côté 401 : cela
 /// n'arrive pas en pratique), `givre_avancer` s'arrête là, sans panique, et rend ce qu'elle a joué ; de même pour le claquage si l'amas touchait la
 /// frontière avant sa durée (aucun amas mesuré ne l'a fait, voir `MODELE.md`). Pour le claquage, chaque unité coûte la relaxation du champ : un appel de
-/// beaucoup d'unités peut durer, au pire, le temps de la croissance entière (voir « Le temps »).
+/// beaucoup d'unités peut durer, au pire, le temps de la croissance entière (voir « Le temps »). Pour la neige et le métal, le mur arrête aussi le scénario (voir « La fin et le mur » et
+/// « La fin et le mur du métal »).
 #[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_avancer(n: u32) -> u32 {
@@ -731,7 +898,7 @@ pub extern "C" fn givre_temps() -> u32 {
     garde.as_ref().map_or(0, |etat| temps_de(&etat.modele))
 }
 
-/// La durée du scénario du modèle en cours : 2999, 400, 120, 800, 399, 249, 149 ou 99 (voir « Les huit modèles ») ; 0 avant tout démarrage.
+/// La durée du scénario du modèle en cours : 2999, 400, 120, 800, 399, 249, 149 ou 99 (voir « Les huit modèles »), le nombre de pas du jeu de la neige, [`METAL_PAS`] pour le métal ; 0 avant tout démarrage.
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_duree() -> u32 {
     let garde = verrouiller();
@@ -776,8 +943,8 @@ pub extern "C" fn givre_pixel(x: u32, y: u32) -> u32 {
     }
 }
 
-/// Le nombre de sites de l'amas (germe compris) pour la DLA et le claquage, de cases gelées pour un flocon (voir « Les mesures ») ; 0 avant
-/// tout démarrage.
+/// Le nombre de sites de l'amas (germe compris) pour la DLA et le claquage, de cases gelées pour un flocon (voir « Les mesures »), de cases rattachées pour la neige, de cases du quart où `φ > 0`
+/// pour le métal ; 0 avant tout démarrage.
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_sites() -> u32 {
     let garde = verrouiller();
@@ -790,7 +957,7 @@ pub extern "C" fn givre_sites() -> u32 {
     }
 }
 
-/// Le rayon de l'amas (DLA et claquage) ou du cristal (flocon), voir « Les mesures » ; 0 avant tout démarrage.
+/// Le rayon de l'amas (DLA et claquage) ou du cristal (flocon, neige), voir « Les mesures » ; pour le métal, le nombre de cases de la ligne 0 où `φ > 0` ; 0 avant tout démarrage.
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_rayon() -> u32 {
     let garde = verrouiller();
@@ -803,7 +970,7 @@ pub extern "C" fn givre_rayon() -> u32 {
     }
 }
 
-/// La compacité du flocon (`Flocon::compacite().vers_f64()`, de 0 à 1) ; `NaN` pour la DLA, le claquage et avant tout démarrage.
+/// La compacité du flocon (`Flocon::compacite().vers_f64()`, de 0 à 1) ; `NaN` pour la DLA, le claquage, la neige, le métal et avant tout démarrage.
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_compacite() -> f64 {
     let garde = verrouiller();
@@ -817,7 +984,7 @@ pub extern "C" fn givre_compacite() -> f64 {
 /// Le `i`-ième mot (0 à 7) de 32 bits, gros-boutiste, du SHA-256 de l'écriture canonique de l'état (voir « L'empreinte »).
 ///
 /// Les huit mots, chacun écrit sur 8 chiffres hexadécimaux minuscules et mis bout à bout dans l'ordre de 0 à 7, redonnent
-/// `Amas::empreinte()` ou `Flocon::empreinte()` (64 caractères). Rend 0 si `i >= 8` et avant tout démarrage.
+/// `Amas::empreinte()` ou `Flocon::empreinte()` (64 caractères), `Claquage::empreinte()`, `Neige::empreinte()` ou, pour le métal, `Dendrite::empreinte()`. Rend 0 si `i >= 8` et avant tout démarrage.
 #[allow(unused_variables)]
 #[unsafe(no_mangle)]
 pub extern "C" fn givre_empreinte_mot(i: u32) -> u32 {
@@ -1341,4 +1508,33 @@ pub extern "C" fn givre_neige_masse(i: u32) -> u32 {
     let garde = verrouiller();
     let Some(masses) = garde.as_ref().and_then(|etat| etat.masses.as_ref()) else { return u32::MAX };
     masses.get(i as usize).copied().unwrap_or(u32::MAX)
+}
+
+/// Démarre le métal : la graine ronde de P2 et P3 dans un quart de `cote` cases, d'anisotropie `epsilon_ppm` millionièmes (voir « Le métal ») ; remplace l'état entier. Rend 0 (démarré), 1 (`epsilon_ppm` au-delà de
+/// [`METAL_EPSILON_MAX_PPM`]), 2 (`cote` hors de [`METAL_COTE_MIN`] à [`METAL_COTE_MAX`]) ou 3 (la graine est refusée par la bibliothèque : inatteignable), **dans cet ordre** ; un refus ne change rien et rien ne panique, pour aucun `u32`.
+#[allow(unused_variables)]
+#[unsafe(no_mangle)]
+pub extern "C" fn givre_metal_demarrer(epsilon_ppm: u32, cote: u32) -> u32 {
+    todo!()
+}
+
+/// Un réglage du métal **en cours** (de 0 à 14 : voir « Le métal », le tableau des réglages) ; `NaN` sans métal en cours ou hors de portée. Ne change rien.
+#[allow(unused_variables)]
+#[unsafe(no_mangle)]
+pub extern "C" fn givre_metal_reglage(champ: u32) -> f64 {
+    todo!()
+}
+
+/// Une mesure du métal **en cours** (de 0 à 10 : voir « Les mesures du métal ») ; `NaN` sans métal en cours, hors de portée ou quand la mesure n'existe pas. Ne change rien.
+#[allow(unused_variables)]
+#[unsafe(no_mangle)]
+pub extern "C" fn givre_metal_mesure(champ: u32) -> f64 {
+    todo!()
+}
+
+/// `φ` (`champ` 0) ou `u` (`champ` 1) de la case `i` du quart du métal **en cours** (ligne par ligne, de 0 à `cote² − 1` : `Dendrite::phi()[i]`, `Dendrite::u()[i]`) ; `NaN` sans métal en cours ou hors de portée. Ne change rien.
+#[allow(unused_variables)]
+#[unsafe(no_mangle)]
+pub extern "C" fn givre_metal_case(champ: u32, i: u32) -> f64 {
+    todo!()
 }
