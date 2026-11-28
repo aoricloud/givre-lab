@@ -1594,16 +1594,29 @@ ne porte sur une vitesse de pointe.
 `d0 = 0,5`) dit : « When IPe is too large the different models do not exhibit universal behavior. » Cette phrase porte sur l'accord
 entre cinq modèles de champ de phase, pas sur la valeur de la théorie ; le corps du texte y voit le signe que, à ce `d0`, les équations
 ne travaillent pas dans la limite de l'interface nette (« sharp interface limit »), et retrouve l'accord entre modèles à `d0 = 1,5`. Notre écart peut donc venir de
-là, de l'erreur de grille qui reste à `dx` = 0,4, ou des deux : rien ici ne les sépare. Une mesure à `d0 = 1,5` est prévue plus tard,
-hors des tests ; elle n'est pas faite.
+là, de l'erreur de grille qui reste à `dx` = 0,4, ou des deux : rien ici ne les sépare.
+
+**Repère à `d0 = 1,5`** (mesuré hors des tests, le 15/11, sur `main` `627950c` ; `src/dendrite.rs` n'a pas changé depuis). Les réglages
+de la dernière ligne de la table II de Kim et coll. (`Δ = 0,65`, `d0 = 1,5`, `D = 2`, `W0 = 1`, `ε = 0,05`, d'où `λ = 0,58926` et
+`τ0 = 0,18464` ; la valeur publiée est la même, 0,0469), la graine ronde de rayon 15 dans un quart de 600 de côté (750 cases au pas
+0,8), `u` joué, `dt = 100 / ceil(100 / borne)` (la borne vaut 7,13e-3) : `Ṽ` vaut **0,0450** en moyenne de `t = 5500` à 6000 (0,0454
+de 5000 à 5500), soit **−4 %**, contre −13 % à `d0 = 0,5` au même pas de grille (0,0408). **Le régime n'est pas établi** : `Ṽ` baisse
+encore (sur les 100 de temps qui précèdent : 0,0573 à `t = 1000`, 0,0485 à 3000, 0,0448 à 6000), et sa valeur finale à ce pas n'est
+pas connue ; un seul pas de grille est mesuré (0,4 ne l'est pas). Un quart de 400 donne la même pointe à `1e-5` près jusqu'à
+`t ≈ 2700`, puis ralentit (−0,7 % sur `Ṽ` à `t = 4000`) ; à `t = 6000`, la pointe du quart de 600 est à 154 de son bord, plus
+près que celle du quart de 400 quand elle a commencé à s'en écarter (165 à 159 du bord, de `t = 2600` à 2700) : un effet du mur
+sur la fenêtre de 5500 à 6000 n'est donc pas exclu (il ralentirait la pointe, sans la rapprocher de 0,0469) ;
+`max |φ| − 1` est resté nul aux relevés. Ce repère va dans le sens de la réserve de Kim et coll., **sans l'établir** : à `d0 = 1,5`, la grille résout aussi
+mieux la longueur capillaire (`dx / d0` = 0,53 contre 1,6), ce qui suffirait seul à rapprocher la valeur. (Le ≈ 0,0450 extrapolé plus
+haut à `d0 = 0,5` est un autre chiffre : un calcul sur un autre réglage, pas une mesure.)
 
 **Les deux autres valeurs publiées.** `Δ = 0,55` (publié 0,0170) : 0,0165 à `t = 3000`, `dx` = 0,8, encore en baisse : un repère non
 établi. `Δ = 0,45` (publié 0,00545) : non mesuré (au moins 1250 cases de côté à `dx` = 0,8).
 
 ### Ce que cela n'établit pas
 
-- **La vitesse de pointe de la théorie** : non atteinte à `d0 = 0,5` (−13 % et −6 %), et non mesurée à `d0 = 1,5` ; `Δ = 0,55` n'est
-  pas établi, `Δ = 0,45` n'est pas mesuré.
+- **La vitesse de pointe de la théorie** : non atteinte à `d0 = 0,5` (−13 % et −6 %) ; à `d0 = 1,5`, un seul repère, au pas 0,8 et en
+  régime non établi (−4 %, plus haut) ; `Δ = 0,55` n'est pas établi, `Δ = 0,45` n'est pas mesuré.
 - La forme de la pointe (son rayon, la constante de sélection), la ramification, le bruit et les branches latérales.
 - Le maillage qui s'affine : la grille est uniforme ; la convergence n'est mesurée que jusqu'à `dx` = 0,2 (0,1 une fois, hors des tests),
   et seulement en temps court.
@@ -1715,3 +1728,100 @@ divergences des états tirés se font plus rares quand `ε` monte (une explicati
 - La convergence en grille de la mesure elle-même au-delà de 0,2 ; la convergence en `dt`.
 - Une borne de stabilité démontrée : la zone sûre est mesurée, sur la dendrite pleine et sur des états tirés, à 1,5 fois la borne au plus.
 - Les branches latérales, le bruit, la 3D, la page (P4).
+
+## Étape P4 : le métal sur la page (la dendrite de P2 dans le navigateur, le même état au bit près, un mur à nous)
+
+P4 met la dendrite à quatre bras de P2, mesurée par P3, dans la page : un septième modèle, « Métal (dendrite) », que l'on regarde pousser avec
+un curseur d'anisotropie `ε` et un choix de la taille du domaine, et dont la page lit les mesures de pointe. **La réponse** : le module de la
+page conduit la bibliothèque au bit près (un test), et sous Node il rend les mêmes bits que le code natif (un test que la CI joue sous Linux
+et Windows ; des empreintes écrites, retrouvées sous les deux). Ce n'est pas une reproduction : c'est notre modèle, sur un petit domaine,
+arrêté avant que son mur ne freine la pointe. Chaque phrase ci-dessous nomme le test qui la tient (`tests/etape_p4_*.rs`) ; ce qui est
+mesuré hors des tests est dit « repère ». Valeurs et sources : `references/etape-p4-valeurs.md`.
+
+### Le modèle de la page
+
+Quatre exportations de plus (`givre_metal_demarrer`, `givre_metal_reglage`, `givre_metal_mesure`, `givre_metal_case` : trente-huit en tout,
+`le_module_exporte_les_quatre_fonctions_du_metal`). Le démarrage prend l'anisotropie en millionièmes (de 0 à 0,06, la plage du test du sens de
+P3) et le côté du quart (de 128 à 256 cases) ; le reste est fixé : `Δ = 0,65`, `d0 = 0,5`, `D = 1`, `W0 = 1` (Kim et coll., table II, comme
+P2), la graine ronde de rayon 15, le pas de grille 0,8 et le pas de temps à la borne exacte de P2, `u` joué (`les_constantes_de_la_doc`).
+Les refus ont un code et un ordre (l'anisotropie avant le côté), et un refus ne change rien, ni le modèle en cours, ni l'image nette, ni les
+masses d'une neige (`demarrer_les_codes_et_leur_ordre`) ; un côté hors de la plage est refusé avant toute allocation (repère : la mémoire du
+module sous Node ne bouge pas, voir « La borne de la page »). Le module ne calcule rien
+de neuf : son état est, au bit près, celui de `Dendrite::graine_ronde` puis `Dendrite::avancer` (l'empreinte, les champs `φ` et `u` de chaque
+case, les réglages), et ses mesures sont les bits de `position_pointe`, `mesurer_pointe`, `vitesse_de_pointe` et `constante_de_selection`, pour
+neuf métaux joués par morceaux (`le_module_conduit_la_bibliotheque_au_bit_pres`). Il relève la pointe au pas 0 puis tous les 500 pas (la
+profondeur 2 de P3) ; la vitesse est celle entre les deux derniers relevés et `σ*` en découle (`les_releves_et_les_mesures_a_la_main`).
+Repère (au côté 192) : relevée tous les 100 pas, la vitesse oscille de 9 % quand la pointe passe d'une case à la suivante ; tous les 500, de moins de 2 %
+pour `ε ≥ 0,05`. Les fonctions d'avant le jouent et le lisent (le temps en pas, la durée, les sites, l'empreinte ; ni image d'un pixel par case,
+ni image nette, ni corrélation : `les_fonctions_d_avant_pour_le_metal`), un autre modèle le remplace et il remplace les autres
+(`les_autres_modeles_remplacent_le_metal`), et aucune entrée ne fait paniquer le module, ni en natif ni sous Node (`les_bornes_des_lecteurs`,
+`jamais_de_panique_dans_le_desordre`, `node_ne_panique_jamais_sur_des_appels_absurdes`, `avant_tout_demarrage_il_n_y_a_pas_de_metal`).
+
+### Même empreinte partout
+
+Le module commité, chargé par Node et lu par `docs/lecture.js` comme la page le lit, donne après chaque morceau l'empreinte, les réglages, les
+mesures et les champs entiers du code natif, au bit près, et `imageDuMetal` dessine l'image de la doc (`node_joue_le_metal_comme_le_natif`, cinq
+cas ; la CI le joue sous Linux et sous Windows). Trois empreintes sont écrites dans un test, et le natif les retrouve sous les deux
+(`les_empreintes_de_reference`, une régression de notre code) ; le juge les a obtenues en natif Windows, en natif Linux et dans le module sous Node.
+Dans la dendrite (P2), seuls `+ − * /` et `sqrt` arrondissent ; `min`, `max`, `abs` et `clamp` sont exacts ; une faute propre au module se
+verrait au premier mot d'empreinte.
+
+### Le mur
+
+Le bord du quart est un mur sans flux : près de lui, la chaleur latente ne s'échappe plus et freine la pointe. Le métal s'arrête donc **avant** :
+quand sa pointe atteint 55 % du côté depuis le centre (`⌊côté · 55/100⌋` cases), vérifié avant chaque pas ; le module et une boucle écrite
+d'après la doc s'arrêtent au même pas (`la_fin_au_mur`). Repère (le choix de 55 %) : la même graine dans un quart de côté double donne la même
+pointe à `1e-2` près (un 80e de case) tant qu'elle est à plus de 45 % du côté du bord, pour `ε` = 0 ; 0,02 ; 0,04 ; 0,05 ; 0,06 aux côtés 96,
+128, 192 et 256 ; le pire est `ε = 0`, où l'écart passe `1e-2` à 44 % du côté du bord au côté 256 ; pour `ε ≥ 0,02`, l'écart reste sous `1e-3`.
+Un cas en est figé (côtés 96 et 192, `ε` = 0 et 0,06 : écarts de 1,5e-4 et 3e-6 à la limite, `le_mur_n_a_pas_d_effet_avant_la_limite`, une
+régression). **C'est un arrêt, pas un certificat** : seul un domaine deux fois plus grand est comparé, et seulement à ces côtés.
+
+### La borne de la page et le coût
+
+Repères (le module sous Node 20, la VM de preuve, Linux, le meilleur de trois mesures) : un pas coûte 0,48 ms au côté 128, 0,99 ms à 192,
+1,78 ms à 256, 2,70 ms à 320 et 7,42 ms à 512 (27 ns par case, le double du natif) ; la mémoire du module passe de 1,1 Mio à 7,1 Mio au côté
+256 (23,6 Mio à 512). La page joue les pas un par un dans un budget de 30 ms par image, puis lit les deux champs (2,7 ms à 256) et dessine
+l'image de l'animation (7,5 ms à 384 pixels ; 31 ms pour l'image de la fin, à 768) : une image coûte environ 40 ms au côté 256 et y joue une
+quinzaine de pas. Jusqu'au mur, il faut de 25 500 à 37 600 pas au côté 256, de 45 à 67 s de calcul pur. **Le côté 256 est la borne** : au-delà,
+la croissance deviendrait trop lente à regarder (le temps borne la page, pas la mémoire) ; un côté refusé n'alloue rien (repère : la mémoire du
+module ne bouge pas).
+
+### Ce que la page offre, et ce qui a été joué
+
+La page offre `ε` de 0 à 0,06 par 0,005 et les côtés 128, 192 et 256, rien d'autre (`les_reglages_offerts_ont_ete_joues`). Repère : chacun de
+ces 39 scénarios, joué jusqu'au bout en natif par les fonctions de la vitrine, s'arrête au mur entre 7 815 et 37 598 pas (jamais à la durée de
+60 000 pas), sans divergence, `|φ|` sans dépasser 1 aux relevés, et sans relevé refusé. Le régime, repère : sur les 200 dernières unités de temps,
+l'écart le plus grand entre la dernière vitesse relevée et les précédentes (des relevés espacés de 500 pas, leur bruit compris) va de 1,2 %
+à 27 % ; aux petits côtés et aux faibles `ε`, il dépasse nettement le bruit des relevés (moins de 2 %, mesuré au côté 192) : le régime n'y est
+pas établi ; au côté 256 et pour `ε` de 0,045 à 0,06, il reste au niveau de ce bruit (de 1,2 % à 2,0 %), et pour `ε` = 0,05 et 0,06 la vitesse
+finale est à 0,4 % au plus de la vitesse établie que P3 mesure (P3 n'a pas mesuré les autres). Au côté 128, le cristal s'arrête quand il n'est
+encore qu'un losange ; au côté 256, `ε` de 0,04 à 0,06 montrent quatre bras qui ne font que commencer (repère : l'image du juge).
+
+### Ce que la page montre
+
+Le quart est montré en entier par miroir, `φ` et `u` interpolés entre les centres des cases (un champ continu), le solide en blanc et la
+chaleur latente en halo, du liquide le plus froid (sombre) à la température de fusion (orangé) ; l'image est écrite au pixel près dans
+`lecture.js` (`imageDuMetal`), que Node éprouve sur un faux module (cinq pixels calculés à la main, `lecture_js_lit_le_metal_sur_un_faux_module`)
+et sur le vrai (`node_joue_le_metal_comme_le_natif`). La légende dit ce que le modèle est et n'est pas : notre modèle, pas une reproduction, la
+vitesse publiée de Kim et coll. (`Ṽ` = 0,0469, soit `V` = 0,0938 ici) non atteinte (P2 : 0,0408 en régime établi), le mur à nous et l'arrêt
+avant le bord, le régime non établi aux petits côtés et aux faibles `ε`, le rayon et `σ*` de
+notre mesure, qui dépendent de la profondeur (`la_page_dit_ce_que_le_metal_est_et_n_est_pas`). Ce que la page lit du métal passe par
+`lecture.js` ; un refus du module est affiché ; aucun réglage n'est écrit dans l'appel du démarrage (`lecture_js_declare_ce_que_la_page_lit_du_metal`).
+Le canvas du métal n'est jamais pixélisé (la règle de V7). Les tests d'avant qui comptent les exportations ou figent le menu des modèles
+passent en double régime : sans `etape-p4`, l'ancien ou l'étendu ; avec, l'étendu seul. Repère : la page rhabillée de V8 passe sans `etape-p4`
+et une page rhabillée avec le métal (`tests/etape_p4/pages/rhabillee-metal`) passe avec ; des pages fautives, une faute chacune, échouent.
+
+### Ce que cela n'établit pas
+
+- **Une reproduction** : aucune valeur publiée n'est comparée ; la vitesse de Kim et coll. n'est pas atteinte (P2), et la page est en régime
+  transitoire, sur un petit domaine.
+- Que l'arrêt soit fidèle à un domaine infini : seul un quart de côté double est comparé, aux côtés 96 à 256 et à cinq `ε` ; les côtés
+  intermédiaires et les autres `ε` sont interpolés, pas mesurés.
+- La durée de 60 000 pas et la divergence : jamais atteintes aux réglages de la page ; aucun test ne joue un arrêt à la durée ni une
+  divergence, et un relevé refusé (une mesure de la pointe impossible) n'arrive jamais ; ces branches du module ne sont lues que par la doc.
+- **Le comportement de la page dans un navigateur** : que l'état suive le modèle démarré et non les commandes, qu'il n'y ait pas de résidu
+  d'un modèle à l'autre, que l'animation ne fige pas, que le refus s'affiche au bon endroit. Les tests ne lisent `app.js` que par sa forme
+  (V8 : la page peut être réécrite) ; ces règles ne sont tenues que par la relecture du juge et un coup d'œil (deux fautes de ce genre ne sont
+  vues par aucun test). Le coût par image est mesuré sous Node, pas dans un navigateur ni sur un appareil lent.
+- La beauté et la lisibilité de l'image : jugées à l'œil, sur des planches PNG, pas mesurées.
+- Le métal en 3D, d'autres `Δ`, `d0` ou `D`, le bruit et les branches latérales, les six bras de Kobayashi.
