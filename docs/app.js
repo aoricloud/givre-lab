@@ -1,7 +1,8 @@
 // La vitrine de Givre Lab (étape 5) : le module givre.wasm piloté par des nombres, dessiné sur un canvas. Z1 y ajoute la mesure de D
 // par la corrélation ; D3 le claquage diélectrique (le curseur η) et la courbe D(η) calculée un amas à la fois ; V7 l'image nette des
 // flocons de Reiter (chaque case un hexagone lisse, calculé par le module) sur un second canvas, sans `image-rendering: pixelated` ; G3 la neige de Gravner et Griffeath
-// (un jeu de réglages nommé, quatre curseurs, ses mesures), jouée par la même boucle et dessinée par la même image nette.
+// (un jeu de réglages nommé, quatre curseurs, ses mesures), jouée par la même boucle et dessinée par la même image nette ; P4 le métal (la dendrite à quatre bras du champ de phase : un curseur ε, un côté, ses mesures de
+// pointe), joué par la même boucle et dessiné sur son propre canvas d'après les champs φ et u que la page lit dans le module.
 
 import {
   formater,
@@ -27,6 +28,15 @@ import {
   texteRefusNeige,
   texteRepereEta,
   texteSourceNeige,
+  blocsMetal,
+  imageDuMetal,
+  lireChampsMetal,
+  lireMesuresMetal,
+  lireReglagesMetal,
+  texteFinMetal,
+  texteMesuresMetal,
+  texteRefusMetal,
+  texteReglagesMetal,
 } from "./lecture.js";
 
 // Huit appels de givre_empreinte_mot recalculent huit fois tout l'état : on lit l'empreinte au plus toutes les 500 ms.
@@ -59,6 +69,12 @@ const NETTE_SUR_ANIMATION = 2;
 const NETTE_COTE_FIN = 1024;
 const NETTE_SUR_FIN = 3;
 
+// Le métal : un pas coûte de l'ordre de 1,8 ms sous Node au plus grand côté (256 cases), et une image en lit les champs (2,6 ms) puis la dessine ; la page joue les pas un par un et rend la main quand BUDGET_IMAGE_MS sont
+// écoulées (une image ne fige pas la page). L'image de l'animation est plus légère que celle de la fin.
+const PAS_PAR_APPEL_METAL = 1;
+const METAL_IMAGE_ANIMATION = 384;
+const METAL_IMAGE_FIN = 768;
+
 const canvas = document.getElementById("vitrine");
 const canvasNette = document.getElementById("vitrine-nette");
 const legendeNette = document.getElementById("legende-nette");
@@ -78,6 +94,15 @@ const blocMesuresNeige = document.getElementById("mesures-neige-bloc");
 const affichageReglagesNeige = document.getElementById("reglages-neige");
 const affichageMesuresNeige = document.getElementById("mesures-neige");
 const affichageFormeNeige = document.getElementById("forme-neige");
+const commandesMetal = document.getElementById("commandes-metal");
+const curseurMetalEpsilon = document.getElementById("metal-epsilon");
+const valeurMetalEpsilon = document.getElementById("valeur-metal-epsilon");
+const choixMetalCote = document.getElementById("metal-cote");
+const canvasMetal = document.getElementById("vitrine-metal");
+const legendeMetal = document.getElementById("legende-metal");
+const blocMesuresMetal = document.getElementById("mesures-metal-bloc");
+const affichageReglagesMetal = document.getElementById("reglages-metal");
+const affichageMesuresMetal = document.getElementById("mesures-metal");
 const commandeEta = document.getElementById("commande-eta");
 const curseurEta = document.getElementById("eta");
 const valeurEta = document.getElementById("valeur-eta");
@@ -107,6 +132,7 @@ const contexte = canvas.getContext("2d");
 const contexteNette = canvasNette.getContext("2d");
 const contexteCourbe = canvasCourbe.getContext("2d");
 const contexteCourbeEta = canvasCourbeEta.getContext("2d");
+const contexteMetal = canvasMetal.getContext("2d");
 
 let m = null;
 let enCours = false;
@@ -118,6 +144,8 @@ let etaDuModele = 0;
 // De même pour la neige : elle tourne si le dernier démarrage réussi est celui de la neige, quels que soient les curseurs. Les jeux nommés sont lus dans le module (aucun réglage n'est écrit dans la page).
 let neigeEnCours = false;
 let jeuxNeige = [];
+// De même pour le métal : il tourne si le dernier démarrage réussi est celui du métal, quels que soient le curseur ε et le côté choisis depuis.
+let metalEnCours = false;
 
 /** Vrai si le modèle choisi est le claquage (le curseur η donne alors le modèle 4 + η). */
 function claquageChoisi() {
@@ -132,6 +160,11 @@ function etaChoisi() {
 /** Vrai si le modèle choisi est la neige (les quatre curseurs et le jeu nommé donnent alors son démarrage, pas `givre_demarrer`). */
 function neigeChoisie() {
   return choixModele.value === "neige";
+}
+
+/** Vrai si le modèle choisi est le métal (le curseur ε et le côté donnent alors son démarrage, pas `givre_demarrer`). */
+function metalChoisi() {
+  return choixModele.value === "metal";
 }
 
 /** Pose une image lue dans le module sur un canvas, aux dimensions qu'elle a maintenant. */
@@ -151,6 +184,10 @@ function poser(cible, contexteCible, { largeur, hauteur, rgba }) {
  * (sur le canvas qui agrandit sans lisser) pour les autres : la DLA et le claquage, dont c'est la vraie géométrie. `fin` vaut vrai quand l'animation s'arrête : l'image nette est alors plus fine.
  */
 function dessiner(fin) {
+  if (metalEnCours) {
+    dessinerLeMetal(fin);
+    return;
+  }
   const nette = lireImageNette(m, fin ? NETTE_COTE_FIN : NETTE_COTE_ANIMATION, fin ? NETTE_SUR_FIN : NETTE_SUR_ANIMATION);
   const caches = imagesCachees(nette.code);
   canvas.hidden = caches.carree;
@@ -163,13 +200,24 @@ function dessiner(fin) {
   }
 }
 
+/** Dessine le métal sur son canvas : les champs lus dans le module, l'image tirée par `imageDuMetal` (plus fine quand l'animation s'arrête) ; les deux autres canvas sont cachés. */
+function dessinerLeMetal(fin) {
+  canvas.hidden = true;
+  canvasNette.hidden = true;
+  legendeNette.hidden = true;
+  const champs = lireChampsMetal(m);
+  if (champs !== null) {
+    poser(canvasMetal, contexteMetal, imageDuMetal(champs, fin ? METAL_IMAGE_FIN : METAL_IMAGE_ANIMATION));
+  }
+}
+
 function afficherTemps() {
   affichageTemps.textContent = `${m.givre_temps() >>> 0} / ${m.givre_duree() >>> 0}`;
 }
 
 /** Écrit l'empreinte. Celle de la neige hache tout l'état huit fois (de l'ordre de 25 ms en natif, non mesuré sous Node quand ce fichier a été écrit) : pendant l'animation de la neige elle n'est pas calculée (`complete` faux), seulement à l'arrêt. */
 function afficherEmpreinte(complete) {
-  affichageEmpreinte.textContent = !neigeEnCours || complete ? lireEmpreinte(m) : "calculée à l'arrêt";
+  affichageEmpreinte.textContent = (!neigeEnCours && !metalEnCours) || complete ? lireEmpreinte(m) : "calculée à l'arrêt";
 }
 
 function afficherMesures() {
@@ -181,6 +229,30 @@ function afficherMesures() {
   if (neigeEnCours) {
     afficherLaNeige();
   }
+  if (metalEnCours) {
+    afficherLeMetal();
+  }
+}
+
+/** Écrit ce que le module dit du métal en cours (ses réglages, ses mesures de pointe), jamais ce que disent les commandes. */
+function afficherLeMetal() {
+  const reglages = lireReglagesMetal(m);
+  const mesures = lireMesuresMetal(m);
+  if (reglages === null || mesures === null) {
+    return;
+  }
+  affichageReglagesMetal.textContent = texteReglagesMetal(reglages);
+  affichageMesuresMetal.textContent = texteMesuresMetal(mesures);
+}
+
+/** Écrit la valeur du curseur ε du métal à côté de lui (ce que dit le curseur, pas ce que le module a démarré : voir `afficherLeMetal`). */
+function afficherLeCurseurMetal() {
+  valeurMetalEpsilon.textContent = (Number(curseurMetalEpsilon.value) / 1000000).toFixed(3).replace(".", ",");
+}
+
+/** Démarre le métal avec le curseur ε (en millionièmes) et le côté choisi ; rend le code du module (0 : démarré). C'est le seul endroit qui lit les commandes du métal. */
+function demarrerLeMetal() {
+  return m.givre_metal_demarrer(Number(curseurMetalEpsilon.value), Number(choixMetalCote.value)) >>> 0;
 }
 
 /** Écrit ce que le module dit de la neige en cours (ses réglages, ses mesures, son étiquette), jamais ce que disent les curseurs. */
@@ -253,6 +325,12 @@ function demarrerLaNeige() {
 
 /** Le texte de fin du scénario : celui de la neige dit pourquoi elle s'arrête (le mur ou la durée), d'après le module. */
 function texteDeFin() {
+  if (metalEnCours) {
+    const metal = lireMesuresMetal(m);
+    if (metal !== null) {
+      return texteFinMetal(metal);
+    }
+  }
   const mesures = neigeEnCours ? lireMesuresNeige(m) : null;
   return mesures === null ? "Scénario terminé : recommencez ou choisissez un autre modèle." : texteFinNeige(mesures);
 }
@@ -394,6 +472,11 @@ function montrerLesReperes() {
   const cachesNeige = blocsNeige(neigeEnCours);
   commandesNeige.hidden = cachesNeige.commandes;
   blocMesuresNeige.hidden = cachesNeige.mesures;
+  const cachesMetal = blocsMetal(metalEnCours);
+  commandesMetal.hidden = cachesMetal.commandes;
+  canvasMetal.hidden = cachesMetal.image;
+  legendeMetal.hidden = cachesMetal.image;
+  blocMesuresMetal.hidden = cachesMetal.mesures;
 }
 
 /** Écrit le repère publié de l'η du curseur, lu dans le module, l'écart du banc et la phrase « ce n'est pas un accord ». */
@@ -448,6 +531,9 @@ function avancer() {
   if (neigeEnCours) {
     return avancerLaNeige(vitesse);
   }
+  if (metalEnCours) {
+    return avancerLeMetal(vitesse);
+  }
   if (!claquageEnCours) {
     return m.givre_avancer(vitesse) >>> 0;
   }
@@ -483,6 +569,23 @@ function avancerLaNeige(vitesse) {
   return joue;
 }
 
+/** Joue les pas du métal par lots de PAS_PAR_APPEL_METAL, au plus `vitesse` pas, et s'arrête dès que BUDGET_IMAGE_MS sont écoulées ; rend le nombre de pas joués (0 : le scénario est fini, le mur, la durée ou une divergence). */
+function avancerLeMetal(vitesse) {
+  const debut = performance.now();
+  let joue = 0;
+  while (joue < vitesse) {
+    const lot = m.givre_avancer(Math.min(PAS_PAR_APPEL_METAL, vitesse - joue)) >>> 0;
+    if (lot === 0) {
+      break;
+    }
+    joue += lot;
+    if (performance.now() - debut >= BUDGET_IMAGE_MS) {
+      break;
+    }
+  }
+  return joue;
+}
+
 /** Une image de l'animation : joue les unités du curseur, dessine, puis se rappelle. */
 function image(maintenant) {
   if (!enCours) {
@@ -506,6 +609,9 @@ function image(maintenant) {
 
 /** Le texte d'état d'un démarrage : le modèle, l'η et la graine quand ils comptent. */
 function texteDEtat(modele, graine) {
+  if (metalEnCours) {
+    return "Métal : la dendrite à quatre bras du champ de phase (pas de hasard : la graine ne sert pas).";
+  }
   if (neigeEnCours) {
     return "Neige de Gravner et Griffeath (pas de hasard : la graine ne sert pas).";
   }
@@ -521,13 +627,20 @@ function relancer() {
     return;
   }
   const neige = neigeChoisie();
+  const metal = metalChoisi();
   const graine = lireGraine(champGraine.value);
-  if (!neige && graine === null) {
+  if (!neige && !metal && graine === null) {
     affichageEtat.textContent = "Graine invalide : un entier de 0 à 4294967295.";
     return;
   }
-  const modele = neige ? -1 : numeroDuModele(choixModele.value, etaChoisi());
-  if (neige) {
+  const modele = neige || metal ? -1 : numeroDuModele(choixModele.value, etaChoisi());
+  if (metal) {
+    const code = demarrerLeMetal();
+    if (code !== 0) {
+      affichageEtat.textContent = texteRefusMetal(code);
+      return;
+    }
+  } else if (neige) {
     const code = demarrerLaNeige();
     if (code !== 0) {
       affichageEtat.textContent = texteRefusNeige(code);
@@ -540,6 +653,7 @@ function relancer() {
   claquageEnCours = claquageChoisi();
   etaDuModele = etaChoisi();
   neigeEnCours = neige;
+  metalEnCours = metal;
   montrerLesReperes();
   dessiner(false);
   afficherTemps();
@@ -684,6 +798,9 @@ async function charger() {
     curseur.addEventListener("input", afficherLesCurseursNeige);
     curseur.addEventListener("change", relancer);
   }
+  curseurMetalEpsilon.addEventListener("input", afficherLeCurseurMetal);
+  curseurMetalEpsilon.addEventListener("change", relancer);
+  choixMetalCote.addEventListener("change", relancer);
   curseurEta.addEventListener("input", afficherEta);
   curseurEta.addEventListener("change", relancer);
   champGraine.addEventListener("keydown", (evenement) => {
@@ -694,6 +811,7 @@ async function charger() {
   curseurVitesse.addEventListener("input", afficherVitesse);
   afficherVitesse();
   afficherEta();
+  afficherLeCurseurMetal();
   remplirLeMenuNeige();
   dessinerCourbeEta(lireCourbe(m));
   relancer();
